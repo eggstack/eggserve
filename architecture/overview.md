@@ -3,42 +3,61 @@
 EggServe is a hardened, HTTP-correct static file server and reusable Rust
 HTTP/static-serving library, with a Python `http.server`-shaped facade. Static
 serving is the primary product; a separate downstream project may use the
-qualified HTTP-only Rust substrate. The
-CLI is static-only; the Python facade adds bounded synchronous custom handlers;
-`eggserve.lowlevel` exposes a handler-only runtime/service substrate for
-downstream bounded application servers; the Rust crate exposes a low-level,
-embeddable service boundary. EggServe is not an application framework, ASGI/WSGI
-runtime, proxy, or general-purpose `socketserver` replacement.
+qualified HTTP-only Rust substrate. The CLI is static-only; the Python facade
+adds bounded synchronous custom handlers; `eggserve.lowlevel` exposes a
+handler-only runtime/service substrate (plus the experimental H1-only async
+substrate) for downstream bounded application servers; `eggserve-core::server`
+exposes an experimental low-level Rust service boundary. EggServe is not an
+application framework, ASGI/WSGI runtime, CGI executor, FastCGI gateway,
+proxy, or general-purpose `socketserver` replacement.
 
-**This document is the entry point for understanding the codebase.** Use the [Deep Dive Index](#deep-dive-index) to jump to any subsystem.
+**This document is the entry point for understanding the codebase.** Each
+section below gives a discrete 2–4 sentence bird's-eye overview of one
+module, tool family, or capability, then links to the deep-dive document that
+owns the detail. Use the [Deep Dive Index](#deep-dive-index) to jump to any
+subsystem for a focused review.
+
+Plan context: the authority split (Plans 211–225), maintainability
+convergence (Plans 243–250), and post-convergence maintenance (Plans 251–258)
+are closed. H1 + canonical `primitives` are supported; `server`/H2/H3/
+tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remain
+experimental. `plans/` + `ROADMAP.md` are change-trace records, not normative
+API docs — normative user contracts live in `docs/`.
 
 ## What eggserve Is
 
-- **A hardened static file server** — serves files from a directory with security guarantees
-- **A CLI tool** — `eggserve` binary with `--directory`, `--bind`, `--port`, TLS, and policy flags
-- **A Python package** — `eggserve` wheel with `python -m eggserve` and `http.server`-compatible API
-- **A reusable Rust library** — `eggserve-primitives` is the direct canonical
-  security/HTTP model, `eggserve-server` is the direct experimental HTTP/1
-  transport/runtime boundary, and `eggserve-static` is the hardened static
-  specialization. `eggserve-core` is the compatibility and composition
-  umbrella over those direct authorities plus the advanced protocol runtime.
+- **A hardened static file server** — serves files from a directory with
+  confinement and HTTP-correctness guarantees.
+- **A CLI tool** — `eggserve` binary with `--directory`, `--bind`, port,
+  TLS, and policy flags (static-only).
+- **A Python package** — `eggserve` wheel with `python -m eggserve` and an
+  `http.server`-compatible API, plus a `lowlevel` handler-only substrate.
+- **A reusable Rust library** — leaf crates (`eggserve-primitives`,
+  `eggserve-server`, `eggserve-static`, `eggnet-tls`, `eggserve-h3`) provide
+  the direct implementation authorities; `eggserve-core` is the
+  compatibility/composition umbrella over them.
 
 ## What eggserve Is Not
 
-- Not an ASGI/WSGI server, CGI executor, FastCGI gateway, or web framework
-- Not a reverse proxy, ACME client, or plugin host
+- Not an ASGI/WSGI server, CGI executor, FastCGI gateway, or web framework.
+- Not a reverse proxy, ACME client, or plugin host.
 - Not an HTTP client or outbound CONNECT/proxy client (Plan 223: the shared
   outbound H1 CONNECT wire primitive lives outside eggserve for
-  eggfetch/eggress; eggserve owns only inbound tunnel acceptance)
-- Not a file upload handler, auth system, or template engine
-- Not a WebSocket framing server (generic tunnel handoff via Plan 199; framing stays downstream)
+  eggfetch/eggress; eggserve owns only inbound tunnel acceptance).
+- Not a file upload handler, auth system, or template engine.
+- Not a WebSocket framing server (generic tunnel handoff per Plan 199;
+  framing stays downstream).
 
 Plan 167 closed as no-go: no in-tree CGI/FastCGI adapters. Downstream
 gateways implement the canonical `Service` trait and return canonical
 `Response` values; see [runtime.md](runtime.md) and
-[../docs/extension-contract.md](../docs/extension-contract.md).
-
-Plan 199 implements generic tunnel/upgrade/Extended CONNECT, superseding deferred Plan 176: one-shot transport-backed capabilities (H1 `Upgrade`, `CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8), `accept` returns a handshake `Response` (`101` H1 / `200` otherwise) plus bounded `TunnelIo`; denial stays ordinary HTTP; WebSocket framing stays downstream (see `tunnel_upgrade.rs`). Plan 216 moves authority to the direct crates (neutral vocabulary in `eggserve-primitives`, execution in `eggserve-server`, compatibility delegating; handlers own only IO). Plan 223 keeps that authority inbound-only: eggserve accepts server-side tunnels and never dials outbound CONNECT proxies — the shared outbound wire primitive lives outside eggserve for eggfetch/eggress with no eggserve dependency. Downstream servers must not bypass via raw Hyper/h2/h3/Quinn types; see [../docs/non-goals.md](../docs/non-goals.md) and
+[../docs/extension-contract.md](../docs/extension-contract.md). Plan 199
+implements generic tunnel/upgrade/Extended CONNECT (one-shot
+transport-backed capabilities; `accept` returns a handshake `Response`
+plus bounded `TunnelIo`; denial stays ordinary HTTP). Plan 216 moves tunnel
+authority to the direct crates (neutral vocabulary in
+`eggserve-primitives`, execution in `eggserve-server`). Plan 223 keeps that
+authority inbound-only. See [../docs/non-goals.md](../docs/non-goals.md) and
 [../docs/downstream-app-server.md](../docs/downstream-app-server.md).
 
 The user-facing Python compatibility matrix is maintained in
@@ -46,31 +65,244 @@ The user-facing Python compatibility matrix is maintained in
 
 ## Core Invariants
 
-1. **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag.
-2. **No serving outside the configured root.** Path traversal and symlink escape denied at library level.
-3. **No broad dependencies.** Every dependency has an explicit purpose.
+1. **Safe defaults are not defaults if they can be overridden silently.**
+   Loopback bind, no symlinks, no dotfiles, no directory listing unless the
+   user explicitly opts in.
+2. **No serving outside the configured root.** Traversal and symlink escape
+   denied at library level (Unix safe defaults: descriptor-relative
+   `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`).
+3. **No broad dependencies.** Every dependency has an explicit purpose
+   (see `../docs/dependency-policy.md`).
 4. **Plan-driven development.** Every change traces to a plan in `plans/`.
+
+---
+
+## Workspace Layout
+
+```
+eggserve/
+├── Cargo.toml                  # workspace root (resolver = "2", edition 2021)
+├── crates/
+│   ├── eggnet-tls/             # neutral rustls identity/trust/reload substrate
+│   ├── eggserve-primitives/    # canonical transport-neutral model
+│   ├── eggserve-server/        # single mature H1 connection runtime + Service
+│   ├── eggserve-static/        # SOLE static/path/filesystem authority
+│   ├── eggserve-h3/            # experimental H3/QUIC adapter (sole QUIC owner)
+│   ├── eggserve-core/          # compatibility/composition umbrella (facades)
+│   ├── eggserve-bin/           # static-only CLI binary
+│   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
+├── architecture/               # this directory — one deep dive per component
+├── docs/                       # normative reference docs (user contracts)
+├── plans/                      # historical design/implementation records
+├── release/                    # per-plan qualification/closure records
+├── conformance/                # shared Rust/Python conformance corpora
+├── fuzz/                       # fuzz targets + seed corpora (11 targets)
+├── benchmarks/                 # benchmark evidence (profiles + result files)
+├── tests/                      # repo-level interop/soak shells
+├── scripts/                    # verification hierarchy + package/release checks
+└── examples/                   # canonical CLI/Python/Rust demos (see README index)
+```
+
+---
+
+## Crate Architecture (discrete module overviews)
+
+Strict downward-only dependency hierarchy. `eggserve-static` owns all
+static/path/filesystem decisions; `eggserve-server` owns the H1 runtime;
+QUIC dependencies live only behind `http3`; `eggserve_bin::run_cli` is
+plumbing for the wheel's extension CLI, not a general embedding API. Checked
+by `scripts/check-crate-topology.py`; see
+[crate-topology.md](crate-topology.md).
+
+```
+eggnet-tls              (leaf: neutral rustls substrate, no internal deps)
+
+eggserve-primitives     (leaf: canonical values, transport-neutral deps only)
+        │
+        ▼
+eggserve-server         (H1 runtime + Service; depends on primitives only)
+        │
+        ▼
+eggserve-static         (static/path/FS authority; consumes primitives+server)
+
+eggserve-h3             (experimental QUIC adapter; consumes primitives/server/eggnet-tls)
+
+eggserve-core           (compatibility umbrella; facades over the leaves + H2/TLS/proxy glue)
+        │
+        ├── eggserve-bin      (static-only CLI; neutral paths name leaves directly, Plan 221)
+        └── eggserve-python   (wheel; neutral bridge names leaves directly, Plan 221)
+```
+
+### Leaf crates (direct authorities)
+
+| Crate | Bird's-eye overview | Deep dive |
+|-------|---------------------|-----------|
+| `eggnet-tls` | Neutral rustls identity/trust/client-auth/reload substrate: bounded PEM parsing, key/cert pairing, SNI (exact + single-level wildcard), WebPKI mTLS modes, trust/CRL bounds, atomic reload snapshots, neutral ALPN hook. No HTTP, Tokio, QUIC, proxy, or filesystem-watcher dependency; production graph is `rustls` + `rustls-pki-types` only. | [eggnet-tls.md](eggnet-tls.md), [tls.md](tls.md) |
+| `eggserve-primitives` | Canonical transport-neutral request/response/body/lifecycle/policy model: `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `Request`/`RequestBody`/`RequestContext`/`RequestLifecycle`, `StatusCode`, `ResponseHead`/`ResponseBody`/`Response`, `BodyLength`, trailers/interim, proxy metadata, tunnel vocabulary, `StaticPolicy`, `Limits`. Small transport-neutral deps only (`bytes`, `futures-util`). | [eggserve-primitives.md](eggserve-primitives.md), [primitives-api.md](primitives-api.md) |
+| `eggserve-server` | Single mature H1 connection runtime and transport boundary: strict-H1 driver over any `AsyncRead + AsyncWrite` stream, single `Service` contract (+ additive `call_with_tunnel`), `RuntimeConfig`/`RuntimeState` admission pool, per-connection shutdown, listener TCP `Server`, tunnel execution, `OpsContext` authority, response policy, shared limit kernel. Depends on primitives only; never on static/core. `http2`/`tls` are inert compatibility feature names (H1-only crate). | [eggserve-server.md](eggserve-server.md), [runtime.md](runtime.md) |
+| `eggserve-static` | SOLE static/path/filesystem/MIME/planning authority: `ConfinedPath` parsing, `SecureRoot`/`PinnedRoot` confinement, descriptor-relative (Unix) / handle-relative (Windows) resolution, capability bridge, MIME selection, conditional/range/ETag planner, `StaticService` request planning + rendering. Core keeps facades only. Plan 224 NO-GO: no capability-filesystem crate. | [eggserve-static.md](eggserve-static.md), [path-confinement.md](path-confinement.md), [filesystem-confinement.md](filesystem-confinement.md), [response-planning.md](response-planning.md) |
+| `eggserve-h3` | Experimental H3/QUIC transport adapter and sole QUIC dependency owner (`h3`/`h3-quinn`/`quinn` pinned set). Downward-only on primitives/server/`eggnet-tls`. Owns endpoint lifecycle, bounded QUIC/H3 policy, canonical request/response/tunnel adaptation, Alt-Svc. Blocked upstream (`hyperium/h3#338`, `#262` remainder); stays experimental. | [eggserve-h3.md](eggserve-h3.md), [http3.md](http3.md) |
+
+### Composition crates (frontends over the leaves)
+
+| Crate | Bird's-eye overview | Deep dive |
+|-------|---------------------|-----------|
+| `eggserve-core` | Compatibility/composition umbrella: facades over the direct authorities (no second implementation) plus explicit transport glue (H2 wire mechanics, TLS/proxy/listener composition, extended `Server`/`ServerBuilder` orchestration, `ServeConfig`/`try_from_serve_config`, `StaticService` wrapper, thin H3 facade). Plan 249: compatibility `Auto` classifies before any Hyper service exists; core executes H2 only. Plan 225 facade closure; `0.2.0` pre-1.0 line (Plan 226). | [eggserve-core.md](eggserve-core.md), [runtime.md](runtime.md), [configuration.md](configuration.md) |
+| `eggserve-bin` | Static-only CLI binary. `main.rs` is a shim; real logic lives in `lib.rs` (`run`, `run_cli`) + `args.rs` (manual `[OPTIONS] [PORT] [DIRECTORY]` grammar, no clap) + `shutdown.rs` (signal handling) + `tls.rs` (neutral substrate re-export). Neutral policy/ops/limits/static paths name the leaf crates directly (Plan 221); extended orchestration goes through the core facade. | [eggserve-bin.md](eggserve-bin.md) |
+| `eggserve-python` | Workspace-excluded maturin/PyO3 (`0.29.2`, `abi3`) wheel. `eggserve.server` six-class `http.server`-shaped facade (stock `SimpleHTTPRequestHandler` fast path only for the exact bare class), `eggserve.lowlevel` handler-only substrate (`RuntimeConfig`, `Server`, `Response.stream` over a 16-chunk bridge, `StaticResponder` composition; experimental H1-only `AsyncServer`), `eggserve.subprocess` lifecycle helpers. Bridge in `src/server/` submodules; async stays Python-side. | [eggserve-python.md](eggserve-python.md) |
+
+### Feature flags
+
+| Feature | Crates | Purpose |
+|---------|--------|---------|
+| `tls` | `eggnet-tls`, `eggserve-core`, `eggserve-bin`, `eggserve-python` | Neutral rustls identity/trust policy + EggServe async TLS transport |
+| `http2` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/2 runtime; Python remains H1-only |
+| `http3` | `eggserve-h3`, `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/3/QUIC runtime; separate TLS 1.3/`h3` identity, same-port UDP; Python remains H1-only |
+| `python-bindings-internal` | `eggserve-core` → `eggserve-static` | Internal capability bridge (`ResolvedFile` extraction) for the wheel |
+| `windows-adversarial-qualification` | `eggserve-core` | Windows adversarial qualification gates |
+
+---
+
+## Capability Map (discrete capability overviews)
+
+Each capability is 2–3 sentences. Follow the link for the review deep dive.
+
+| Capability | Bird's-eye overview | Deep dive |
+|------------|---------------------|-----------|
+| Static serving | Primary product. `StaticService` validates the method, parses the target to a `ConfinedPath`, resolves via `SecureRoot` to a `ResolvedResource`, then plans the response (conditional/range/ETag, HEAD parity, directory policy) and streams the file or renders listing/error. Planning authority lives once in `eggserve-static`. | [eggserve-static.md](eggserve-static.md), [response-planning.md](response-planning.md), [runtime.md](runtime.md) |
+| Path confinement | 6-stage pipeline (`RequestTarget::parse` → decode → normalize → split → validate → `ConfinedPath`), 17 `PathRejection` variants, dual `DotfilePolicy` types that must agree. Origin-form classification is the sole target-form classifier. | [path-confinement.md](path-confinement.md) |
+| Filesystem confinement | Post-validation resolution through `PinnedRoot`/`RootGuard`: Unix descriptor-relative `statat`+`openat`, Windows handle-relative resolution with reparse-point denial, TOCTOU-safe open semantics. Confinement guarantee ends if the caller extracts the raw handle. | [filesystem-confinement.md](filesystem-confinement.md) |
+| Policy system | Layered safe-defaults policy: `StaticPolicy.symlinks` (not `follow_symlinks`), dotfile/listing controls, `StaticMetadataPolicy`, `ErrorRepresentationPolicy`, `ResponsePolicy`/`DatePolicy`/denylist. Every unsafe behavior needs an explicit opt-in flag. | [policy-system.md](policy-system.md), [configuration.md](configuration.md) |
+| H1 runtime + service contract | One `Service::call(Request) → Response` contract drives direct H1 and (via the same canonical types) compatibility H2. Single H1 authority: compatibility `Auto` classifies first, every H1 path delegates to `eggserve-server`; core executes H2 only (Plan 249). Per-connection shutdown is structured under the connection task. Response framing belongs to the runtime only. | [runtime.md](runtime.md), [eggserve-server.md](eggserve-server.md) |
+| Request bodies + lifecycle | `RequestBody` is one-shot (read-all or streaming, once); default policy `Reject`. Stream bodies share an Active→Complete/Abandoned/Failed lifecycle with disconnect/shutdown observers; `RequestContext` is the single attachment point (connection + lifecycle + bounded interim sender). Trailers are terminal-only with separate bounds. | [runtime.md](runtime.md), [primitives-api.md](primitives-api.md), [error-taxonomy.md](error-taxonomy.md) |
+| Tunnel / upgrade | Generic inbound-only tunnel acceptance: neutral intent vocabulary in `primitives::tunnel`, execution in `server::tunnel`, one-shot transport-backed `TunnelIo`, handshake `Response` (`101` H1 / `200` otherwise), denial as ordinary HTTP. No outbound CONNECT stack; WebSocket framing stays downstream. | [runtime.md](runtime.md) |
+| TLS | Split ownership: `eggnet-tls` owns neutral identity/trust/mTLS/reload policy; consumers own TLS transport. Production SNI/mTLS/reload, explicit bounds (identities, roots, CRLs, ALPN), `max_early_data_size=0`, atomic rotation for new handshakes. H3 keeps a separate TLS 1.3/QUIC identity. CLI/Python stay single-identity; advanced TLS is Rust-first. | [tls.md](tls.md), [eggnet-tls.md](eggnet-tls.md) |
+| H2 (experimental) | Opt-in Hyper-backed H1/H2 selection via ALPN or bounded prior-knowledge classifier: stream-scoped reject, bounded transport policy, no-progress stall fallback, GOAWAY handling, Extended CONNECT for validated tunnels. Deterministic + interop qualified; browser/trailer-determinism/reset-hook gaps keep it experimental. | [http2.md](http2.md) |
+| H3 (experimental) | Opt-in QUIC adapter behind `http3`: same-port UDP lifecycle, shared connection/service/file budgets, 0-RTT disabled, canonical adapters, per-stream producer/send-progress stall reset. Deterministic corrections landed (Plans 190/192/194/195); missing independent-client/adversarial/platform evidence + upstream blockers keep it experimental. | [http3.md](http3.md), [eggserve-h3.md](eggserve-h3.md) |
+| Python facade | Six-class `eggserve.server` facade (incl. rustls `HTTPSServer` with H1-only ALPN), exact-bare-class fast path vs Python callback path, `default_content_type` + ordered safe `extra_response_headers` (final 200s only), `protocol_version` stays HTTP/1.1. Intentional incompatibilities are enumerated, not accidental. | [eggserve-python.md](eggserve-python.md) |
+| Python `lowlevel` + async | Handler-only `Server(config, handler)` on the same native runtime (no static root, no second accept loop), frozen `RuntimeConfig` safe subset, 16-chunk `Response.stream` (sync iterables only), caller-owned `StaticResponder`, `effective_*` proxy getters. Experimental H1-only `AsyncServer` with manual asyncio bridge and ASGI test fixture only. | [eggserve-python.md](eggserve-python.md) |
+| Listeners + proxy metadata | One `accept_loop_multi` drives TCP + Unix (prebound TCP/Unix, systemd index/name, same-port H3 UDP validation). Stable `tcp-0`/`unix-0` endpoint IDs; Unix is plaintext without unlink. Opt-in trusted-proxy (explicit peers/CIDRs, PROXY v1/v2, `Forwarded`/`X-Forwarded-*` single-hop rightmost-wins, fail-closed conflicts). Still no reverse proxying. | [runtime.md](runtime.md), [configuration.md](configuration.md) |
+| Configuration | Split ownership: `RuntimeConfig`/`Limits` own transport/admission (timeouts, semaphores, parser bounds), `ServeConfig` owns filesystem composition (root, static policy, file streams). Validated once against `Semaphore::MAX_PERMITS`; per-profile defaults in `docs/deployment.md`, full semantics in `docs/timeout-reference.md`. | [configuration.md](configuration.md) |
+| Errors | Five layers, never conflated: `PathRejection` (path validation) / `RequestValidationError` (HTTP-level, Python-facing) / `ServerError` (lifecycle, non-exhaustive) / `ServiceError` (struct over a private kind; inspect via `is_panic`/`is_timeout`) / `RequestBodyError` (body consumption, non-exhaustive). Cancellation/outcome enums are non-exhaustive (match with wildcard). Never synthesize a second HTTP error after final commitment. | [error-taxonomy.md](error-taxonomy.md) |
+| Observability | Event-model logging (`Event`/`EventKind`/`Severity`, `LogSink`, `OpsCounters`, per-runtime `OpsContext`). Runtime code emits via its explicit context (`ops.emit(...)`); `Logger::global()` is CLI/frontend-init only (`OnceLock`: `try_init`, never double-`init`). Sinks contain child panics via `dropped_log_events`; library code never `println!`/`eprintln!`. | [structured-logging.md](structured-logging.md) |
+| Security model | Central invariant + 7 defensive layers (path, policy, filesystem, input validation, resource limits, response normalization, sanitized logging) with an explicit attacker/trust-boundary statement and per-platform confinement account (descriptor-relative Unix, handle-relative Windows). | [security-model.md](security-model.md) |
+
+---
+
+## Tool Map (discrete tool overviews)
+
+### Verification scripts (`scripts/`)
+
+`verify.sh` is the tier dispatcher; the Python gate scripts run before any
+build. See [testing-and-conformance.md](testing-and-conformance.md) for how
+each layer fits `fast`/`full`/`deep`.
+
+| Script | What it does |
+|--------|--------------|
+| `verify.sh fast` | Routine dev check: conformance-matrix + topology + release-metadata gates, `fmt`, workspace `clippy`/`test`, H2/H3-gated `clippy`/`test`, excluded-crate `cargo check` |
+| `verify.sh full` | `fast` + TLS tests + examples build/smoke + Python wheel build/test + package dry-run (needs Python 3.14 + maturin; `PYTHON=` overrides) |
+| `verify.sh deep` | `full` + fuzz replay, races, proxy interop (manual, expensive) |
+| `verify-conformance-matrix.py` | Schema + domain validator for `conformance/*.toml` (runs first in CI) |
+| `check-crate-topology.py` | Enforces Plans 211–253 ownership/dependency/facade/orphan-source/feature rules |
+| `check-python-release-metadata.py` | Cheap version + `[profile.dist]` + entry-point sync check |
+| `test-python-wheel.sh` | Authoritative wheel harness: metadata preflight → maturin build → fresh venv → smoke + pytest |
+| `test-examples.sh` | Compiles Cargo examples, smoke-tests canonical demos on loopback port `0` |
+| `verify-cargo-packages.sh --mode all` | Release-prep crates.io package dry-run |
+| `install-cargo-tools.sh` / `check-supply-chain.sh` | Pinned `cargo-audit`/`cargo-deny` install, then audit + policy over **both** lockfiles |
+| `qualify-http2.sh` / `qualify-http3.sh` | Manual wire qualification harnesses (fail-closed promotion gates; not part of `fast`/`full`/`deep`) |
+| `check-wheel-composition.py`, `check-release-wheel-set.py`, `release_smoke.py` | Wheel-content, 9-platform release-set, and artifact smoke checks |
+
+### Conformance corpora (`conformance/`)
+
+Shared Rust/Python test data, validated by
+`verify-conformance-matrix.py`; deterministic subsets run in `cargo test`,
+expensive/browser/soak evidence stays manual and fail-closed. See
+[testing-and-conformance.md](testing-and-conformance.md).
+
+- H1 static matrix + body corpora (framing/body rejection replay).
+- Plan 207 cross-protocol inventory (~50 scenarios across H1 TCP/TLS/
+  prebound/Unix, H2 prior/TLS, H3 QUIC, caller-owned duplex; `routine:true`
+  in CI, `routine:false` manual).
+- H3 qualification inventory (deterministic / manual / blocked evidence
+  kept separate).
+
+### Fuzzing (`fuzz/`, 11 targets)
+
+Property-based input fuzzing with per-target seed corpora. Invariants: no
+panics on arbitrary input, no `..`/`.` in accepted components, no NUL bytes
+in decoded paths, no double-decoding, satisfiable ranges within file size.
+Corpus replay runs in `cargo test`; live fuzzing is manual. See
+[testing-and-conformance.md](testing-and-conformance.md)
+and `../docs/fuzzing.md`.
+
+| Target | What it fuzzes |
+|--------|---------------|
+| `request_target` | Target classification + confinement handoff |
+| `percent_decode` | Single-pass percent decoding |
+| `path_components` | Normalization + component validation |
+| `validate_method` | Method construction + body rejection |
+| `range_header` | Range parsing/clamping |
+| `if_none_match` | ETag comparison |
+| `platform_component` | Windows-specific checks |
+| `fuzz_header_block` | Name/value/block operations |
+| `fuzz_normalize_response` | Status/body normalization |
+| `fuzz_request_body` | One-shot body state machine |
+| `fuzz_directory_buffer` | Listing-buffer behavior |
+
+### Benchmarks (`benchmarks/`)
+
+Evidence store, never CI gates. Claims must name a profile (see
+`../docs/deployment.md`) + evidence file. Representative handler-latency
+baselines plus loopback/performance-program result sets live here. See
+[testing-and-conformance.md](testing-and-conformance.md).
+
+### Repo-level tests (`tests/`)
+
+Shell harnesses for installed-binary qualification, 24h soak (direct +
+reverse-proxy modes), and reverse-proxy interop/desync corpora (skip without
+`caddy`/`nginx` unless promotion-gated). Manual/`deep` only. See
+[testing-and-conformance.md](testing-and-conformance.md).
+
+### Examples (`examples/` + `crates/eggserve-core/examples/`)
+
+Executable product demonstrations, indexed by
+[`../examples/README.md`](../examples/README.md) and smoke-tested by
+`verify.sh full`: stock static handler, custom sync handler, `lowlevel`
+service, async server (experimental), subprocess lifecycle, safe download,
+HTTPS facade, custom headers (Python); static/custom/streaming/
+caller-owned/application-service/custom-headers/HTTPS/primitives (Rust).
+Listener examples bind loopback with port `0`; in-process examples bind
+nothing.
+
+### Docs vs trace records
+
+- Normative user contracts: `docs/` (`security-policy`, `threat-model`,
+  `python-http-server-compatibility`, `cli`, `python-api`, `http-primitives`,
+  `deployment`, `timeout-reference`, `ops-logging`, `migration-guide`, …).
+- Change-trace records (not API docs): `plans/`, `ROADMAP.md`,
+  `release/` per-plan closure reports. When docs conflict with
+  config/scripts, trust the executable source.
 
 ---
 
 ## Deep Dive Index
 
-Every subsystem has a dedicated deep-dive document. Use this index to navigate directly to what you need.
+Every subsystem has a dedicated deep-dive document. Use this index to
+navigate directly to what you need for a focused review.
 
 ### Crates
 
 | Document | Covers |
 |----------|--------|
-| [crate-topology.md](crate-topology.md) | Plans 211–224 Cargo ownership and dependency boundaries |
-| [eggserve-h3.md](eggserve-h3.md) | Plan 213 HTTP/3/QUIC package boundary and qualification inventory |
-| [http3.md](http3.md) | Plan 213 isolated HTTP/3/QUIC dependency boundary and qualification gate |
+| [crate-topology.md](crate-topology.md) | Plans 211–253 Cargo ownership and dependency boundaries |
+| [eggserve-primitives.md](eggserve-primitives.md) | Canonical transport-neutral leaf |
+| [eggserve-server.md](eggserve-server.md) | Single mature H1 runtime + `Service` contract (direct authority) |
+| [eggserve-static.md](eggserve-static.md) | Sole static/path/filesystem authority (incl. Plan 224 NO-GO) |
 | [eggnet-tls.md](eggnet-tls.md) | Plan 212 neutral rustls identity, trust, client-auth, and reload substrate |
-| [eggserve-primitives.md](eggserve-primitives.md) | Dependency-free canonical leaf |
-| [eggserve-server.md](eggserve-server.md) | Generic transport/runtime layer |
-| [eggserve-static.md](eggserve-static.md) | Filesystem/static specialization |
-| [eggserve-core.md](eggserve-core.md) | Core library — module map, key types, server module, error types, dependencies |
-| [eggserve-bin.md](eggserve-bin.md) | CLI binary — `run()` entrypoint, accept loop, argument inventory, signal handling, TLS loading |
-| [eggserve-python.md](eggserve-python.md) | Python wheel — `eggserve.server` facade, `eggserve.lowlevel`, `eggserve.subprocess`, security boundary |
+| [eggserve-h3.md](eggserve-h3.md) | Plan 220 H3/QUIC package boundary and adapter authority |
+| [eggserve-core.md](eggserve-core.md) | Compatibility/composition umbrella — module map, facades, orchestration, error surfaces |
+| [eggserve-bin.md](eggserve-bin.md) | CLI binary — `run()` entrypoint, accept loop delegation, argument inventory, signal handling, TLS loading |
+| [eggserve-python.md](eggserve-python.md) | Python wheel — `eggserve.server` facade, `eggserve.lowlevel` (+ experimental async), `eggserve.subprocess`, security boundary |
 
 ### Security
 
@@ -88,14 +320,16 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 |----------|--------|
 | [primitives-api.md](primitives-api.md) | Public facade for embedding — `SecureRoot`, `ResolvedResource`, canonical types, HTTP validation, body primitives |
 | [response-planning.md](response-planning.md) | Conditional/range/ETag planning, static validator privacy, HEAD parity, `normalize_response()`, streaming buffer |
-| [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline (incl. final privacy boundary), body ingestion |
-| [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS key formats, ALPN, deployment profiles, limitations |
+| [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline (incl. final privacy boundary), body ingestion, Plan 249 single-H1-authority rule |
+| [http2.md](http2.md) | Hyper-backed opt-in H1/H2 selection, bounded H2 transport policy, ownership checklist, experimental release status |
+| [http3.md](http3.md) | Quinn/h3 same-port UDP lifecycle, bounded QUIC/H3 policy, canonical adapters (thin core facade over the H3 authority), experimental qualification boundary |
+| [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS key formats, ALPN, deployment profiles, SNI/mTLS/reload, limitations |
 
 ### Operations
 
 | Document | Covers |
 |----------|--------|
-| [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines/text output, operational counters, sanitized fields, log sink types |
+| [structured-logging.md](structured-logging.md) | Event-based logging (schema v1) over the `eggserve-server::ops` authority (core facade), JSON Lines/text output, operational counters, sanitized fields, log sink types |
 | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — full field inventory, ownership model, CLI/Python/Rust convergence |
 | [error-taxonomy.md](error-taxonomy.md) | 5 error layers — `PathRejection`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
 
@@ -103,154 +337,13 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 
 | Document | Covers |
 |----------|--------|
-| [testing-and-conformance.md](testing-and-conformance.md) | Rust unit/integration tests, Python suites, 11 fuzz targets, conformance corpora, packaging smoke tests |
+| [testing-and-conformance.md](testing-and-conformance.md) | Rust unit/integration tests, Python suites, 11 fuzz targets, conformance corpora, packaging smoke tests, benchmark/qual evidence |
 
 ### Decision Records
 
 | Document | Topic | Status |
 |----------|-------|--------|
 | [adr-002](adr-002-windows-handle-relative-filesystem.md) | Windows handle-relative filesystem confinement | Accepted |
-| [adr-003](adr-003-custom-service-ownership.md) | Custom-service ownership model | Accepted |
-
----
-
-## Workspace Layout
-
-```
-eggserve/
-├── Cargo.toml                  # workspace root (resolver = "2", edition 2021)
-├── crates/
-│   ├── eggserve-primitives/    # canonical application values
-│   ├── eggserve-server/        # generic HTTP runtime and transport boundary
-│   ├── eggserve-static/        # filesystem/static specialization
-│   ├── eggserve-h3/            # experimental Quinn/H3/H3-Quinn boundary
-│   ├── eggserve-core/          # compatibility/composition umbrella
-│   ├── eggserve-bin/           # binary: CLI, accept loop, signal handling
-│   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
-├── architecture/               # this directory — deep-dive docs per subsystem
-├── docs/                       # reference docs
-├── plans/                      # historical design and implementation plans
-├── conformance/                # shared Rust/Python conformance corpora
-├── fuzz/                       # fuzzing targets and seed corpora (11 targets)
-├── benchmarks/                 # benchmark baselines
-├── tests/                      # repo-level integration tests (proxy interop, soak, qual)
-├── scripts/                    # small verification hierarchy plus package/release checks
-├── release/                    # release artifacts and closure reports
-└── examples/                   # canonical CLI/Python examples and fixtures
-```
-
----
-
-## Crate Architecture
-
-Seven workspace library crates, with a strict dependency hierarchy and a compatibility/composition umbrella:
-
-```
-eggserve-primitives    ← eggserve-server ← eggserve-static
-eggserve-core          ← eggserve-bin (extended orchestration only; neutral paths name the leaves directly per Plan 221)
-eggserve-core          ← eggserve-python (extended orchestration only; neutral bridge names the leaves directly per Plan 221)
-eggserve-core          → eggserve-h3 (optional `http3` dependency boundary)
-eggserve-core          → layers (transitional re-exports of the three crates)
-eggserve-h3            → eggserve-primitives + eggserve-server + eggnet-tls (downward-only)
-eggserve-bin           → standalone presentation layer (neutral paths on leaf crates)
-eggserve-python        → standalone Python packaging (neutral bridge on leaf crates)
-```
-
-- **`eggserve-primitives`** is the transport-neutral canonical leaf.
-- **`eggserve-server`** owns generic transport/runtime machinery and cannot
-  depend on static serving.
-- **`eggserve-static`** is the sole static/path/filesystem authority,
-  consuming primitives and server (Plans 219 + 224 NO-GO: no
-  capability-filesystem crate).
-- **`eggserve-h3`** owns the direct experimental Quinn/H3/H3-Quinn dependency
-  set and consumes primitives/server/`eggnet-tls` downward only; those
-  crates never depend upward.
-- **`eggserve-core`** is the compatibility and composition layer for the
-  direct primitives, runtime, static-serving, TLS, and optional protocol
-  adapters. Static/path/filesystem, request/service, and H3 paths are
-  facades over the direct authorities (Plan 225 closure: classified
-  inventory, no second authority). Keeping the extended orchestration
-  (`ServeConfig`/`try_from_serve_config`, full TLS/H2/H3 `Server`, full
-  `StaticService`, listing budgets, handle lifecycle) in core is
-  intentional for the current pre-1.0 line: first-party frontends may
-  depend on core for full composed-server behavior, while new low-level
-  consumers should prefer the direct crates. Removing or deprecating core
-  requires a separate future migration plan; the remaining orchestration
-  is not an implementation blocker.
-- **`eggserve-bin`** and **`eggserve-python`** name the leaf crates directly
-  for every neutral path (Plan 221); they use `eggserve-core` only for the
-  documented extended orchestration under the Plan 225 facade closure.
-
-The exact direct edges are checked by
-`scripts/check-crate-topology.py`; see [crate-topology.md](crate-topology.md).
-
-### Feature Flags
-
-| Feature | Crate | Purpose |
-|---------|-------|---------|
-| `tls` | `eggnet-tls`, `eggserve-core`, `eggserve-bin`, `eggserve-python` | Neutral rustls identity/trust policy plus EggServe async TLS transport |
-| `http2` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/2 runtime; Python remains H1-only |
-| `http3` | `eggserve-h3`, `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/3/QUIC runtime; separate TLS 1.3/h3 identity and same-port UDP; Python remains H1-only |
-| `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
-| `windows-adversarial-qualification` | `eggserve-core` | Windows adversarial qualification |
-
----
-
-## Component Map
-
-Each component links to a deep-dive document. Use this as your starting point for understanding any subsystem.
-
-### Crates
-
-| Component | Location | Deep Dive | What It Does |
-|-----------|----------|-----------|--------------|
-| Canonical primitives | `eggserve-primitives` | [eggserve-primitives.md](eggserve-primitives.md) | Dependency-free request/response/policy domain values |
-| Generic server runtime | `eggserve-server` | [eggserve-server.md](eggserve-server.md) | Transport and service execution without static-serving dependencies |
-| Static specialization | `eggserve-static` | [eggserve-static.md](eggserve-static.md) | Filesystem policy, path resolution, and static responses |
-| Neutral TLS substrate | `eggnet-tls` | [eggnet-tls.md](eggnet-tls.md) | Bounded rustls identity, SNI, WebPKI mTLS, trust/CRLs, and atomic reload |
-| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | Compatibility/composition umbrella — facades over the direct authorities plus explicit transport glue |
-| CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, integration-only `run_cli()`, signal handling, current-thread tokio runtime, graceful shutdown |
-| Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |
-
-### Security Subsystems
-
-| Component | Location | Deep Dive | What It Does |
-|-----------|----------|-----------|--------------|
-| Path confinement | `eggserve-static::path` (facade: `eggserve-core::primitives`) | [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parse, decode, normalize, validate, platform checks. 17 rejection variants |
-| Filesystem confinement | `eggserve-static::fs` via `SecureRoot` (facade: `eggserve-core::primitives`) | [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows). Prevents symlink escape and TOCTOU |
-| Policy system | `eggserve-primitives::policy` (facade: `eggserve-core::policy`) | [policy-system.md](policy-system.md) | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy`. Safe defaults enforced |
-| Security model | cross-cutting | [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries |
-
-### HTTP Subsystems
-
-| Component | Location | Deep Dive | What It Does |
-|-----------|----------|-----------|--------------|
-| Public API boundary | `eggserve-core::primitives` | [primitives-api.md](primitives-api.md) | Canonical types for embedding — `SecureRoot`, `ResolvedResource`, HTTP validation, request/response types |
-| Response planning | `eggserve-static::planner` (facade: `eggserve-core::primitives::planner`) | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()` |
-| Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline |
-| HTTP/2 qualification boundary | `eggserve-core::server` (`http2`) | [http2.md](http2.md) | Hyper-backed opt-in H1/H2 selection, bounded H2 transport policy, ownership checklist, and experimental release status |
-| HTTP/3/QUIC transport boundary | `eggserve-h3` (facade: `eggserve-core::server::http3`) | [http3.md](http3.md) | Quinn/h3 same-port UDP lifecycle, bounded QUIC/H3 policy, canonical adapters (thin core facade over the H3 authority), and experimental qualification boundary |
-
-### Operational Subsystems
-
-| Component | Location | Deep Dive | What It Does |
-|-----------|----------|-----------|--------------|
-| Structured logging | `eggserve-core::ops` | [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines output, operational counters, sanitized fields |
-| Configuration model | cross-cutting | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — field inventory, ownership model, CLI/Python/Rust convergence |
-| Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 5 error layers — `PathRejection`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
-| TLS support | `eggnet-tls` (re-exported by `eggserve-core::tls`) | [tls.md](tls.md), [eggnet-tls.md](eggnet-tls.md) | rustls identity/trust policy, PEM loading, SNI, mTLS, reload; transport remains in consumers |
-
-### Testing and Quality
-
-| Component | Location | Deep Dive | What It Does |
-|-----------|----------|-----------|--------------|
-| Testing and conformance | `tests/`, `conformance/`, `fuzz/` | [testing-and-conformance.md](testing-and-conformance.md) | Multi-layer test strategy — Rust unit/integration, Python suites, 11 fuzz targets, conformance corpora |
-
-### Decision Records
-
-| ADR | Topic | Status |
-|-----|-------|--------|
-| [adr-002](adr-002-windows-handle-relative-filesystem.md) | Windows handle-relative filesystem confinement | Accepted (Plans 084–086) |
 | [adr-003](adr-003-custom-service-ownership.md) | Custom-service ownership model | Accepted |
 
 ---
@@ -266,20 +359,24 @@ HTTP Request
 ┌─────────────────────────────────────────────────────┐
 │ eggserve-bin: process entry point                   │
 │  • CLI argument parsing (args.rs, no clap)          │
-│  • Optional TLS load via eggnet_tls (neutral)       │
+│  • Optional TLS identity via eggnet_tls (neutral)   │
 │  • Tokio runtime creation                           │
 │  • Signal handler registration (shutdown.rs)        │
 └─────────────────┬───────────────────────────────────┘
                   │
                   ▼
 ┌─────────────────────────────────────────────────────┐
-│ eggserve-core::server: accept loop + lifecycle      │
+│ Direct H1 runtime (eggserve-server) + compatibility │
+│ orchestration (eggserve-core::server)               │
 │  • Shared RuntimeState admission pool               │
-│    (connection semaphore, default 64; server-wide   │
-│     file-stream semaphore cloned per connection)    │
+│    (connection semaphore; server-wide file-stream   │
+│     semaphore cloned per connection)                │
+│  • Compatibility Auto classifies before any Hyper   │
+│    service exists; every H1 path delegates to the   │
+│    direct driver; core executes H2 only (Plan 249)  │
 │  • Optional TLS handshake (feature-gated)           │
-│  • HTTP/1 via Hyper; optional HTTP/2 and HTTP/3     │
-│    via feature-gated http2/http3 (H3 uses QUIC)    │
+│  • H1 strict via the direct driver; optional H2/H3  │
+│    via feature-gated glue (H3 uses QUIC)            │
 │  • Caller-owned stream entry (no socket required)   │
 │  • Lifecycle: Created → Starting → Running →        │
 │    Draining → Stopped/Failed                        │
@@ -288,8 +385,8 @@ HTTP Request
                   │
                   ▼
 ┌─────────────────────────────────────────────────────┐
-│ Canonical driver (server/connection/)             │
-│  • strict serve_http1_connection; optional H1/H2    │
+│ Canonical driver (server/connection/)               │
+│  • Strict serve_http1_connection; optional H1/H2    │
 │  • ConnectionContext (TCP, TLS, or caller-owned)    │
 │  • TE+CL framing validation (smuggling prevention)  │
 │  • Body policy selection (Reject/Buffer/Stream)     │
@@ -300,10 +397,10 @@ HTTP Request
                   │
                   ▼
 ┌─────────────────────────────────────────────────────┐
-│ Service::call(Request)                              │
-│  e.g. StaticService or Python callback handler     │
+│ Service::call(Request) — one contract               │
+│  e.g. StaticService or Python callback handler      │
 │                                                     │
-│  StaticService pipeline:                            │
+│  StaticService pipeline (authority: eggserve-static)│
 │  1. Validate method (GET/HEAD only)                 │
 │  2. Parse target → ConfinedPath (path confinement)  │
 │  3. Resolve via SecureRoot → ResolvedResource       │
@@ -319,7 +416,7 @@ HTTP Request
                   │
                   ▼
 ┌─────────────────────────────────────────────────────┐
-│ Response pipeline                                   │
+│ Response pipeline (runtime owns framing)            │
 │  1. Canonical response normalization                │
 │     (HEAD suppression, body-forbidden enforcement,  │
 │      hop-by-hop stripping, content-length)          │
@@ -355,8 +452,8 @@ CLI flags / Python params / Rust structs
          ▼
 ┌─────────────────────────────────────────┐
 │ Limits (validated subset)               │
-│  • 11 fields: connections, streams,     │
-│    timeouts, body sizes, listing,       │
+│  • connections, streams, timeouts,      │
+│    body sizes, parser bounds, listing,  │
 │    chunk size                           │
 └────────┬───────────────┬────────────────┘
          │               │
@@ -382,27 +479,91 @@ confirms no capability-filesystem crate). Do not treat the deleted
 
 | Module | Visibility | Purpose | Stability |
 |--------|-----------|---------|-----------|
-| `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` | Stable-ish |
+| `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` (documented orchestration) | Stable-ish |
 | `limits.rs` | **pub** | `Limits` — connections, streams, timeouts | Stable-ish |
 | `policy.rs` | **pub** | Facade re-exporting `eggserve_primitives::policy` | Stable-ish |
-| `ops/` | **pub** | Structured logging, operational events, counters (Plan 206 Track H: `mod.rs` OpsContext authority, `events.rs`/`sinks.rs`/`counters.rs` submodules) | Stable-ish |
-| `primitives/` | **pub** | Public facade — all canonical types for embedding consumers (static/path/filesystem entries re-export `eggserve-static`; deleted `src/fs`, `src/path`, `src/mime.rs` must not return) | Stable |
-| `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle (facade `mod.rs`; Plan 206 Track A: `runtime.rs`/`accept.rs`; Track E: `config/` submodules; thin H3 facade, no `server/http3/` state machine) | Experimental |
-| `tls.rs` | **pub** | TLS config loading (feature-gated: `tls`) | Experimental |
+| `ops/` | **pub** | Facade over the `eggserve-server::ops` authority (events/sinks/counters) | Stable-ish |
+| `primitives/` | **pub** | Public facade — canonical types for embedding (static/path/filesystem entries re-export `eggserve-static`; deleted `src/fs`, `src/path`, `src/mime.rs` must not return) | Stable |
+| `server/` | **pub** | Runtime service boundary: full TLS/H2/H3 `Server`/`ServerBuilder`/`ServerHandle`, `RuntimeConfig` orchestration, `StaticService` composition, H2/listener/proxy/TLS glue; H3 is a thin facade over `eggserve-h3`; H1 paths delegate to the direct driver (Plan 249) | Experimental |
+| `tls.rs` | **pub** | TLS transport glue re-exporting the neutral `eggnet-tls` API (feature-gated) | Experimental |
+
+Every production module is in the classified inventory enforced by
+`scripts/check-crate-topology.py` (Plan 225 facade closure); new modules
+fail the gate until explicitly classified.
+
+---
+
+## Crate Source Structure
+
+### eggserve-core (compatibility/composition umbrella)
+
+```
+src/
+├── lib.rs                    # module declarations, 3-tier stability model
+├── config.rs                 # ServeConfig, ServeState, StartupSummary (documented orchestration)
+├── limits.rs                 # Limits — connections, streams, timeouts
+├── policy.rs                 # facade re-exporting eggserve_primitives::policy
+├── ops/                      # facade over the eggserve-server::ops authority
+├── tls.rs                    # TLS transport glue re-exporting neutral eggnet-tls (feature-gated)
+├── runtime_limits.rs         # facade re-exporting eggserve_server::runtime_limits
+├── response.rs               # compatibility response helpers (pub(crate))
+├── primitives/               # compatibility facades — every file re-exports its
+│                             # direct authority (eggserve-primitives, eggserve-static,
+│                             # or eggserve-server adapters); no second implementation.
+└── server/                   # runtime service boundary (experimental):
+                              # full TLS/H2/H3 Server/ServerBuilder/ServerHandle,
+                              # RuntimeConfig orchestration, StaticService composition,
+                              # H2/listener/proxy/TLS transport glue; H3 is a thin
+                              # facade over eggserve-h3; H1 delegates to the direct driver
+```
+
+### eggserve-bin
+
+```
+src/
+├── main.rs    # thin fn main() → eggserve_bin::run()
+├── lib.rs     # run(), run_cli(argv); neutral paths name the leaf crates directly (Plan 221)
+├── args.rs    # manual argument parsing (no clap)
+├── shutdown.rs# signal handling (Ctrl+C, SIGTERM, SIGHUP) with broadcast channel
+└── tls.rs     # re-export of the neutral eggnet_tls substrate (Plan 221)
+```
+
+### eggserve-python (Rust bridge + Python facade)
+
+```
+src/
+├── lib.rs     # PyO3 module registration; neutral bridge names the leaf crates directly (Plan 221)
+└── server/    # bridge submodules: errors, body_bridge, request_bridge, response_bridge,
+               # tunnel_bridge, static_responder, sync_handler, runtime, lifecycle,
+               # async_handler (experimental; Plan 204 stays Python-side in lowlevel.py)
+
+python/eggserve/
+├── __init__.py     # top-level namespace (version, serve_directory, facade classes)
+├── __init__.pyi    # type stub for the facade namespace
+├── _bin.py         # CLI entry point via native _run_cli
+├── __main__.py     # python -m eggserve support
+├── _native.pyi     # type stub over the native extension surface
+├── server.py       # six-class Rust-runtime compatibility facade
+├── server.pyi      # type stub for the facade classes
+├── lowlevel.py     # handler-only substrate (+ experimental H1-only async)
+├── lowlevel.pyi    # stub for the lowlevel surface
+└── subprocess.py   # subprocess lifecycle exports (ServeConfig, ServerProcess)
+```
 
 ---
 
 ## Error Taxonomy
 
-Five distinct error layers, each scoped to a specific subsystem:
+Five distinct error layers, each scoped to a specific subsystem.
+See [error-taxonomy.md](error-taxonomy.md).
 
-| Error Type | Scope | Variants |
-|-----------|-------|----------|
-| `PathRejection` | Path parsing | 17 variants: `Empty`, `TooLong`, `MalformedPercentEncoding`, `ControlCharacter`, `ParentComponent`, `DotfileDenied`, `SymlinkDenied`, `RootEscapeDenied`, ... |
-| `RequestValidationError` | HTTP-level | 6 variants: `MethodNotAllowed`, `InvalidContentLength`, `BodyTooLarge`, `UnsupportedTransferEncoding`, `ConflictingBodyHeaders`, `InvalidRequestTarget` |
-| `ServerError` | Server lifecycle | 10 variants: `Bind`, `Config`, `AlreadyStarted`, `NotStarted`, `Accept`, `TlsSetup`, `Transport`, `ShutdownTimeout`, `Startup`, `Terminal` |
-| `ServiceError` | Per-request | `Internal`, `Rejected(u16)`, `Panic`, `Timeout` |
-| `RequestBodyError` | Body consumption | 14 variants: `RejectedByPolicy`, `LimitExceeded`, `ReadTimeout`, `PrematureEof`, `AlreadyConsumed`, ... |
+| Error Type | Scope |
+|-----------|-------|
+| `PathRejection` | Path parsing (17 variants) |
+| `RequestValidationError` | HTTP-level, Python-facing (6 variants) |
+| `ServerError` | Server lifecycle (`#[non_exhaustive]`, 10 variants) |
+| `ServiceError` | Per-request struct over a private kind (`Internal` / `Rejected(u16)` / `Panic` / `Timeout`; inspect via `is_panic`/`is_timeout`) |
+| `RequestBodyError` | Body consumption (`#[non_exhaustive]`, incl. trailer variants) |
 
 ---
 
@@ -410,10 +571,10 @@ Five distinct error layers, each scoped to a specific subsystem:
 
 | Tier | Modules | Stability |
 |------|---------|-----------|
-| **Stable** | `primitives` (facade), all `primitives::*` submodules | Intended public boundary for embedding consumers |
+| **Stable** | `primitives` (facade over `eggserve-primitives` + `eggserve-static`), all `primitives::*` submodules | Intended public boundary for embedding consumers |
 | **Stable-ish** | `config`, `limits`, `policy`, `ops` | Field shapes may evolve before 1.0 |
-| **Experimental** | `server` (all types) | API may change without notice |
-| **Internal** | `response` and other `pub(crate)` helpers | `pub(crate)` — not part of public API (`fs`/`path`/`mime` live once in `eggserve-static`; deleted core copies must not return) |
+| **Experimental** | `server` (all types), `tls`, H2/H3 paths, tunnel/trailer/adapter/listener/proxy surfaces, async Python | API may change without notice |
+| **Internal** | `response` and other `pub(crate)` helpers | `pub(crate)` — not part of public API |
 
 ---
 
@@ -434,191 +595,19 @@ Five distinct error layers, each scoped to a specific subsystem:
 
 ## Testing Strategy
 
-Multi-layered testing spans the Python and Rust suites, 11 fuzz targets, and 2 conformance corpora:
+Multi-layered testing spans the Rust/Python suites, 11 fuzz targets, and
+the conformance corpora. See
+[testing-and-conformance.md](testing-and-conformance.md) for the full matrix.
 
 | Layer | Location | Scope |
 |-------|----------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic |
-| Rust integration tests | `crates/*/tests/*.rs` | Cross-module, live TCP, TLS (52 files in core, 4 in bin) |
+| Rust integration tests | `crates/*/tests/*.rs` | Cross-module, live TCP, TLS, parity/authority fixtures |
 | Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility facade, TLS, low-level primitives, conformance, body, boundary hardening |
 | Packaging smoke tests | `crates/eggserve-python/packaging-tests/` | Installed-wheel validation |
-| Conformance corpora | `conformance/*.json` | Shared Rust/Python test data |
+| Conformance corpora | `conformance/*.toml` + `*.json` | Shared Rust/Python test data |
 | Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing (11 targets) |
 | Repo-level tests | `tests/` | Proxy interop, soak, installed-binary qual |
-
-See [testing-and-conformance.md](testing-and-conformance.md) for the full test matrix.
-
-The executable product demonstrations are indexed in
-[`../examples/README.md`](../examples/README.md). The full verification script
-compiles the Cargo examples and smoke-tests the canonical Python and Rust
-examples with loopback port `0`; this is deliberately a small addition to the
-existing Rust/Python checks rather than a separate CI job.
-
----
-
-## Fuzz Targets
-
-11 fuzz targets under `fuzz/fuzz_targets/` provide property-based input fuzzing:
-
-| Target | What It Fuzzes |
-|--------|---------------|
-| `request_target` | Canonical HTTP target classification and path-confinement handoff |
-| `percent_decode` | Single-pass percent decoding |
-| `path_components` | Path normalization and component validation |
-| `validate_method` | HTTP method construction and validation, body rejection |
-| `range_header` | Range header parsing |
-| `if_none_match` | If-None-Match ETag comparison |
-| `platform_component` | Windows platform-specific checks |
-| `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
-| `fuzz_normalize_response` | StatusCode validation, response building, normalization |
-| `fuzz_request_body` | RequestBody state machine |
-| `fuzz_directory_buffer` | Directory listing buffer behavior |
-
-Each target has a seed corpus under `fuzz/corpus/`. Fuzzing invariants: no panics on arbitrary input, no `..`/`.` in accepted path components, no NUL bytes in decoded paths, no double-decoding, satisfiable ranges within file size. Corpus regression replay runs via `cargo test -p eggserve-core --test corpus_replay`.
-
----
-
-## Scripts and Verification
-
-The `scripts/` directory provides a small, layered verification hierarchy:
-
-| Script | Purpose |
-|--------|---------|
-| `verify.sh` | Main entry point: `fast` (Rust-only dev check), `full` (examples + Rust + Python wheel), `deep` (expensive suites) |
-| `test-python-wheel.sh` | Build wheel, install in venv, run smoke + tests — the authoritative Python test entry point |
-| `test-examples.sh` | Compile Cargo examples and smoke-test canonical Python/Rust demos on loopback port 0 |
-| `verify-cargo-packages.sh` | Package dry-run gates (`--mode all`) for release validation |
-| `verify-conformance-matrix.py` | Validate conformance corpus consistency (CI runs this first) |
-| `check-wheel-composition.py` | Inspect wheel contents for correctness |
-| `check-release-wheel-set.py` | Validate that a release directory contains the expected 9-platform wheel set |
-| `check-python-release-metadata.py` | Validate release metadata (versions, tags, artifact naming) |
-| `release_smoke.py` | Release artifact smoke tests |
-| `install-cargo-tools.sh` | Deterministic installation of `cargo-audit` and `cargo-deny` |
-| `check-supply-chain.sh` | Audit and policy-check both distributed lockfiles |
-| `qualify-http2.sh` | Manual Linux H2 wire qualification: TLS ALPN, cleartext prior knowledge, static/range/conditional, parallel streams, and Upgrade absence |
-| `qualify-http3.sh` | Manual H3/QUIC qualification: optional direct independent-client semantics, same-port Alt-Svc, TCP fallback, and minimal-graph checks |
-
-Verification levels:
-- **`fast`** — `cargo fmt --check`, `cargo clippy`, `cargo test --workspace` (routine dev)
-- **`full`** — fast + Cargo examples compiled and smoke-tested, Python wheel built and tested (pre-release)
-- **`deep`** — full + expensive suites, manual execution only
-
----
-
-## Benchmarks
-
-The `benchmarks/` directory holds benchmark baselines (Criterion-based, historical). Current representative results on macOS arm64 (APFS, warm cache):
-
-| Workload | Median | Notes |
-|----------|--------|-------|
-| GET 1 KiB | 12.6 us | Handler latency (no TCP/TLS) |
-| GET 128 KiB | 12.9 us | Streaming body is lazy |
-| HEAD 128 KiB | 12.1 us | Body suppressed by normalize_metadata |
-| Range 16 KiB | 26.3 us | Seek + range parsing overhead |
-| 304 Not Modified | 11.3 us | No file open or streaming |
-| 404 Not Found | 1.9 us | Path parse + resolve only |
-| Dir listing 1000 entries | 2.25 ms | Linear scaling |
-
-Full historical results: `benchmarks/088-baseline/results.json`. Plan 168's
-loopback snapshot is in `benchmarks/168-qualification/results.json`; final
-same-machine performance evidence is in
-`benchmarks/170-closure/results.json` and is reproduced by its standard-library
-harness. The old Criterion harness is historical; none of these absolute
-timings are CI gates.
-
----
-
-## Examples
-
-### Python examples (`examples/`)
-
-| File | Purpose |
-|------|---------|
-| `python_http_server_static.py` | Stock `SimpleHTTPRequestHandler` — fast-path, no Python dispatch |
-| `python_custom_handler.py` | Custom `BaseHTTPRequestHandler` — callback path |
-| `python_lowlevel_service.py` | Handler-only `eggserve.lowlevel` service (buffered + streamed, no facade) |
-| `python_custom_headers.py` | Static metadata: `default_content_type`, ordered `extra_response_headers` |
-| `python_https_server.py` | Rust-runtime TLS server via the facade (`HTTPSServer`) |
-| `python_subprocess.py` | `eggserve.subprocess` lifecycle helpers |
-| `python_safe_download.py` | Safe download with bounded response |
-| `README.md` | Mechanically checked example index |
-
-### Rust examples (`crates/eggserve-core/examples/`)
-
-| File | Purpose |
-|------|---------|
-| `static_server.rs` | Built-in confined static service via `Server::builder()` |
-| `custom_service.rs` | Custom `Service` via `service_fn` |
-| `streaming_service.rs` | Known/unknown-length `ResponseBody::Stream` with runtime-owned framing |
-| `caller_owned_stream.rs` | Canonical pipeline over a caller-owned stream (`serve_http1_connection`, no listener) |
-| `custom_headers.rs` | Static metadata: `default_content_type`, ordered `extra_response_headers` (final 200 responses only) |
-| `https_server.rs` | TLS serving via `load_tls_config` + `tls_config()` (`--features tls`) |
-| `primitives.rs` | Response planning without opening a socket |
-
-Listener-based examples bind loopback, support port `0` for smoke tests, wait for readiness, and cleanly shut down on Ctrl+C. `caller_owned_stream.rs` and `primitives.rs` bind nothing (in-process duplex / no socket). They are compiled and smoke-tested by `scripts/verify.sh full`.
-
----
-
-## Crate Source Structure
-
-### eggserve-core (compatibility/composition umbrella)
-
-```
-src/
-├── lib.rs                    # module declarations, 3-tier stability model
-├── config.rs                 # ServeConfig, ServeState, StartupSummary (documented orchestration)
-├── limits.rs                 # Limits — connections, streams, timeouts
-├── policy.rs                 # facade re-exporting eggserve_primitives::policy
-├── ops/                      # facade re-exporting eggserve_server::ops (OpsContext authority + events/sinks/counters)
-├── tls.rs                    # TLS transport glue re-exporting the neutral eggnet-tls API (feature-gated)
-├── runtime_limits.rs         # facade re-exporting eggserve_server::runtime_limits
-├── response.rs               # compatibility response helpers (pub(crate))
-├── primitives/               # compatibility facades — every file re-exports its
-│                             # direct authority (eggserve-primitives, eggserve-static,
-│                             # or eggserve-server adapters); no second implementation.
-│                             # Deleted and gated by topology: src/fs, src/path,
-│                             # src/mime.rs, primitives/canonical/ (all live once
-│                             # in eggserve-static / eggserve-primitives)
-└── server/                   # runtime service boundary (experimental):
-                              # full TLS/H2/H3 Server/ServerBuilder/ServerHandle,
-                              # RuntimeConfig orchestration, StaticService composition,
-                              # H2/listener/proxy/TLS transport glue; H3 is a thin
-                              # facade over eggserve-h3 (no server/http3/ state machine)
-```
-
-Every production module is in the classified inventory enforced by
-`scripts/check-crate-topology.py` (Plan 225 facade closure); new modules
-fail the gate until explicitly classified.
-
-### eggserve-bin
-
-```
-src/
-├── main.rs    # thin fn main() → eggserve_bin::run()
-├── lib.rs     # run(), run_cli(argv); neutral policy/ops/limits/static paths name the leaf crates directly (Plan 221); extended orchestration via the core facade
-├── args.rs    # manual argument parsing (no clap)
-├── shutdown.rs# signal handling (Ctrl+C, SIGTERM, SIGHUP) with broadcast channel
-└── tls.rs     # re-export of the neutral eggnet_tls substrate (Plan 221)
-```
-
-### eggserve-python (Rust bridge + Python facade)
-
-```
-src/
-├── lib.rs     # PyO3 module registration; neutral bridge names the leaf crates directly (Plan 221); extended orchestration + extension CLI via core/bin
-└── server/    # bridge submodules: errors, body_bridge, request_bridge, response_bridge, tunnel_bridge, static_responder, sync_handler, runtime, lifecycle, async_handler (Plan 204 stays Python-side)
-
-python/eggserve/
-├── __init__.py     # top-level namespace (version, serve_directory, facade classes)
-├── __init__.pyi    # type stub for the facade namespace
-├── _bin.py         # CLI entry point via native _run_cli
-├── __main__.py     # python -m eggserve support
-├── _native.pyi     # type stub over the native extension surface
-├── server.py       # six-class Rust-runtime compatibility facade
-├── server.pyi      # type stub for the facade classes
-├── lowlevel.py     # advanced native exports (SecureRoot, StaticPolicy, canonical types)
-└── subprocess.py   # subprocess lifecycle exports (ServeConfig, ServerProcess)
-```
 
 ---
 
@@ -626,13 +615,13 @@ python/eggserve/
 
 Release is a manual workflow dispatch. CI is a regression screen, not release certification:
 
-1. Run `./scripts/verify.sh full` (examples, Rust + Python wheel)
-2. Run `bash scripts/install-cargo-tools.sh` then `bash scripts/check-supply-chain.sh`
-3. Manually dispatch the release workflow (builds, validates, and publishes via OIDC Trusted Publishing)
-4. Production PyPI upload requires the protected `pypi` GitHub Environment
-5. No push/tag/merge automatically publishes
+1. Run `./scripts/verify.sh full` (examples, Rust + Python wheel).
+2. Run `bash scripts/install-cargo-tools.sh` then `bash scripts/check-supply-chain.sh`.
+3. Manually dispatch the release workflow (builds, validates, and publishes via OIDC Trusted Publishing).
+4. Production PyPI upload requires the protected `pypi` GitHub Environment.
+5. No push/tag/merge automatically publishes.
 
-See [docs/release-process.md](../docs/release-process.md) for the full procedure.
+See [../docs/release-process.md](../docs/release-process.md) for the full procedure.
 
-Historical design records remain in [`plans/`](../plans/); they are not
+Historical design records remain in [`../plans/`](../plans/); they are not
 required to understand the current runtime or security contract.
