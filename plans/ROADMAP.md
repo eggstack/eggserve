@@ -460,10 +460,15 @@ Implementation plans:
 - `plans/255-migration-residue-module-topology-maintainability-cleanup.md`
 - `plans/256-post-convergence-maintenance-interop-fidelity-closure.md`
 
-Status: **PLANNED**. Planning/audit baseline:
+Status: **IMPLEMENTATION COMPLETE; REMOTE QUALIFICATION PENDING**. Landing
+SHAs `ee1724b` (252) / `a27c330` (253) / `0745635` (254) / `e359cf1` (255);
+evidence record
+`release/plan-256-post-convergence-maintenance-interop-closure.md`.
+Planning/audit baseline:
 `0ee02acd69f1c63d32134f8265283fff04e4630c`. Plans 252–255 preserve the
-existing capability/API surface; Plan 256 is mandatory exact-SHA local/remote
-qualification before this line of work may be marked complete.
+existing capability/API surface; Plan 256 closes on exact-SHA local/remote
+qualification (remote CI run recorded in the evidence record before this
+line is marked complete).
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 

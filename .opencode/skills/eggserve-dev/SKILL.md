@@ -76,6 +76,20 @@ single direct authority; core executes H2 only) and per-connection shutdown
 is structured under the connection task with no detached forwarder; see
 `release/plan-250-h1-authority-lifetime-corrective-closure.md`.
 
+Plans 251–256 close the post-convergence maintenance campaign with no
+public API, capability, or support-tier change: Python stubs match runtime
+shapes (`AsyncRequest` dict headers, text `*_addr` vs tuple `*_address`,
+supported subclass hooks; strict installed-wheel fixture plus runtime shape
+tests); every core/server connection overlap is classified (sharing needs a
+new public transport API, so parallels stay crate-private, H2-gated, and
+topology-guarded — see the ledger in `architecture/crate-topology.md`);
+async producers wait bounded for the first native pull (HEAD/body-forbidden
+never advance application state); broad unused-import suppressions are gone
+(clippy is the authority; H2/test-only uses are precisely gated); the
+topology gate adds the overlap rule plus a `--self-test` mutation suite;
+Rust consumers pick the direct H1 leaf profile or the compatibility
+multiprotocol profile (see `release/plan-256-post-convergence-maintenance-interop-closure.md`).
+
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
 crate. `eggserve_core::tls` remains a compatibility re-export; EggServe retains

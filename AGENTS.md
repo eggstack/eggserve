@@ -139,6 +139,20 @@ service exists with every H1 path delegating to the single direct authority
 connection task (`run_with_connection_shutdown`, no detached forwarder); see
 `release/plan-250-h1-authority-lifetime-corrective-closure.md`.
 
+Plans 251–256 close the post-convergence maintenance campaign with no
+public API, capability, or support-tier change: Python stubs match runtime
+shapes (`AsyncRequest` dict headers, text `*_addr` vs tuple `*_address`,
+supported subclass hooks; strict installed-wheel fixture plus runtime shape
+tests); every core/server connection overlap is classified (sharing needs a
+new public transport API, so parallels stay crate-private, H2-gated, and
+topology-guarded — see the ledger in `architecture/crate-topology.md`);
+async producers wait bounded for the first native pull (HEAD/body-forbidden
+never advance application state); broad unused-import suppressions are gone
+(clippy is the authority; H2/test-only uses are precisely gated); the
+topology gate adds the overlap rule plus a `--self-test` mutation suite;
+Rust consumers pick the direct H1 leaf profile or the compatibility
+multiprotocol profile (see `release/plan-256-post-convergence-maintenance-interop-closure.md`).
+
 ## Non-negotiables
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
