@@ -402,6 +402,69 @@ CI run `35618901331` (rust / supply-chain / python all success, 2026-09-21);
 evidence record
 `release/plan-250-h1-authority-lifetime-corrective-closure.md`.
 
+## Post-convergence maintenance and interop fidelity — Plans 251–256
+
+**Plans 251–256** are the post-250 API-preserving maintenance campaign from
+the current-tree review at
+`0ee02acd69f1c63d32134f8265283fff04e4630c` (normal CI run
+`35620987177` green). The campaign does not add product features, change
+protocol support tiers, or authorize Rust/Python public API regression.
+
+The review found four remaining maintenance classes after the successful
+single-H1/static authority convergence:
+
+1. concrete drift in shipped Python stubs, including low-level async request
+   header/address/proxy property types and missing supported `http.server`
+   subclass hooks;
+2. substantial source-level overlap between core's H2/multiprotocol connection
+   machinery and the direct H1 server even though executable H1 authority is
+   now correctly single-owned by `eggserve-server`;
+3. the Python `AsyncServer` bridge has strong bounds but independently
+   orchestrates asyncio admission, timeout, streaming, cancellation, and task
+   lifetime and therefore needs stronger deterministic parity evidence;
+4. post-extraction import/comment/module residue remains, while
+   `scripts/check-crate-topology.py` has become a large executable
+   architecture specification that should be internally easier to maintain
+   without weakening any rule.
+
+```text
+252  Python typing/public-surface fidelity corrective
+ |
+253  core/server connection-overlap classification + safe convergence
+ |\
+ | 254 async-Python lifecycle/stream parity hardening
+ | 255 migration-residue + topology-checker maintainability cleanup
+ |/
+256  API/capability-preserving qualification and closure
+```
+
+Plan 253 is intentionally conservative: overlap must be classified at the
+symbol/responsibility level, but deduplication is DEFER when the only clean
+route would expose new public Hyper/Tokio internals, activate direct H2/TLS
+capability, move H2 ownership, or create a new crate solely for source sharing.
+The target is bounded drift risk rather than maximum line deletion.
+
+Plan 255 also treats large-file decomposition as evidence-led: security-local
+filesystem modules are not split merely for size, and CLI/H3/Python modules are
+decomposed only where a natural private responsibility boundary improves
+reviewability without changing behavior.
+
+Program index:
+`plans/251-256-post-convergence-maintenance-interop-fidelity-program.md`.
+
+Implementation plans:
+
+- `plans/252-python-typing-public-surface-fidelity-corrective.md`
+- `plans/253-core-server-connection-overlap-safe-convergence.md`
+- `plans/254-async-python-lifecycle-streaming-parity-hardening.md`
+- `plans/255-migration-residue-module-topology-maintainability-cleanup.md`
+- `plans/256-post-convergence-maintenance-interop-fidelity-closure.md`
+
+Status: **PLANNED**. Planning/audit baseline:
+`0ee02acd69f1c63d32134f8265283fff04e4630c`. Plans 252–255 preserve the
+existing capability/API surface; Plan 256 is mandatory exact-SHA local/remote
+qualification before this line of work may be marked complete.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
