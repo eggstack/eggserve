@@ -9,7 +9,11 @@ remains responsible for runtime-owned headers.
 
 ## Module Location
 
-`eggserve-core::primitives::planner` — exposed via `primitives` public facade.
+Implemented once in `eggserve-static` (`src/planner.rs`, re-exported at the
+crate root); `eggserve-core::primitives::planner` is a compatibility facade
+re-exporting that implementation (Plan 219). Since Plan 245,
+`eggserve-static::StaticService` owns static request planning/rendering and
+the core static service is a delegating wrapper.
 
 ## Key Types
 
@@ -68,10 +72,22 @@ pub enum BodyPlan {
 
 ### `FileRange`
 
+Fields are private, so the length invariant cannot be bypassed with a struct
+literal — construct via `FileRange::try_new` (or `new`) and read via the
+accessors (`crates/eggserve-primitives/src/primitives/response.rs`):
+
 ```rust
 pub struct FileRange {
-    pub start: u64,
-    pub end_inclusive: u64,
+    start: u64,         // private
+    end_inclusive: u64, // private
+}
+
+impl FileRange {
+    pub fn new(start: u64, end_inclusive: u64) -> Self; // asserts representable length
+    pub fn try_new(start: u64, end_inclusive: u64) -> Option<Self>;
+    pub fn start(&self) -> u64;
+    pub fn end_inclusive(&self) -> u64;
+    pub fn len(&self) -> u64;
 }
 ```
 

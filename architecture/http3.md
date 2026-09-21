@@ -35,7 +35,10 @@ The shared service kernel stays single: generic body-policy, panic
 containment, canonical invocation, and canonical privacy finalization live
 in `eggserve-server::connection` (exposed for H3); H3 `Alt-Svc`
 advertisement lives in the adapter after generic finalization. No
-H3-specific service semantics.
+H3-specific service semantics. Plan 253 classifies this split in the
+[`crate-topology.md`](crate-topology.md) ledger: the service kernel stays a
+single direct authority while the H3 `Alt-Svc` post-pass remains a
+feature-gated core composition adapter.
 
 ## Ownership
 

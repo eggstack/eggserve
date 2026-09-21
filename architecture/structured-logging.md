@@ -2,7 +2,7 @@
 
 ## Overview
 
-eggserve uses structured JSON Lines logging for machine-consumable operational events, with a text mode fallback for human readability. The system is defined in `eggserve-core::ops`.
+eggserve uses structured JSON Lines logging for machine-consumable operational events, with a text mode fallback for human readability. The system authority is `eggserve-server::ops`; `eggserve-core::ops` keeps a compatibility facade re-export.
 
 ## Module layout (Plan 206 Track H)
 
@@ -211,7 +211,7 @@ Backoff is interruptible by shutdown via `tokio::select!`.
 ## Example Events
 
 ```json
-{"schema_version":1,"severity":"INFO","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.1.0 starting","fields":[{"version":"0.1.0"},{"bind":"127.0.0.1:8000"},{"root":"./public"},{"symlinks":"denied"},{"dotfiles":"denied"}]}
+{"schema_version":1,"severity":"INFO","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.2.0 starting","fields":[{"version":"0.2.0"},{"bind":"127.0.0.1:8000"},{"root":"./public"},{"symlinks":"denied"},{"dotfiles":"denied"}]}
 ```
 
 ```json

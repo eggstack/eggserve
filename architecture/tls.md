@@ -20,7 +20,7 @@ When `tls` is enabled in `eggserve-core`:
   assembly
 
 `eggserve-bin` enables `eggserve-core/tls` and re-exports the module
-(`bin/src/tls.rs` is `pub use eggserve_core::tls::*`). The historical
+(`bin/src/tls.rs` is `pub use eggnet_tls::*`). The historical
 `eggserve_core::tls` module re-exports `eggnet_tls`; only HTTP/3-specific QUIC
 assembly remains in the compatibility module.
 
@@ -34,7 +34,7 @@ protocol configuration are transport-specific.
 
 ### Loading Configuration
 
-**Location:** `eggserve-core::tls::load_tls_config()`
+**Location:** `eggnet_tls::load_tls_config()` (facade: `eggserve-core::tls`)
 
 ```rust
 pub fn load_tls_config(
@@ -65,7 +65,7 @@ The function:
 
 ### Error Types
 
-**Location:** `eggserve-core::tls::TlsError`
+**Location:** `eggnet_tls::TlsError` (facade: `eggserve-core::tls`)
 
 | Variant | Meaning |
 |---------|---------|
@@ -185,9 +185,18 @@ atomically rotate H3 (endpoint replacement/drain required). Qualification:
    adversarial-wire, and cross-platform runtime evidence is incomplete, and
    Plan 192 additionally blocks on upstream `hyperium/h3#338` (no released
    fix) and the `#262` stream-drop remainder; Plan 193 re-checked both issues
-   and retained the experimental tier. See
-   [the Plan 192 readiness record](../release/plan-192-http3-dependency-readiness.md)
-   and [the Plan 193 promotion record](../release/plan-193-http3-supported-tier-qualification.md).
+    and retained the experimental tier. See
+    [the Plan 192 readiness record](../release/plan-192-http3-dependency-readiness.md)
+    and [the Plan 193 promotion record](../release/plan-193-http3-supported-tier-qualification.md).
+    Plans 194/195 bound the H3 `ResponseStream` producer poll with
+    `response_write_timeout` no-progress semantics (corrective qualification,
+    tier unchanged; see `../release/plan-194-http3-producer-timeout-correction.md`
+    and `../release/plan-195-http3-response-timeout-corrective-qualification.md`).
+    Plan 213 isolates the H3/QUIC dependency set in `eggserve-h3` behind the
+    core `http3` feature, and Plan 220 moves the H3 adapter implementation
+    into `eggserve-h3` with a thin core facade (see
+    `../plans/213-http3-quic-isolation-qualification.md` and
+    `../plans/220-http3-adapter-extraction.md`).
 3. **No OCSP stapling** — Not implemented (and no implied revocation without CRLs)
 4. **No certificate management** — No ACME, renewal, discovery, secret storage, KMS, or watcher
 5. **No Mozilla root bundle dependency for serving** — Server identities and mTLS trust are operator-supplied; no implicit system roots

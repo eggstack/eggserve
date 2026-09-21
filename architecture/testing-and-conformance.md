@@ -86,6 +86,13 @@ shutdown; the process harness uses only Python's standard library.
 `listener_ownership.rs` | — (Unix-only socket case) | Plan 201: prebound TCP/Unix/systemd/H3-UDP parity |
 | `streaming_buffer_qualification.rs` | — | Exact range boundaries, chunk-crossing, buffer isolation, zero-length files, client disconnect release, forced shutdown release, concurrent exhaustion (503), HEAD non-acquisition, configurable chunk sizes |
 
+## Plans 243–258 suite inventory
+
+- `direct_h1_parity.rs` — Plan 249 auto-H1 delegation: every H1 path delegates to the single direct authority, core executes H2 only.
+- `static_authority_conformance.rs` — Plan 245: `eggserve-static::StaticService` owns static request planning/rendering, core keeps a wrapper.
+- Overlap guard (Plan 253) — `scripts/check-crate-topology.py` classifies every core/server connection overlap; parallels stay crate-private, H2-gated, and topology-guarded.
+- Typing/async fixtures — `typing_smoke.py` (Plans 246/252 stub fidelity: strict installed-wheel fixture plus runtime shape tests); `test_async_bridge.py`, `test_async_lifecycle.py`, `test_async_suppressed_lifetime.py` (Plans 254/257–258 async lifecycle/streaming/suppressed-body permit parity).
+
 ## Conformance Corpora
 
 ### `conformance/corpus.json`

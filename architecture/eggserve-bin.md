@@ -48,6 +48,11 @@ launches `python -m eggserve` as a subprocess.
 
 The accept loop lives in `eggserve-core::server` (`accept_loop_multi`, Plan 201).
 Both TLS and non-TLS paths use `Server::builder()` → `Server::start()`.
+Per Plan 249, compatibility `Auto` classification resolves before any Hyper
+service exists: every H1 path delegates the replayable stream to the direct
+`eggserve-server` H1 driver (`connection::serve_http1_connection`), while core
+executes H2 only (see
+`../release/plan-250-h1-authority-lifetime-corrective-closure.md`).
 When `RuntimeConfig.tls_config` or `tls_reload_handle` is set (Plan 203 reload
 handle wins atomically), the accept loop performs a per-connection TLS handshake
 via `tokio_rustls::TlsAcceptor` (order `TCP → PROXY → TLS deadline → ALPN → HTTP`)

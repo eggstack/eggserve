@@ -46,7 +46,9 @@ These defaults are not advisory — the code rejects non-conforming requests bef
                         │ CLI flags
                         ▼
 ┌─────────────────────────────────────────────────────┐
-│                  eggserve-core (policy layer)        │
+│  eggserve policy + runtime authority                │
+│  (primitives policy, server runtime, static          │
+│   authority; core is the compatibility umbrella)     │
 │  • Path confinement pipeline                         │
 │  • Policy enforcement (symlink, dotfile, listing)    │
 │  • Resource limits                                   │

@@ -148,6 +148,8 @@ timeout limits in addition to these protocol-owned values. See
 | `max_requests_per_connection` | `RuntimeConfig` | None (unlimited) | None or >= 1 | `--max-requests-per-connection` (`0` = unlimited) | `max_requests_per_connection` (`lowlevel` `None`; compat default) | H1 `Connection: close`, H2 graceful drain/GOAWAY after the limit response; every response counts |
 | `graceful_shutdown_timeout` | `RuntimeConfig` | 10s | > 0 | N/A | `graceful_shutdown_timeout_secs` | Drain deadline after SIGTERM |
 
+Plan 243 keeps shutdown state durable: the direct server drains runtime-owned connection tasks under the graceful-shutdown deadline (see `../plans/243-direct-server-shutdown-lifecycle-corrective.md`).
+
 ### Body policy
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |

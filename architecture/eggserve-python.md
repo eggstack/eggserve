@@ -125,6 +125,18 @@ conversion where the bridge needs stable Python-owned values. The bounded
 dedicated producer-thread design for synchronous stream iterables remains in
 place; redesigning that isolation is deferred pending a separate proof.
 
+- Plans 246/252 keep the published stubs faithful to the runtime surface
+  (`lowlevel.pyi` + `py.typed`; `AsyncRequest` dict headers, text `*_addr`
+  vs tuple `*_address`, supported subclass hooks), guarded by the strict
+  installed-wheel typing fixture (`crates/eggserve-python/tests/typing_smoke.py`)
+  plus runtime shape tests.
+- Plans 254/257–258 harden the experimental async bridge
+  (lifecycle/streaming parity; suppressed bodies release the async permit
+  immediately via the explicit `_AsyncStreamBridgeIterator` drop owner),
+  covered by `test_async_bridge.py`, `test_async_lifecycle.py`, and
+  `test_async_suppressed_lifetime.py` (see
+  `../release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`).
+
 The native callback `Server` backs both the facade and `lowlevel.Server`;
 `StaticResponder`, `ServerSecureRoot`, and `ServerBodySource` back the public
 lowlevel composition primitives (previously internal/test-only).
@@ -160,7 +172,8 @@ crates/eggserve-python/
 ├── pyproject.toml      # maturin metadata and entry points
 ├── src/
 │   ├── lib.rs          # PyO3 module registration
-│   └── server.rs       # facade: declares mods + re-exports Py* types for lib.rs
+│   ├── server.rs       # facade: declares mods + re-exports Py* types for lib.rs
+│   └── server/         # bridge submodules owned by the facade
 │       ├── errors.rs       # exception mapping
 │       ├── body_bridge.rs  # channel state machine for request bodies
 │       ├── request_bridge.rs  # PyRequest

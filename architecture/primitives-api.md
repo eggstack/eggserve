@@ -41,7 +41,7 @@ without requiring a second type system.
 | `interim.rs` | `primitives/interim.rs` | `InterimSender`, `InterimLimits`, `InterimError`, `ExpectDecision` — bounded request-scoped 1xx (no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100) |
 | `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
 | `authority.rs` | `primitives/authority.rs` | `Authority` — validated effective host authority independent of Host/`:authority` spelling |
-| `interop.rs` | `primitives/interop.rs` | `http-interop` adapters (Plan 200): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt` (already includes Plan 202 effective fields)/`AuthorityExt`/`LifecycleExt`, `RequestBody: http_body::Body`, `response_from_http_body` |
+| `interop.rs` | `primitives/interop.rs` | `http-interop` adapters (Plan 200): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt` (already includes Plan 202 effective fields)/`AuthorityExt`/`LifecycleExt`, `RequestBody: http_body::Body`, `response_from_http_body`. Plans 246 and 251–256 keep this boundary fidelity-only with no API, capability, or tier change; see [`release/plan-256-post-convergence-maintenance-interop-closure.md`](../release/plan-256-post-convergence-maintenance-interop-closure.md) |
 
 ## Public Types
 
@@ -92,8 +92,9 @@ pub enum ResourceDeniedReason {
 A capability object — no public constructor. Obtained only through `SecureRoot::resolve()`. Wraps the static authority's internal `fs::ResolvedFile` which holds the open file handle and metadata. (Plan 219: implemented once in `eggserve-static`; `eggserve_core::primitives` re-exports the type.)
 
 ```rust
+// Defined in eggserve-static/src/secure_root.rs; eggserve-core only re-exports it.
 pub struct ResolvedFile {
-    inner: crate::fs::ResolvedFile, // `crate` is eggserve-static; field is private
+    inner: /* private eggserve-static-internal open-handle state */
 }
 ```
 
@@ -114,8 +115,9 @@ Extraction methods (behind `python-bindings-internal` feature only):
 ### `ResolvedDirectory` (`secure_root.rs`)
 
 ```rust
+// Defined in eggserve-static/src/secure_root.rs; eggserve-core only re-exports it.
 pub struct ResolvedDirectory {
-    inner: crate::fs::ResolvedDirectory, // `crate` is eggserve-static; field is private
+    inner: /* private eggserve-static-internal directory state */
 }
 ```
 

@@ -39,6 +39,23 @@ registration is isolated from implementation modules. The topology checker
 walks production Rust module reachability, rejects orphan sources, and asserts
 that accepted direct-crate compatibility features remain inert.
 
+Plan 248 closes the Plans 243–247 maintainability convergence with no API,
+ownership, or tier change (see
+`release/plan-248-maintainability-convergence-closure.md`). Plan 250 closes
+the post-closure corrective: Plan 249 routes every compatibility `Auto` H1
+path to the direct driver and structures per-connection shutdown under the
+connection task with no detached forwarder, superseding two Plan 248 claims
+(see `release/plan-250-h1-authority-lifetime-corrective-closure.md` and
+`plans/249-core-auto-h1-authority-and-shutdown-forwarder-corrective.md`).
+Plans 251–252 and 254–258 continue as an API-preserving
+maintenance/interop/async-lifetime campaign — Python stub fidelity, the
+connection-overlap classification ledger below, import/topology-gate cleanup
+with direct-vs-compatibility consumption profiles, and bounded async
+first-pull plus suppressed-body permit lifetimes — with no public API,
+capability, or tier change (see
+`release/plan-256-post-convergence-maintenance-interop-closure.md` and
+`release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`).
+
 ```text
 eggnet-tls             (neutral rustls identity/trust/reload substrate)
 

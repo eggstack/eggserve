@@ -33,6 +33,21 @@ shared kernel exposed here (`connection::select_body_policy`,
 H3-owned, no Quinn types here). The `http2`/`tls` Cargo features remain as
 inert opt-in edges (the H1 graph never requires them).
 
+Authority notes (Plans 243/244/249/253, no ownership change): Plan 243 makes
+shutdown durable — the listener `Server` keeps accepted connection tasks in a
+runtime-owned `JoinSet` and drains them on shutdown (`lib.rs`, the
+`connection/activity.rs` tunnel drain, and the bounded post-shutdown drain
+budget in `connection/driver.rs`; see
+`release/plan-248-maintainability-convergence-closure.md`). Plans 244/249
+establish the single-H1-authority corrective: compatibility `Auto`
+classification resolves before any Hyper service exists and every H1 path
+(cleartext, PROXY-replayed, Unix, TLS ALPN) delegates the replayable stream
+to `connection::serve_http1_connection` here, while core executes H2 only
+(see `release/plan-250-h1-authority-lifetime-corrective-closure.md`). The
+remaining core/server connection-module parallels are classified, not
+duplicated authority — see the overlap ledger in
+[crate-topology.md](crate-topology.md) (Plan 253).
+
 `eggserve-core::server` remains the compatibility and composition surface for those
 advanced paths, with facades (`ops`, `errors`, `response_policy`, `policy`,
 `runtime_limits`) over every moved module. Unified `Service` identity and

@@ -17,6 +17,14 @@ bridge (`ResolvedFile::from_parts`/`into_parts`/`into_std_file`), which moves
 an already-opened handle without reconstructing provenance; raw fd/handle
 internals are never exposed.
 
+Plan 245 assigns `StaticService` request planning and rendering to this
+crate: `StaticService` resolves, plans (conditional/range), renders
+file/directory responses, and normalizes eagerly, while
+`eggserve-core::server::StaticService` is a compatibility wrapper projecting
+`ServeConfig`/`ServeState` into the direct service with no second renderer
+(see `release/plan-248-maintainability-convergence-closure.md` and
+`plans/245-static-service-authority-convergence.md`).
+
 The generic runtime has no edge to this crate. Applications that only need a
 custom service can depend on `eggserve-server` and
 `eggserve-primitives`; static serving is an explicit addition. The direct crate

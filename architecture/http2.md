@@ -25,6 +25,12 @@ not log raw pseudo-header values or hostile targets. HTTP/1 transfer-framing
 validation is deliberately skipped for H2; H2 has no `Transfer-Encoding` wire
 framing.
 
+Plan 253 classifies the remaining core/server connection overlaps without
+changing this boundary: core retains H2 execution and multiprotocol
+composition while executable H1 authority stays single-owned by
+`eggserve-server`; see the ledger in
+[`crate-topology.md`](crate-topology.md).
+
 ## Implemented behavior checklist
 
 - H2 over TLS is selected by ALPN `h2`; H1-only TLS advertises only

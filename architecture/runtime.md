@@ -766,6 +766,14 @@ shutdown) is handled by the Python subprocess wrapper, not the Rust server.
 - Signal handlers cannot be reconfigured after startup
 - Python subprocess wrappers handle signal forwarding to the Rust process
 
+## Maintainability convergence notes (Plans 243–258)
+
+- Plan 243: durable direct-server shutdown with runtime-owned JoinSet task draining; see [`release/plan-248-maintainability-convergence-closure.md`](../release/plan-248-maintainability-convergence-closure.md).
+- Plans 244/249–250: single H1 authority — compatibility `Auto` classifies before any Hyper service exists and core executes H2 only, with structured per-connection shutdown; see [crate-topology.md](crate-topology.md) and [`release/plan-250-h1-authority-lifetime-corrective-closure.md`](../release/plan-250-h1-authority-lifetime-corrective-closure.md).
+- Plan 245: `eggserve-static::StaticService` owns static request planning/rendering; core keeps a delegating wrapper; see the Plan 248 closure record above.
+- Plan 253: every core/server connection overlap is classified (no second H1 implementation); see the ledger in [crate-topology.md](crate-topology.md).
+- Async pointers (H1-only, experimental): Plan 254 async lifecycle/streaming parity and Plans 257–258 suppressed-body permit lifetime; see [`release/plan-256-post-convergence-maintenance-interop-closure.md`](../release/plan-256-post-convergence-maintenance-interop-closure.md) and [`release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`](../release/plan-258-async-suppressed-body-lifetime-corrective-closure.md).
+
 ## Security Properties
 
 - Response normalization (hop-by-hop stripping, content-length computation) is runtime-owned

@@ -30,6 +30,7 @@ Returned by the 6-stage path validation pipeline when a request target fails any
 | `MalformedPercentEncoding` | Invalid `%XX` sequence | `GET /%zz` |
 | `InvalidUtf8` | Path contains invalid UTF-8 | Raw bytes in URL |
 | `NulByte` | Path contains `%00` | `GET /%00/etc/passwd` |
+| `ControlCharacter` | Path contains a control character | Raw `0x01`–`0x1F` / `0x7F` byte in target |
 | `AbsolutePath` | Path starts with `/` after decode | Absolute path injection |
 | `ParentComponent` | Path contains `..` | `GET /../../../etc/passwd` |
 | `CurrentComponent` | Path contains `.` | `GET /./etc/passwd` |
@@ -47,7 +48,7 @@ Returned by the 6-stage path validation pipeline when a request target fails any
 
 ## `RequestValidationError` — HTTP-Level Errors
 
-**Location:** `eggserve-core::primitives::http`
+**Location:** `eggserve-primitives::http` (facade: `eggserve-core::primitives`)
 
 Returned during request framing validation, before any path parsing or filesystem access. Prevents request smuggling and body-policy violations.
 
@@ -69,7 +70,7 @@ Returned during request framing validation, before any path parsing or filesyste
 
 ## `ServerError` — Server Lifecycle Errors
 
-**Location:** `eggserve-core::server::errors`
+**Location:** `eggserve-server::errors` (facade: `eggserve-core::server::errors`)
 
 `#[non_exhaustive]` (Plan 197 Track F): match with a wildcard arm; future lifecycle/transport categories may be added.
 
@@ -98,7 +99,7 @@ Errors from server startup, lifecycle management, and shutdown. These are return
 
 ## `ServiceError` — Per-Request Errors
 
-**Location:** `eggserve-core::server::service`
+**Location:** `eggserve-server::service` (facade: `eggserve-core::server::service`)
 
 Struct with a private kind (Plan 197 Track F): future categories do not break construction; inspect via `is_panic()` / `is_timeout()`. Never synthesize a second HTTP error after final commitment.
 
@@ -134,7 +135,7 @@ final.
 
 ## `RequestBodyError` — Body Consumption Errors
 
-**Location:** `eggserve-core::primitives::request_body_error`
+**Location:** `eggserve-primitives::request_body_error` (facade: `eggserve-core::primitives`)
 
 `#[non_exhaustive]` (Plan 197 Track F): match with a wildcard arm.
 
@@ -153,6 +154,8 @@ Errors from request body reading. The runtime maps these to appropriate HTTP res
 | `Disconnected` | 499 | Client disconnected |
 | `AlreadyConsumed` | 500 | Body already consumed (programmer error) |
 | `MixedConsumptionMode` | 500 | Switched between read_all and streaming |
+| `InvalidTrailers` | 400 | Request trailers failed validation |
+| `TrailersNotReady` | 500 | Trailers requested before body completion |
 | `Transport(String)` | 500 | Transport-level error |
 
 **Classification helpers:**

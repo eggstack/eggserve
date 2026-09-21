@@ -38,6 +38,12 @@ graphs do not compile the QUIC stack.
 - Canonical request, response, policy, timeout, and lifecycle behavior remains
   owned by the shared runtime; this package adds no second service semantics
   (generic finalization via `server::connection`, H3 `Alt-Svc` here).
+
+Plan 253 classifies the shared-kernel vs adapter split: generic
+invocation/finalization lives once in `eggserve-server::connection`, while H3
+`Alt-Svc` advertisement stays here with core keeping only a feature-gated
+composition post-pass — see the overlap ledger in
+[crate-topology.md](crate-topology.md) (no ownership or tier change).
 - H3 stays opt-in and experimental. The package does not imply support for
   WebTransport or generic WebSocket-over-H3 when the selected `h3` release
   rejects that protocol before EggServe receives the request.
