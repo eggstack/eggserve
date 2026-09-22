@@ -74,6 +74,12 @@ jobs:
     needs: preflight
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      # Plan 269 Track F: pin the macOS deployment floor to the matrix
+      # policy (macosx_11_0_*). Maturin otherwise defaults x86_64 to 10.12
+      # while aarch64 already floors at 11.0, so an unpinned build emits a
+      # tag outside the wheel-matrix authority. Ignored on Linux/Windows.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     strategy:
       fail-fast: false
       # The build matrix comes from the preflight-generated manifest authority

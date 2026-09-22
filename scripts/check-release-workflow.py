@@ -12,7 +12,9 @@ rules without executing the release graph:
 - `--compatibility` travels separately in the maturin args;
 - QEMU lanes have explicit `docker/setup-qemu-action` setup (build + post);
 - QEMU/Alpine executions use `sh -c`, never `bash -c` in minimal images;
-- CPython 3.15 lanes enable prerelease resolution until final is available.
+- CPython 3.15 lanes enable prerelease resolution until final is available;
+- the build job pins `MACOSX_DEPLOYMENT_TARGET` to the matrix policy
+  (`11.0`; maturin otherwise defaults x86_64 to 10.12).
 
 Usage:
     python3 scripts/check-release-workflow.py [--workflow .github/workflows/release.yml]
@@ -157,6 +159,19 @@ def check_workflow(text: str) -> list[str]:
             "(Track F: prerelease resolution required until final)"
         )
 
+    # --- Plan 269 Track F: macOS deployment-target pin ---
+    # The wheel matrix declares macosx_11_0_* platform tags, but maturin
+    # defaults x86_64 to MACOSX_DEPLOYMENT_TARGET=10.12 (aarch64 already
+    # floors at 11.0). The build job must pin the matrix policy explicitly
+    # or the x86_64 wheel tag falls outside the wheel-matrix authority.
+    if not re.search(
+        r'(?m)^\s*MACOSX_DEPLOYMENT_TARGET:\s*["\']?11\.0["\']?\s*$', text
+    ):
+        errors.append(
+            "workflow must pin `MACOSX_DEPLOYMENT_TARGET: \"11.0\"` "
+            "(matrix policy is macosx_11_0_*; unpinned x86_64 defaults to 10.12)"
+        )
+
     return errors
 
 
@@ -206,6 +221,15 @@ def cmd_self_test() -> int:
         False,
         "must use `sh -c`",
     )
+    check(
+        "unpinned deployment target fails",
+        real.replace(
+            'MACOSX_DEPLOYMENT_TARGET: "11.0"',
+            'MACOSX_DEPLOYMENT_TARGET: "10.12"',
+        ),
+        False,
+        "MACOSX_DEPLOYMENT_TARGET",
+    )
     return 1 if failures else 0
 
 
@@ -233,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  manylinux baseline vs --compatibility policy split")
     print("  explicit QEMU setup + sh (not bash) in minimal images")
     print("  3.15 prerelease resolution present")
+    print('  MACOSX_DEPLOYMENT_TARGET "11.0" pinned')
     return 0
 
 
