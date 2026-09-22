@@ -718,7 +718,7 @@ path according to its stability classification. EggServe does not promise to
 be an ASGI/WSGI server, framework, process manager, reverse proxy, or WebSocket
 implementation.
 
-## Python wheel distribution expansion — Plans 263–267
+## Python wheel distribution expansion — Plans 263–268
 
 Plans 263–267 broaden PyPI distribution without changing EggServe's API or
 runtime behavior. The program keeps the normal CPython stable-ABI baseline at
@@ -735,7 +735,9 @@ installed-wheel evidence.
  |
  +--266  Native ARM64, Windows ARM64, ARMv7, and real-SBC qualification
  |
- `--267  Free-threaded + long-tail architecture feasibility gate
+ +--267  Free-threaded + long-tail architecture feasibility gate
+ |
+ `--268  Wheel release-pipeline corrective qualification and closure
 ```
 
 Plan 264 adds Python 3.15 metadata and proves the same built
@@ -749,5 +751,11 @@ QEMU userspaces, and a rootless real-SBC qualification harness suitable for
 Raspberry Pi/Le Potato-class systems. Plan 267 is an evidence gate only:
 free-threaded/abi3t, ARMv6, PPC64LE, s390x, and RISC-V receive explicit
 GO/NO-GO/DEFERRED decisions and may not force a TLS/security-provider change.
+Plan 268 is the release-only corrective and closure gate: it separates the
+manylinux baseline from PyPI compatibility policy, fixes cross-target/native
+smoke routing and ARM musl/QEMU execution, makes ABI/native qualification
+mandatory before aggregation/publication, handles the CPython 3.15 RC-to-final
+transition, and requires one complete manual `publish_target=none` release run
+on the exact candidate SHA before this campaign is closed.
 
-Status: **263 CLOSED (program); 264–267 IMPLEMENTED (local proof complete, remote release lanes pending first manual dispatch).**
+Status: **263 CLOSED (program); 264–267 IMPLEMENTED; 268 PLANNED (campaign remains open pending corrective + full no-publish release qualification).**
