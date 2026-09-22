@@ -16,7 +16,7 @@ proxy/TLS-identity/async-Python remain experimental.
 - **Safe defaults are not defaults if they can be overridden silently.** Loopback bind, no symlinks, no dotfiles, no directory listing unless the user explicitly opts in. See `docs/security-policy.md`.
 - **No serving outside the configured root.** Traversal/symlink escape denied at library level (Unix safe defaults: `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`). See `docs/threat-model.md`.
 - **No broad dependencies.** Every dependency needs an explicit purpose. See `docs/dependency-policy.md`.
-- **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc features.
+- **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc features. If a change crosses a current non-goal (`docs/non-goals.md`), update `docs/non-goals.md` + `docs/threat-model.md` in the same PR.
 - **Unsafe Rust denied by default.** Only the reviewed Windows FFI, systemd descriptor-adoption, and test-fixture boundaries in `docs/unsafe-code-policy.md` are allowed.
 
 ## Layout
@@ -59,12 +59,12 @@ cargo +1.89 check --workspace --all-targets --features http3,tls
 cargo clippy --workspace --lib --bins --tests -- -D warnings
 cargo test --workspace
 cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked
+cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
+cargo test -p eggserve-bin --features tls
 cargo clippy -p eggserve-core --features http2,tls --lib --tests -- -D warnings
 cargo test -p eggserve-core --features http2,tls
 cargo clippy -p eggserve-bin --features http2,tls --lib --bins --tests -- -D warnings
 cargo test -p eggserve-bin --features http2,tls
-cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
-cargo test -p eggserve-bin --features tls
 cargo clippy -p eggserve-core --features http3,tls --lib --tests -- -D warnings
 cargo test -p eggserve-core --features http3,tls
 cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
@@ -72,6 +72,9 @@ cargo test -p eggserve-bin --features http3,tls
 # supply-chain job: install-cargo-tools.sh, then check-supply-chain.sh (both lockfiles)
 # python job: check-python-release-metadata.py, maturin build, test-python-wheel.sh
 ```
+
+Note: `./scripts/verify.sh fast` skips the `cargo +1.89` MSRV checks and the
+TLS-only `eggserve-bin` tests (those run in `verify.sh full` / CI).
 
 Focused runs: `cargo test -p <name>`; single test: `cargo test -p <name> <test_name>`.
 
@@ -91,7 +94,8 @@ bash scripts/verify-cargo-packages.sh --mode all  # release-prep package dry-run
 
 Direct `rustls` constraints carry a `0.23.45` caret floor (RUSTSEC-2026-0285)
 in every constraining manifest including the excluded Python crate — never
-roll it back. `deny.toml` bans wildcards and `native-tls`/`openssl-sys`.
+roll it back. `deny.toml` bans wildcards and `native-tls`/`openssl-sys`
+(`aws-lc-rs` is intentionally allowed: dev-only `rcgen` unification, production `cargo tree -e no-dev` is ring-only).
 
 ```sh
 cargo build --profile dist --locked -p eggserve-bin                 # stripped CLI
@@ -115,7 +119,7 @@ no push/tag/merge ever publishes.
 ## Tripwires (mistakes agents actually make)
 
 - **Manual CLI parsing in `args.rs` — no clap.** Grammar `[OPTIONS] [PORT] [DIRECTORY]`; a directory after an occupied port slot is verbatim even if numeric; host-only `--bind` leaves the port slot free; `--directory` occupies the directory slot.
-- **Two `DotfilePolicy` types** (parsing in `eggserve_static::path`, serving in `policy`); both must agree for dotfiles to be served.
+- **Two `DotfilePolicy` types** (parsing in `eggserve_static::path`, serving in `eggserve_primitives::policy` facaded as `eggserve_core::policy`); both must agree for dotfiles to be served.
 - **`StaticPolicy` field is `symlinks`, not `follow_symlinks`.** `ResponseStatus` is a struct with constants, not an enum. `FileRange` has private fields — construct via `try_new`/`new`, read via accessors, never a struct literal. `BodyPlan`: `Empty` / `FullBytes` / `FileFull` / `FileRange { start, end_inclusive }`.
 - **Five error types, don't conflate:** `PathRejection` (path validation) / `RequestValidationError` (HTTP-level, Python-facing) / `ServerError` (`#[non_exhaustive]`, lifecycle) / `ServiceError` (struct over private `ServiceErrorKind`; inspect via `is_panic`/`is_timeout`) / `RequestBodyError` (`#[non_exhaustive]`, body consumption). `RequestCancellationReason` + `ConnectionOutcome` are also `#[non_exhaustive]` — match with wildcard. Never synthesize a second HTTP error after final commitment.
 - **`RequestBody` is one-shot** (`read_all` or streaming, once); `Service::call` takes `Request` by value. Python `read()`/`iter_chunks()` are mutually exclusive. New code prefers `Request::context()` / `new_with_context()` over `connection()`/`lifecycle()`.
