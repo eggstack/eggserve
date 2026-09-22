@@ -224,14 +224,25 @@ semantics.
 ## Verification
 
 The installed-wheel harness is `scripts/test-python-wheel.sh`. It builds the
-wheel, installs it into a clean CPython environment (CI default: 3.14 with
-`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`), checks the import boundary, and runs
-the focused compatibility, TLS, low-level, lifecycle, and boundary tests with
-`unittest`. The CI default is a test-interpreter constraint, not a package
-requirement; release wheels are built against the CPython 3.11 ABI baseline.
-Subprocess helpers are canonically owned by `eggserve.subprocess`
-(`eggserve.server` retains compatibility re-exports). Release version and
-`[profile.dist]` sync is guarded cheaply by
-`scripts/check-python-release-metadata.py` before wheel builds. The wheel
-dependency closure is audited and checked against the shared `deny.toml` by
-`scripts/check-supply-chain.sh` before release.
+wheel (or reuses one via `WHEEL_PATH` for cross-interpreter lanes), installs
+it into a clean CPython environment, checks the import boundary, and — in
+`MODE=full` on the primary CI interpreter (3.14 with
+`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`) — runs the focused compatibility,
+TLS, low-level, lifecycle, and boundary tests with `unittest`. The
+`MODE=abi-smoke` lane runs import, CLI help, `scripts/release_smoke.py`, and
+the compact native fixture (`scripts/abi_smoke.py`) only, so the same wheel
+bytes prove GIL-enabled CPython 3.11–3.15 without duplicating the suite
+(Plan 264 build-once/test-many). The CI default is a test-interpreter
+constraint, not a package requirement; release wheels are built against the
+CPython 3.11 ABI baseline. The release target set is owned by
+`release/wheel-matrix.toml` (`scripts/wheel-matrix.py` validates it and emits
+the build matrix; `scripts/check-release-wheel-set.py` enforces it at
+aggregate time), with native AArch64/Windows-ARM64 execution and matching
+ARMv7 QEMU userspaces plus a rootless real-device path
+(`scripts/qualify-python-wheel-target.sh`). Subprocess helpers are
+canonically owned by `eggserve.subprocess`
+(`eggserve.server` retains compatibility re-exports). Release version,
+`[profile.dist]`, abi3/classifier, and workflow-baseline sync is guarded
+cheaply by `scripts/check-python-release-metadata.py` before wheel builds.
+The wheel dependency closure is audited and checked against the shared
+`deny.toml` by `scripts/check-supply-chain.sh` before release.

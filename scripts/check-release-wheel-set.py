@@ -12,20 +12,56 @@ import base64
 import hashlib
 import re
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
-REQUIRED_TARGETS = {
-    "manylinux_2_17_x86_64",
-    "manylinux_2_17_aarch64",
-    "manylinux_2_17_armv7l",
-    "musllinux_1_2_x86_64",
-    "musllinux_1_2_aarch64",
-    "macosx_11_0_arm64",
-    "macosx_10_12_x86_64",
-    "win_amd64",
-    "win_arm64",
-}
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_MATRIX = REPO_ROOT / "release" / "wheel-matrix.toml"
+
+
+def load_required_targets(matrix_path: Path) -> tuple[set[str], set[str]]:
+    """Load required + declared platform tags from the wheel-matrix authority.
+
+    Returns (required, declared). Raises SystemExit with a clear message when
+    the manifest is missing or invalid so the release fails closed.
+    """
+    try:
+        with open(matrix_path, "rb") as f:
+            data = tomllib.load(f)
+    except FileNotFoundError:
+        print(f"FAIL: wheel matrix not found: {matrix_path}", file=sys.stderr)
+        raise SystemExit(1)
+    except tomllib.TOMLDecodeError as exc:
+        print(f"FAIL: wheel matrix TOML parse error: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    if data.get("authority_version") != 1:
+        print("FAIL: wheel matrix authority_version must be 1", file=sys.stderr)
+        raise SystemExit(1)
+    targets = data.get("target", [])
+    required: set[str] = set()
+    declared: set[str] = set()
+    seen_tags: dict[str, str] = {}
+    for t in targets:
+        tag = t.get("platform_tag")
+        tid = t.get("id", "?")
+        if not tag:
+            continue
+        declared.add(tag)
+        if tag in seen_tags:
+            print(
+                f"FAIL: wheel matrix duplicate platform tag {tag!r} "
+                f"({seen_tags[tag]!r} and {tid!r})",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        seen_tags[tag] = tid
+        if t.get("tier") == "required":
+            required.add(tag)
+    if not required:
+        print("FAIL: wheel matrix declares no required targets", file=sys.stderr)
+        raise SystemExit(1)
+    return required, declared
 
 
 def verify_record(archive: zipfile.ZipFile) -> list[str]:
@@ -83,8 +119,16 @@ MUSLLINUX_RE = re.compile(r"^musllinux\d+_\d+_(.*)")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("directory", type=Path, help="directory containing wheel files")
-    parser.add_argument("--version", required=True, help="expected version string")
+    parser.add_argument("directory", type=Path, nargs="?",
+                        help="directory containing wheel files")
+    parser.add_argument("--version", required=False, default=None,
+                        help="expected version string")
+    parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX,
+                        help="wheel-matrix authority (default: release/wheel-matrix.toml)")
+    parser.add_argument("--include-candidates", action="store_true",
+                        help="allow declared candidate tags in addition to the required set")
+    parser.add_argument("--self-test", action="store_true",
+                        help="run fixture-level validator self-tests (no directory needed)")
     return parser.parse_args()
 
 
@@ -111,10 +155,130 @@ def format_targets(targets: set[str]) -> str:
     return "\n  ".join(sorted(targets))
 
 
+def _synthetic_wheel(directory: Path, version: str, platform_tag: str,
+                   python_tag: str = "cp311", abi_tag: str = "abi3",
+                   build_tag: str = "") -> Path:
+    """Write a minimal but RECORD-valid wheel for validator self-tests."""
+    import io
+
+    dist_info = f"eggserve-{version}.dist-info"
+    init_py = b"# eggserve synthetic self-test wheel\n__version__ = \"0.0.0\"\n"
+    native_so = b"\x7fELF synthetic native extension"
+    metadata = f"Metadata-Version: 2.1\nName: eggserve\nVersion: {version}\n".encode()
+    wheel_meta = (
+        "Wheel-Version: 1.0\nGenerator: self-test\nRoot-Is-Purelib: false\n"
+        f"Tag: {python_tag}-{abi_tag}-{platform_tag}\n"
+    ).encode()
+    members = {
+        "eggserve/__init__.py": init_py,
+        "eggserve/_native.abi3.so": native_so,
+        f"{dist_info}/METADATA": metadata,
+        f"{dist_info}/WHEEL": wheel_meta,
+    }
+    record_lines = []
+    for name, data in members.items():
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+        record_lines.append(f"{name},sha256={digest},{len(data)}")
+    record_name = f"{dist_info}/RECORD"
+    record_lines.append(f"{record_name},,")
+    members[record_name] = ("\n".join(record_lines) + "\n").encode()
+
+    filename = f"eggserve-{version}-{python_tag}-{abi_tag}-{platform_tag}.whl"
+    if build_tag:
+        filename = f"eggserve-{version}-{build_tag}-{python_tag}-{abi_tag}-{platform_tag}.whl"
+    path = directory / filename
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in members.items():
+            zf.writestr(name, data)
+    return path
+
+
+def cmd_self_test(matrix: Path) -> int:
+    """Fixture-level proofs (Plan 265): baseline passes; missing, extra,
+    duplicate, wrong-ABI, and generic-linux fixtures fail."""
+    import subprocess
+    import tempfile
+
+    required, declared = load_required_targets(matrix)
+    version = "0.2.0"
+    failures = 0
+
+    def run_case(name: str, tags: list[str], expect_ok: bool,
+                 expect_snippet: str = "",
+                 python_tag: str = "cp311", abi_tag: str = "abi3") -> None:
+        nonlocal failures
+        with tempfile.TemporaryDirectory(prefix="wheelset-selftest-") as tmp:
+            tmpdir = Path(tmp)
+            for tag in tags:
+                _synthetic_wheel(tmpdir, version, tag, python_tag, abi_tag)
+            proc = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve()),
+                 str(tmpdir), "--version", version, "--matrix", str(matrix)],
+                capture_output=True, text=True,
+            )
+            ok = proc.returncode == 0
+            combined = proc.stdout + proc.stderr
+            if ok == expect_ok and (not expect_snippet or expect_snippet in combined):
+                print(f"OK {name}")
+            else:
+                print(f"FAIL {name}: rc={proc.returncode} expected_ok={expect_ok}")
+                print(combined[-2000:])
+                failures += 1
+
+    baseline = sorted(required)
+    run_case("baseline required set passes", baseline, True)
+    run_case("missing required target fails", baseline[1:], False, "missing required")
+    run_case("undeclared extra target fails",
+             baseline + ["manylinux_2_17_ppc64le"], False, "undeclared")
+    with tempfile.TemporaryDirectory(prefix="wheelset-dup-") as tmp:
+        tmpdir = Path(tmp)
+        _synthetic_wheel(tmpdir, version, baseline[0])
+        # Second wheel file carrying the same platform tag. The numeric
+        # build segment keeps the filename valid while the platform collides.
+        _synthetic_wheel(tmpdir, version, baseline[0], build_tag="1")
+        proc = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()),
+             str(tmpdir), "--version", version, "--matrix", str(matrix)],
+            capture_output=True, text=True,
+        )
+        if proc.returncode != 0 and "duplicate platform tag" in proc.stdout + proc.stderr:
+            print("OK duplicate platform tags fail")
+        else:
+            print(f"FAIL duplicate platform tags: rc={proc.returncode}")
+            print((proc.stdout + proc.stderr)[-2000:])
+            failures += 1
+    run_case("wrong ABI tag fails", baseline, False, "abi",
+             python_tag="cp312", abi_tag="cp312")
+    run_case("generic linux tag fails", ["linux_x86_64"], False, "linux")
+
+    # ARMv7 musl is accepted only when the wheel exists: baseline (which
+    # contains it) passes, and removing just that tag fails.
+    musl_armv7 = "musllinux_1_2_armv7l"
+    if musl_armv7 in required:
+        run_case("armv7-musl present passes (in baseline)", baseline, True)
+        run_case("armv7-musl missing fails",
+                 [t for t in baseline if t != musl_armv7], False, "missing required")
+    else:
+        print("FAIL manifest does not require musllinux_1_2_armv7l")
+        failures += 1
+    return 1 if failures else 0
+
+
 def main() -> int:
     args = parse_args()
+    if args.self_test:
+        return cmd_self_test(args.matrix)
+    if args.directory is None or args.version is None:
+        print("FAIL: directory and --version are required (or use --self-test)",
+              file=sys.stderr)
+        return 2
     directory: Path = args.directory
     expected_version: str = args.version
+
+    required_targets, declared_targets = load_required_targets(args.matrix)
+    allowed_targets = set(required_targets)
+    if args.include_candidates:
+        allowed_targets = set(declared_targets)
 
     wheels = sorted(directory.glob("*.whl"))
     if not wheels:
@@ -354,18 +518,26 @@ def main() -> int:
     # --- Post-loop checks ---
     print(f"\n=== Summary ===")
     print(f"Wheels found: {len(wheels)}")
+    print(f"Matrix authority: {args.matrix}")
 
-    # --- Check 5 continued: required Tier 1 target set is exact ---
-    missing = REQUIRED_TARGETS - all_platforms
-    extra = all_platforms - REQUIRED_TARGETS
+    # --- Check 5 continued: required target set is exact (fail-closed) ---
+    # Every enabled required target must be present; no required target may
+    # appear twice (enforced above); unexpected targets not declared in the
+    # manifest fail; declared candidates may not silently count as supported.
+    missing = required_targets - all_platforms
+    extra = all_platforms - allowed_targets
+    undeclared = all_platforms - declared_targets
     if missing:
-        print(f"FAIL: missing required Tier 1 targets:\n  {format_targets(missing)}", file=sys.stderr)
+        print(f"FAIL: missing required targets:\n  {format_targets(missing)}", file=sys.stderr)
         failures += 1
-    if extra:
+    if undeclared:
+        print(f"FAIL: undeclared platform targets (not in wheel matrix):\n  {format_targets(undeclared)}", file=sys.stderr)
+        failures += 1
+    elif extra:
         print(f"FAIL: unexpected extra platform targets:\n  {format_targets(extra)}", file=sys.stderr)
         failures += 1
     if not missing and not extra:
-        print(f"OK: Tier 1 target set is exact ({len(REQUIRED_TARGETS)} targets)")
+        print(f"OK: required target set is exact ({len(required_targets)} targets)")
 
     # --- Summary of platform distribution ---
     print(f"Platform targets found: {len(all_platforms)}")

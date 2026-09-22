@@ -1,0 +1,223 @@
+# release/wheel-matrix.toml — canonical wheel-target authority (Plan 265).
+#
+# This file is the single declarative source for release wheel targets.
+# `scripts/wheel-matrix.py` validates it, emits the GitHub Actions build
+# matrix, and exposes the required platform tags to
+# `scripts/check-release-wheel-set.py`. Do not maintain a second platform
+# list in the release workflow or the validator.
+#
+# Tier meanings:
+#   required  — must be present in every release aggregate; missing fails.
+#   candidate — may be built/smoked experimentally; never counts as supported
+#               and never satisfies the aggregate gate on its own.
+#   deferred  — recorded blocker; not built by the release workflow.
+
+authority_version = 1
+
+[[target]]
+id = "linux-x86_64-glibc"
+name = "Linux x86_64 (glibc)"
+rust_target = "x86_64-unknown-linux-gnu"
+platform_tag = "manylinux_2_17_x86_64"
+runner = "ubuntu-latest"
+maturin_compat = "pypi"
+build = "cross-container"
+smoke = "native"
+tier = "required"
+arch_family = "x86_64"
+libc = "glibc"
+artifact = "wheel-manylinux-x86_64"
+notes = "Representative stable-ABI host; build-once test-many artifact (Plan 264)."
+
+[[target]]
+id = "linux-aarch64-glibc"
+name = "Linux AArch64 (glibc)"
+rust_target = "aarch64-unknown-linux-gnu"
+platform_tag = "manylinux_2_17_aarch64"
+runner = "ubuntu-latest"
+maturin_compat = "pypi"
+build = "cross-container"
+smoke = "native"
+tier = "required"
+arch_family = "aarch64"
+libc = "glibc"
+artifact = "wheel-manylinux-aarch64"
+qualify_runner = "ubuntu-24.04-arm"
+notes = "Cross-built for deterministic packaging; executed natively on the ARM64 hosted runner (Plan 266 option 2). Covers 64-bit Raspberry Pi / Le Potato-class userspaces."
+
+[[target]]
+id = "linux-armv7-glibc"
+name = "Linux ARMv7 (glibc)"
+rust_target = "armv7-unknown-linux-gnueabihf"
+platform_tag = "manylinux_2_17_armv7l"
+runner = "ubuntu-latest"
+maturin_compat = "pypi"
+build = "cross-container"
+smoke = "qemu"
+tier = "required"
+arch_family = "armv7"
+libc = "glibc"
+artifact = "wheel-manylinux-armv7"
+qemu_platform = "linux/arm/v7"
+qemu_image = "arm32v7/python:3.11-bookworm"
+notes = "Executed under a matching ARMv7 glibc userspace via QEMU; never proven by AArch64 compat mode alone."
+
+[[target]]
+id = "linux-x86_64-musl"
+name = "Linux x86_64 (musl)"
+rust_target = "x86_64-unknown-linux-musl"
+platform_tag = "musllinux_1_2_x86_64"
+runner = "ubuntu-latest"
+maturin_compat = "musllinux_1_2"
+build = "cross-container"
+smoke = "post-publish-only"
+tier = "required"
+arch_family = "x86_64"
+libc = "musl"
+artifact = "wheel-musllinux-x86_64"
+notes = "Pre-publish composition gate only; runtime proof is the Alpine post-publication smoke."
+
+[[target]]
+id = "linux-aarch64-musl"
+name = "Linux AArch64 (musl)"
+rust_target = "aarch64-unknown-linux-musl"
+platform_tag = "musllinux_1_2_aarch64"
+runner = "ubuntu-latest"
+maturin_compat = "musllinux_1_2"
+build = "cross-container"
+smoke = "post-publish-only"
+tier = "required"
+arch_family = "aarch64"
+libc = "musl"
+artifact = "wheel-musllinux-aarch64"
+qualify_runner = "ubuntu-24.04-arm"
+notes = "Alpine ARM64 post-publication smoke; native hosted execution where the runner is available."
+
+[[target]]
+id = "linux-armv7-musl"
+name = "Linux ARMv7 (musl)"
+rust_target = "armv7-unknown-linux-musleabihf"
+platform_tag = "musllinux_1_2_armv7l"
+runner = "ubuntu-latest"
+maturin_compat = "musllinux_1_2"
+build = "cross-container"
+smoke = "qemu"
+tier = "required"
+arch_family = "armv7"
+libc = "musl"
+artifact = "wheel-musllinux-armv7"
+qemu_platform = "linux/arm/v7"
+qemu_image = "arm32v7/python:3.11-alpine"
+notes = "Added by Plan 265. Rust/maturin target spelling confirmed against the pinned toolchain: armv7-unknown-linux-musleabihf. Executed under a matching ARMv7 musl userspace via QEMU."
+
+[[target]]
+id = "macos-x86_64"
+name = "macOS x86_64"
+rust_target = "x86_64-apple-darwin"
+platform_tag = "macosx_11_0_x86_64"
+runner = "macos-15-intel"
+maturin_compat = "auto"
+build = "native"
+smoke = "native"
+tier = "required"
+arch_family = "x86_64"
+libc = "darwin"
+artifact = "wheel-macos-x86_64"
+notes = "Deployment tag is matrix policy (11_0); docs and validator derive from this file."
+
+[[target]]
+id = "macos-arm64"
+name = "macOS arm64"
+rust_target = "aarch64-apple-darwin"
+platform_tag = "macosx_11_0_arm64"
+runner = "macos-14"
+maturin_compat = "auto"
+build = "native"
+smoke = "native"
+tier = "required"
+arch_family = "arm64"
+libc = "darwin"
+artifact = "wheel-macos-arm64"
+notes = "Native hosted runner build and smoke."
+
+[[target]]
+id = "windows-x86_64"
+name = "Windows x86_64"
+rust_target = "x86_64-pc-windows-msvc"
+platform_tag = "win_amd64"
+runner = "windows-latest"
+maturin_compat = "auto"
+build = "native"
+smoke = "native"
+tier = "required"
+arch_family = "x86_64"
+libc = "msvc"
+artifact = "wheel-windows-x86_64"
+notes = "Native hosted runner build and smoke."
+
+[[target]]
+id = "windows-arm64"
+name = "Windows ARM64"
+rust_target = "aarch64-pc-windows-msvc"
+platform_tag = "win_arm64"
+runner = "windows-latest"
+maturin_compat = "auto"
+build = "cross-container"
+smoke = "native"
+tier = "required"
+arch_family = "arm64"
+libc = "msvc"
+artifact = "wheel-windows-arm64"
+qualify_runner = "windows-11-arm"
+notes = "Cross-built artifact executed natively on the Windows ARM64 hosted runner; if that runner is unavailable the blocker is recorded and support wording stays conservative (Plan 266)."
+
+# --- Candidates (Plan 265 Track D; Plan 267 owns the final verdict) ---
+
+[[target]]
+id = "linux-i686-glibc"
+name = "Linux i686 (glibc)"
+rust_target = "i686-unknown-linux-gnu"
+platform_tag = "manylinux_2_17_i686"
+runner = "ubuntu-latest"
+maturin_compat = "pypi"
+build = "cross-container"
+smoke = "qemu"
+tier = "candidate"
+arch_family = "i686"
+libc = "glibc"
+artifact = "wheel-manylinux-i686"
+qemu_platform = "linux/386"
+qemu_image = "i386/python:3.11-bookworm"
+notes = "Candidate: promotion needs a clean dependency-closure build, binary-only install, release smoke, and acceptable CI cost. Not attempted in this plan; no dependency change authorized."
+
+[[target]]
+id = "linux-i686-musl"
+name = "Linux i686 (musl)"
+rust_target = "i686-unknown-linux-musl"
+platform_tag = "musllinux_1_2_i686"
+runner = "ubuntu-latest"
+maturin_compat = "musllinux_1_2"
+build = "cross-container"
+smoke = "qemu"
+tier = "candidate"
+arch_family = "i686"
+libc = "musl"
+artifact = "wheel-musllinux-i686"
+qemu_platform = "linux/386"
+qemu_image = "i386/python:3.11-alpine"
+notes = "Candidate: same promotion bar as i686 glibc. Not attempted in this plan."
+
+[[target]]
+id = "windows-x86"
+name = "Windows x86 (32-bit)"
+rust_target = "i686-pc-windows-msvc"
+platform_tag = "win32"
+runner = "windows-latest"
+maturin_compat = "auto"
+build = "cross-container"
+smoke = "native"
+tier = "candidate"
+arch_family = "i686"
+libc = "msvc"
+artifact = "wheel-windows-x86"
+notes = "Candidate: promotion needs tag acceptance by current packaging tooling plus install/smoke evidence. Not attempted in this plan."

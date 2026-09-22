@@ -37,6 +37,11 @@ jobs:
         run: python3 scripts/check-crate-topology.py
       - name: Release metadata sync
         run: python3 scripts/check-python-release-metadata.py
+      - name: Wheel-target authority
+        run: |
+          python3 scripts/wheel-matrix.py validate
+          python3 scripts/wheel-matrix.py self-test
+          python3 scripts/check-release-wheel-set.py --self-test
       - name: Format check
         run: cargo fmt --all -- --check
       - name: MSRV check

@@ -127,7 +127,8 @@ behavior.
   skipped due to NTFS path-rename semantics. Windows remains functional-only;
   do not use it with untrusted public content.
 
-- **Python wheels** are CPython 3.11+ with abi3 stable ABI (`>=3.11`) on the Linux,
+- **Python wheels** are GIL-enabled CPython 3.11–3.15 with abi3 stable ABI
+  (`>=3.11`, one `cp311-abi3` wheel per platform) on the Linux,
   macOS, and Windows wheel matrix. The wheel contains the native extension and
   extension-backed CLI entry point; it does not bundle a second standalone CLI
   binary.

@@ -205,13 +205,15 @@ each layer fits `fast`/`full`/`deep`.
 | `verify.sh deep` | `full` + fuzz replay, races, proxy interop (manual, expensive) |
 | `verify-conformance-matrix.py` | Schema + domain validator for `conformance/*.toml` (runs first in CI) |
 | `check-crate-topology.py` | Enforces Plans 211–253 ownership/dependency/facade/orphan-source/feature rules (+254–258 notes) |
-| `check-python-release-metadata.py` | Cheap version + `[profile.dist]` + entry-point sync check |
-| `test-python-wheel.sh` | Authoritative wheel harness: metadata preflight → maturin build → fresh venv → smoke + pytest |
+| `check-python-release-metadata.py` | Cheap version + `[profile.dist]` + entry-point + abi3/classifier sync check |
+| `test-python-wheel.sh` | Authoritative wheel harness: metadata preflight → maturin build (or `WHEEL_PATH` reuse) → fresh venv → smoke + pytest (`MODE=full` suite or `MODE=abi-smoke` lane) |
 | `test-examples.sh` | Compiles Cargo examples, smoke-tests canonical demos on loopback port `0` |
 | `verify-cargo-packages.sh --mode all` | Release-prep crates.io package dry-run |
 | `install-cargo-tools.sh` / `check-supply-chain.sh` | Pinned `cargo-audit`/`cargo-deny` install, then audit + policy over **both** lockfiles |
 | `qualify-http2.sh` / `qualify-http3.sh` | Manual wire qualification harnesses (fail-closed promotion gates; not part of `fast`/`full`/`deep`) |
-| `check-wheel-composition.py`, `check-release-wheel-set.py`, `release_smoke.py` | Wheel-content, 9-platform release-set, and artifact smoke checks |
+| `check-wheel-composition.py`, `check-release-wheel-set.py`, `release_smoke.py` | Wheel-content, matrix-driven release-set (10 required targets from `release/wheel-matrix.toml`), and artifact smoke checks |
+| `wheel-matrix.py` | Canonical wheel-target authority: `validate`, `emit-matrix` (release build matrix), `expected-tags`, `self-test` |
+| `abi_smoke.py`, `qualify-python-wheel-target.sh` | Compact native ABI fixture (cross-interpreter proof) and rootless real-device SBC qualification |
 
 ### Conformance corpora (`conformance/`)
 
@@ -585,12 +587,12 @@ See [error-taxonomy.md](error-taxonomy.md).
 |----------|--------|----------------|
 | **Linux x86_64** (glibc, manylinux_2_17) | Supported-hardened | Descriptor-relative traversal via `statat`+`openat` |
 | **Linux aarch64** (glibc, manylinux_2_17) | Supported-hardened | Same descriptor-relative guarantees as Linux x86_64 |
-| **Linux armv7** (glibc, manylinux_2_17) | Supported-hardened | Same descriptor-relative guarantees as Linux x86_64 |
+| **Linux armv7** (glibc/musl) | Supported-hardened | Same descriptor-relative guarantees as Linux x86_64; glibc and musl wheels execute under matching ARMv7 userspaces via QEMU |
 | **Linux x86_64** (musl, musllinux_1_2) | Supported-hardened | Same descriptor-relative guarantees; musl libc uses the same path |
 | **Linux aarch64** (musl, musllinux_1_2) | Supported-hardened | Same descriptor-relative guarantees as Linux x86_64 (musl) |
 | **macOS** (x86_64, arm64) | Supported-hardened | Same descriptor-relative guarantees as Linux |
 | **Windows x86_64** | Supported-functional | Handle-relative child resolution, reparse-point denial, and directory enumeration are qualified for the executed classes. Two open-descendant root-rename cases remain skipped because NTFS rejects that external path operation; keep Windows for trusted/local content. |
-| **Windows arm64** | Supported-functional | Same as Windows x86_64. Requires native ARM64 execution before Tier 1. |
+| **Windows arm64** | Supported-functional | Same as Windows x86_64. The `win_arm64` artifact is cross-built and executed natively on the Windows ARM64 hosted runner; support remains functional (trusted/local content), not hardened. |
 
 ---
 

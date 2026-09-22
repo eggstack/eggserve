@@ -116,9 +116,29 @@ def main() -> int:
             )
 
     # --- B3: Python compatibility contract ---
+    # Plan 264: normal GIL-enabled CPython support is 3.11-3.15 through one
+    # cp311-abi3 artifact per platform. Free-threaded CPython is owned by
+    # Plan 267 and must not be advertised here.
     requires_python = pyproject.get("project", {}).get("requires-python", "")
     if "3.11" not in requires_python:
         errors.append(f"requires-python does not include 3.11: {requires_python!r}")
+    # An artificial upper bound below 3.15 would contradict the 3.11-3.15
+    # contract (e.g. "<3.15", "<=3.14", "==3.14.*").
+    upper_bound = re.search(r"<\s*=?\s*3\.(\d+)", requires_python)
+    if upper_bound and int(upper_bound.group(1)) <= 15 and "<" in requires_python:
+        # Allow ">=3.11" (no upper bound). Reject explicit ceilings at/below 3.15.
+        if re.search(r"<\s*=?\s*3\.1[0-5]", requires_python):
+            errors.append(
+                f"requires-python sets an upper bound excluding 3.15: {requires_python!r}"
+            )
+
+    classifiers = pyproject.get("project", {}).get("classifiers", [])
+    for minor in ("3.11", "3.12", "3.13", "3.14", "3.15"):
+        if f"Programming Language :: Python :: {minor}" not in classifiers:
+            errors.append(
+                f"pyproject classifiers omit Python {minor} "
+                "(Plan 264: advertise 3.11-3.15)"
+            )
 
     py_cargo_features = []
     for dep in py_cargo_data.get("dependencies", {}).values():
@@ -137,6 +157,24 @@ def main() -> int:
     maturin_bindings = pyproject.get("tool", {}).get("maturin", {}).get("bindings")
     if maturin_bindings != "pyo3":
         errors.append(f"maturin bindings != pyo3: {maturin_bindings!r}")
+
+    # --- B3b: ABI baseline agreement (Plan 264 Track D) ---
+    # The executable packaging configuration must agree on cp311-abi3:
+    # pyproject classifiers (checked above), the PyO3 abi3-py311 feature
+    # (checked below), and the release workflow interpreter baseline.
+    release_yml = repo_root / ".github" / "workflows" / "release.yml"
+    if release_yml.is_file():
+        workflow_text = release_yml.read_text()
+        if "--interpreter python3.11" not in workflow_text:
+            errors.append(
+                "release workflow does not build against the python3.11 ABI "
+                "baseline (--interpreter python3.11 missing)"
+            )
+        if "cp312-cp312" in workflow_text or "cp315-cp315" in workflow_text:
+            errors.append(
+                "release workflow appears to build per-minor cpNN wheels; "
+                "Plan 264 requires one cp311-abi3 artifact per platform"
+            )
 
     # --- B4: Wheel architecture contract (if wheel exists in dist/) ---
     dist_dirs = [

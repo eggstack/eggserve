@@ -2,8 +2,21 @@
 # test-python-wheel.sh — Single installed-wheel verification harness.
 #
 # Used by both routine Python CI and `scripts/verify.sh full`.
-# Builds a wheel, installs into a fresh venv, runs smoke checks, and executes
-# the test suite.
+# Builds a wheel (or reuses a prebuilt one), installs into a fresh venv,
+# runs smoke checks, and executes the test suite.
+#
+# Environment:
+#   PYTHON=...     Test interpreter (default: PROJECT_TEST_PYTHON below).
+#   WHEEL_PATH=... Already-built wheel to reuse instead of building. When set,
+#                  the same wheel bytes can be installed across interpreter
+#                  lanes for the Plan 264 build-once/test-many ABI proof.
+#   MODE=...       "full" (default: metadata preflight + build + smoke + full
+#                  test suite) or "abi-smoke" (lighter lane: import, CLI help,
+#                  release smoke, abi_smoke.py only; no full test suite).
+#
+# The default test interpreter is the documented primary CI interpreter, not
+# the support ceiling. The supported range (GIL-enabled CPython 3.11-3.15 via
+# one cp311-abi3 wheel per platform) is owned by docs/toolchain-support.md.
 
 set -euo pipefail
 
@@ -12,7 +25,12 @@ unset PYTHONPATH
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PYTHON="${PYTHON:-python3.14}"
+# Primary CI interpreter for the full suite. Support semantics live in
+# docs/toolchain-support.md (3.11-3.15); do not infer them from this default.
+PROJECT_TEST_PYTHON="python3.14"
+PYTHON="${PYTHON:-$PROJECT_TEST_PYTHON}"
+MODE="${MODE:-full}"
+WHEEL_PATH="${WHEEL_PATH:-}"
 
 info()    { printf "\033[0;34m▸\033[0m %s\n" "$*"; }
 success() { printf "\033[0;32m✓\033[0m %s\n" "$*"; }
@@ -43,24 +61,37 @@ import sys
 v = sys.version_info
 assert v >= (3, 11), f'Python {v.major}.{v.minor} < 3.11'
 " || die "Python >=3.11 required."
-"$PYTHON" -m maturin --version >/dev/null 2>&1 || die "maturin not found. Install: pip install maturin==1.14.1"
+"$PYTHON" -m maturin --version >/dev/null 2>&1 || {
+    if [[ -z "$WHEEL_PATH" ]]; then
+        die "maturin not found. Install: pip install maturin==1.14.1"
+    fi
+    info "maturin not found; proceeding with prebuilt WHEEL_PATH"
+}
 command -v cargo >/dev/null 2>&1 || die "cargo not found."
 
 # Cheap release-metadata preflight before the expensive wheel build.
 info "Checking release metadata sync"
 "$PYTHON" "$REPO_ROOT/scripts/check-python-release-metadata.py" || die "release metadata sync failed"
 
-# Build wheel
-DIST_DIR="$(mktemp -d)"
-info "Building wheel into $DIST_DIR"
-(cd "$REPO_ROOT/crates/eggserve-python" && \
-    "$PYTHON" -m maturin build --profile dist --interpreter "$PYTHON" -o "$DIST_DIR")
-WHEEL_PATH="$(printf '%s\n' "$DIST_DIR"/*.whl)"
-if WHEEL_SIZE="$(stat --printf='%s' "$WHEEL_PATH" 2>/dev/null)"; then
+# Build wheel (or reuse a prebuilt one for cross-interpreter ABI lanes).
+DIST_DIR=""
+if [[ -n "$WHEEL_PATH" ]]; then
+    [[ -f "$WHEEL_PATH" ]] || die "WHEEL_PATH not found: $WHEEL_PATH"
+    info "Reusing prebuilt wheel: $WHEEL_PATH"
+    DIST_DIR="$(mktemp -d)"
+    cp "$WHEEL_PATH" "$DIST_DIR/"
+else
+    DIST_DIR="$(mktemp -d)"
+    info "Building wheel into $DIST_DIR"
+    (cd "$REPO_ROOT/crates/eggserve-python" && \
+        "$PYTHON" -m maturin build --profile dist --interpreter "$PYTHON" -o "$DIST_DIR")
+fi
+BUILT_WHEEL="$(printf '%s\n' "$DIST_DIR"/*.whl)"
+if WHEEL_SIZE="$(stat --printf='%s' "$BUILT_WHEEL" 2>/dev/null)"; then
     :
 else
     # macOS and other BSD systems use a different stat interface.
-    WHEEL_SIZE="$(stat -f '%z' "$WHEEL_PATH")"
+    WHEEL_SIZE="$(stat -f '%z' "$BUILT_WHEEL")"
 fi
 info "Wheel size: $WHEEL_SIZE bytes"
 info "Checking wheel composition"
@@ -119,6 +150,17 @@ eggserve_cmd = shutil.which('eggserve', path='$VENV_DIR/bin')
 assert eggserve_cmd is not None, 'eggserve command not found in venv'
 print(f'  installed command: {eggserve_cmd}')
 "
+
+# Lighter ABI-smoke lane for cross-interpreter proof (Plan 264 Track C):
+# import, CLI help, release smoke, and the compact native fixture only.
+# The full installed-wheel suite runs once on the primary CI interpreter.
+if [[ "$MODE" == "abi-smoke" ]]; then
+    info "Running ABI smoke (wheel: $(basename "$BUILT_WHEEL"), interpreter: $("$VENV_PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'))"
+    "$VENV_PYTHON" "$REPO_ROOT/scripts/release_smoke.py"
+    "$VENV_PYTHON" "$REPO_ROOT/scripts/abi_smoke.py"
+    success "ABI smoke passed"
+    exit 0
+fi
 
 # Canonical Python example smoke checks. The examples are loaded from the
 # checkout but run entirely against the installed wheel in this venv.

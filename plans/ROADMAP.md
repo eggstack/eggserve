@@ -750,4 +750,4 @@ Raspberry Pi/Le Potato-class systems. Plan 267 is an evidence gate only:
 free-threaded/abi3t, ARMv6, PPC64LE, s390x, and RISC-V receive explicit
 GO/NO-GO/DEFERRED decisions and may not force a TLS/security-provider change.
 
-Status: **263 PLANNED; 264–267 PLANNED.**
+Status: **263 CLOSED (program); 264–267 IMPLEMENTED (local proof complete, remote release lanes pending first manual dispatch).**

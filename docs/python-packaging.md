@@ -65,7 +65,7 @@ See [docs/python-api.md](python-api.md) for the full API reference.
 ### Prerequisites
 
 - Rust toolchain (stable)
-- CPython 3.11+ with abi3 stable ABI (`>=3.11`); PyPy and free-threaded builds are not supported
+- CPython 3.11–3.15 with abi3 stable ABI (GIL-enabled; `>=3.11`); PyPy and free-threaded builds are not supported
 - maturin: `pip install maturin`
 
 ### Build a wheel
@@ -89,8 +89,9 @@ This installs the package in the current virtualenv in development mode.
 
 ## Platform support
 
-The wheel is platform-specific because it contains a native extension. Release
-wheels are built for all 9 Tier 1 targets:
+The wheel is platform-specific because it contains a native extension. The
+canonical target authority is `release/wheel-matrix.toml`; release builds
+cover all 10 required targets:
 
 | Platform family | Wheel target |
 |---|---|
@@ -99,18 +100,31 @@ wheels are built for all 9 Tier 1 targets:
 | Linux armv7 (glibc) | `manylinux_2_17_armv7l` |
 | Linux x86_64 (musl) | `musllinux_1_2_x86_64` |
 | Linux aarch64 (musl) | `musllinux_1_2_aarch64` |
+| Linux armv7 (musl) | `musllinux_1_2_armv7l` |
 | macOS x86_64 | `macosx_11_0_x86_64` |
 | macOS arm64 | `macosx_11_0_arm64` |
 | Windows x86_64 | `win_amd64` |
 | Windows arm64 | `win_arm64` |
 
-Each wheel is an abi3 wheel (`cp311-abi3`), compatible with CPython 3.11+.
-One wheel per platform serves all supported CPython minor versions.
+Each wheel is an abi3 wheel (`cp311-abi3`), compatible with GIL-enabled
+CPython 3.11–3.15. One wheel per platform serves all supported CPython minor
+versions; the release proves the same wheel bytes on every minor
+(build-once/test-many ABI proof) and executes ARM/Windows-ARM64 artifacts
+natively or under matching QEMU userspaces (see `docs/release-process.md`).
+manylinux i686, musllinux i686, and Windows x86 (`win32`) are declared
+candidates only — not supported until build, binary-install, and smoke
+evidence exist with no dependency-policy exception.
 
 Routine CI builds and tests the Linux x86_64 wheel. Full matrix builds and
 cross-platform qualification happen at release time via the release workflow.
 The wheel smoke suite runs outside the checkout with `PYTHONPATH` unset and
 requires the installed extension-backed CLI entry point.
+
+`scripts/test-python-wheel.sh` supports two modes: `MODE=full` (default;
+build, smoke, and the full test suite on the primary CI interpreter) and
+`MODE=abi-smoke` (lighter lane for cross-interpreter proof: import, CLI
+help, release smoke, and `scripts/abi_smoke.py` only). `WHEEL_PATH` reuses
+an already-built wheel so the same bytes install across interpreter lanes.
 
 ## Versioning
 

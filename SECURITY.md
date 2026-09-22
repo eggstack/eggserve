@@ -54,12 +54,16 @@ Include the dependency version, enabled feature set, protocol/profile, and a
 minimal reproduction when safe to share.
 
 The release wheel targets the CPython 3.11 stable ABI (abi3) and supports
-GIL-enabled CPython 3.11+. Routine CI verifies the Linux wheel with CPython
-3.14; macOS and Windows wheels are built and tested in the release/platform
-workflows. Windows implements handle-relative confinement for the qualified
-classes, but remains trusted/local-content only: two open-descendant
-root-rename cases are skipped because NTFS rejects that external path
-operation. This is a qualification limitation, not an absence of confinement.
+GIL-enabled CPython 3.11–3.15 through one `cp311-abi3` wheel per platform
+(build-once/test-many ABI proof; PyPy and free-threaded CPython unsupported).
+Routine CI verifies the Linux wheel on the primary interpreter plus the
+matrix authority gates; macOS and Windows wheels are built and tested in the
+release/platform workflows, with the Windows ARM64 artifact executed natively
+on the ARM64 hosted runner. Windows implements handle-relative confinement
+for the qualified classes, but remains trusted/local-content only: two
+open-descendant root-rename cases are skipped because NTFS rejects that
+external path operation. This is a qualification limitation, not an absence
+of confinement.
 
 EggServe denies application-owned Rust `unsafe_code` by default. The reviewed
 exceptions are documented in [docs/unsafe-code-policy.md](docs/unsafe-code-policy.md).

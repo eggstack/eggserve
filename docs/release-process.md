@@ -23,10 +23,16 @@ commit SHAs; the pinned digests and the update procedure are maintained in
 ```
 workflow_dispatch (publish_target: none|testpypi|pypi)  │
   ▼
-preflight (version-sync check, source commit)
+preflight (version-sync check, wheel-matrix authority, source commit)
   │
   ▼
-wide wheel build matrix (9 Tier 1 targets)
+wide wheel build matrix (10 required targets, from wheel-matrix.toml)
+  │
+  ├──▶ ABI proof: same x86_64 wheel on CPython 3.11–3.15 (binary-only)
+  ├──▶ native AArch64 + Windows ARM64 qualification lanes
+  │
+  ▼
+aggregate + validate complete wheel set
   │
   ▼
 aggregate + validate complete wheel set
@@ -59,7 +65,7 @@ receives only the already-built and already-qualified release artifact set.
 4. Run the release preflight locally or rely on the workflow preflight job.
 5. Manually dispatch the release workflow for the intended commit.
 6. Inspect the build matrix results and aggregate manifest.
-7. Approve the `pypi` environment only after all Tier 1 wheels are present.
+7. Approve the `pypi` environment only after all required wheels are present.
 8. Confirm the publication job succeeds.
 9. Review post-publication binary-only smoke checks.
 10. Optionally create and push a repository tag.
@@ -92,8 +98,12 @@ The workflow runs a preflight job before any platform builds:
   `pyproject.toml`, and `__init__.py` (which derives from
   `importlib.metadata.version("eggserve")`), plus exact `[profile.dist]`
   equivalence between the workspace and the excluded Maturin crate.
-- Validates `abi3-py311`, `requires-python >=3.11`, and wheel architecture
-  contract.
+- Validates `abi3-py311`, `requires-python >=3.11` with advertised 3.11–3.15
+  classifiers, and the `python3.11` wheel ABI baseline.
+- Validates the wheel-target authority (`scripts/wheel-matrix.py validate`,
+  `self-test`, and `scripts/check-release-wheel-set.py --self-test`) and
+  emits the build matrix from `release/wheel-matrix.toml`, so the workflow
+  carries no second platform list.
 - Exposes the expected package version as a job output for downstream matrix
   jobs.
 
@@ -101,43 +111,71 @@ A metadata mismatch prevents all platform builds.
 
 ## Wide platform wheel matrix
 
-Release wheels are built for all 9 Tier 1 targets:
+Release wheels are built for all 10 required targets declared in
+`release/wheel-matrix.toml` (the single authority; the workflow matrix is
+generated from it in preflight):
 
 | Platform family | Wheel target | Build method |
 |---|---|---|
 | Linux x86_64 (glibc) | `manylinux_2_17_x86_64` | manylinux container |
-| Linux aarch64 (glibc) | `manylinux_2_17_aarch64` | manylinux container (native or cross) |
-| Linux armv7 (glibc) | `manylinux_2_17_armv7l` | cross-build + QEMU smoke |
+| Linux aarch64 (glibc) | `manylinux_2_17_aarch64` | manylinux container (cross-build, native hosted execution) |
+| Linux armv7 (glibc) | `manylinux_2_17_armv7l` | cross-build + QEMU smoke under matching ARMv7 glibc userspace |
 | Linux x86_64 (musl) | `musllinux_1_2_x86_64` | musllinux container |
-| Linux aarch64 (musl) | `musllinux_1_2_aarch64` | musllinux container (native or cross) |
+| Linux aarch64 (musl) | `musllinux_1_2_aarch64` | musllinux container (cross-build, native hosted execution where available) |
+| Linux armv7 (musl) | `musllinux_1_2_armv7l` | cross-build + QEMU smoke under matching ARMv7 musl userspace |
 | macOS x86_64 | `macosx_11_0_x86_64` | native hosted runner |
 | macOS arm64 | `macosx_11_0_arm64` | native hosted runner |
 | Windows x86_64 | `win_amd64` | native hosted runner |
-| Windows arm64 | `win_arm64` | native hosted runner or cross-build + qualify |
+| Windows arm64 | `win_arm64` | cross-build + native hosted execution |
 
 Each wheel is built with exact Rust **1.98.1** and
-`--profile dist --locked --compatibility pypi` and
+`--profile dist --locked --interpreter python3.11` and
 validated for platform/ABI/version correctness, wheel composition (no second
 standalone binary), and runtime smoke (import, CLI help, real fixture serving).
-On the representative manylinux x86_64 target, the same wheel is installed and
-smoke-tested under both CPython 3.11 (minimum) and CPython 3.14 (newest
-supported) to prove stable-ABI reuse of one artifact across the declared
-Python range. The armv7 wheel is cross-compiled on x86_64 and smoke-tested
-inside a QEMU-emulated ARMv7 Docker container to prove runtime compatibility.
+
+### Stable-ABI proof (build-once, test-many)
+
+One `cp311-abi3` artifact per platform serves GIL-enabled CPython 3.11–3.15;
+no per-minor wheels are produced. The release proves reuse with the exact
+built bytes: the `abi-proof` job downloads the Linux x86_64 wheel artifact
+and installs it with `--only-binary=:all:` on CPython 3.11, 3.12, 3.13,
+3.14, and 3.15, running import, CLI/module help, `scripts/release_smoke.py`,
+and the compact native fixture (`scripts/abi_smoke.py`) on each, recording
+the wheel filename and interpreter version.
+
+### Architecture-aware qualification
+
+- Linux AArch64 wheels execute natively on the ARM64 hosted runner on both
+  CPython 3.11 (minimum) and CPython 3.15 (maximum); this lane is the
+  representative evidence for 64-bit Raspberry Pi and Le Potato-class
+  userspaces (userspace/architecture claims only, never board-specific
+  kernel/device claims).
+- The Windows ARM64 wheel executes natively on the Windows ARM64 hosted
+  runner. If that runner is unavailable, the blocker is recorded and support
+  wording stays conservative.
+- ARMv7 glibc and musl wheels execute under matching ARMv7 runtime
+  environments via QEMU (never AArch64 compat mode alone).
+- `scripts/qualify-python-wheel-target.sh` provides a repeatable rootless
+  real-device path (local wheel or published package) for maintainer-run SBC
+  proof; volunteer hardware is never a mandatory per-PR gate.
 
 ## Aggregate and validate
 
 After all matrix jobs succeed:
 
-1. Download every Tier 1 artifact from the workflow run.
+1. Download every required artifact from the workflow run.
 2. Place all wheels in one clean directory.
-3. Run the release wheel-set validator (`scripts/check-release-wheel-set.py`).
+3. Run the release wheel-set validator (`scripts/check-release-wheel-set.py`,
+   which loads its required set from the same `release/wheel-matrix.toml`).
 4. Verify all wheels share the expected version and `cp311-abi3` tag.
-5. Produce a human-readable manifest with SHA-256 hashes.
+5. Produce a human-readable manifest with SHA-256 hashes plus the matrix
+   authority revision, so a published artifact set can be reconstructed.
 6. Upload the aggregate set as workflow evidence.
 
-The aggregate step rejects the release if any Tier 1 target is missing or any
-wheel fails validation.
+The aggregate step rejects the release if any required target is missing,
+duplicated, mis-tagged, undeclared, or a generic `linux_*` wheel, or if
+manylinux/musllinux families are conflated. Declared `candidate` targets
+never silently count as supported.
 
 ## PyPI Trusted Publishing (OIDC)
 
@@ -170,18 +208,24 @@ For TestPyPI qualification:
 ## Post-publication smoke checks
 
 After a successful PyPI upload, run binary-only installation and smoke checks
-on five representative targets in parallel:
+across the published matrix in parallel:
 
-- Linux x86_64 (glibc, manylinux)
-- Linux aarch64 (glibc, manylinux)
+- Linux x86_64 (glibc, manylinux) on CPython 3.11 (minimum) and 3.15 (maximum)
+- Linux AArch64 (glibc, manylinux, native hosted runner)
+- Linux ARMv7 (glibc, QEMU ARMv7 userspace)
 - Linux x86_64 (musl, Alpine container)
+- Linux AArch64 (musl, Alpine container on the ARM64 runner)
+- Linux ARMv7 (musl, QEMU ARMv7 Alpine userspace)
 - macOS arm64
 - Windows x86_64
+- Windows ARM64 (native hosted runner)
 
 Each target installs from the published index with `--only-binary=:all:`
-(where supported by the platform), verifies `eggserve.__version__` matches
+(where supported by the platform), which fails rather than falling back to
+an sdist/local build. Each verifies `eggserve.__version__` matches
 the expected release version, confirms `eggserve._native` imports, and runs
-the release smoke test (real loopback server serving exact fixture bytes).
+the release smoke test (real loopback server serving exact fixture bytes)
+plus the compact native fixture.
 
 Install in a clean environment without source/build dependencies. Verify pip
 resolves a wheel without local compilation. Capture the resolved wheel
@@ -206,7 +250,9 @@ an in-progress publication.
   guarantee.
 - **HTTP/2, redirects, retries, cookies, proxy, and multi-range responses**:
   outside scope. HTTP/1.1 with single byte ranges only.
-- **Python wheels**: CPython 3.11+ with abi3 stable ABI (`>=3.11`).
+- **Python wheels**: GIL-enabled CPython 3.11–3.15 with abi3 stable ABI
+  (`>=3.11`, one `cp311-abi3` wheel per platform; free-threaded CPython
+  unsupported, see `release/plan-267-wheel-feasibility.md`).
 
 ## crates.io publication
 

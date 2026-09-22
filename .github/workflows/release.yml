@@ -32,6 +32,7 @@ jobs:
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
       version: ${{ steps.version.outputs.version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -48,6 +49,17 @@ jobs:
         run: bash scripts/check-supply-chain.sh
       - name: Check release metadata
         run: python3 scripts/check-python-release-metadata.py
+      - name: Validate wheel-target authority
+        run: |
+          python3 scripts/wheel-matrix.py validate
+          python3 scripts/wheel-matrix.py self-test
+          python3 scripts/check-release-wheel-set.py --self-test
+      - name: Emit wheel build matrix
+        id: matrix
+        run: |
+          MATRIX_JSON="$(python3 scripts/wheel-matrix.py emit-matrix)"
+          echo "$MATRIX_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'{len(d)} required targets')"
+          echo "matrix=$MATRIX_JSON" >> "$GITHUB_OUTPUT"
       - name: Record git SHA
         id: sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -62,87 +74,10 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      # The build matrix comes from the preflight-generated manifest authority
+      # (release/wheel-matrix.toml); no second platform list lives here.
       matrix:
-        include:
-          # Linux glibc - manylinux_2_17
-          - name: "Build wheel (Linux x86_64 manylinux)"
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            manylinux: "2_17"
-            artifact: wheel-manylinux-x86_64
-            maturin_flags: "--compatibility pypi"
-            venv_python: /tmp/smoke-venv/bin/python
-            console_script: /tmp/smoke-venv/bin/eggserve
-          - name: "Build wheel (Linux aarch64 manylinux)"
-            os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            manylinux: "2_17"
-            artifact: wheel-manylinux-aarch64
-            maturin_flags: "--compatibility pypi"
-            venv_python: /tmp/smoke-venv/bin/python
-            console_script: /tmp/smoke-venv/bin/eggserve
-          - name: "Build wheel (Linux armv7 manylinux)"
-            os: ubuntu-latest
-            target: armv7-unknown-linux-gnueabihf
-            manylinux: "2_17"
-            artifact: wheel-manylinux-armv7
-            maturin_flags: "--compatibility pypi"
-            venv_python: /tmp/smoke-venv/bin/python
-            console_script: /tmp/smoke-venv/bin/eggserve
-
-          # Linux musl - musllinux_1_2
-          - name: "Build wheel (Linux x86_64 musllinux)"
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            manylinux: "musllinux_1_2"
-            artifact: wheel-musllinux-x86_64
-            maturin_flags: "--compatibility pypi"
-            venv_python: /tmp/smoke-venv/bin/python
-            console_script: /tmp/smoke-venv/bin/eggserve
-          - name: "Build wheel (Linux aarch64 musllinux)"
-            os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            manylinux: "musllinux_1_2"
-            artifact: wheel-musllinux-aarch64
-            maturin_flags: "--compatibility pypi"
-            venv_python: /tmp/smoke-venv/bin/python
-            console_script: /tmp/smoke-venv/bin/eggserve
-
-          # macOS
-          - name: "Build wheel (macOS arm64)"
-            os: macos-14
-            target: aarch64-apple-darwin
-            manylinux: "auto"
-            artifact: wheel-macos-arm64
-            maturin_flags: ""
-            venv_python: /tmp/smoke-venv/bin/python
-            console_script: /tmp/smoke-venv/bin/eggserve
-          - name: "Build wheel (macOS x86_64)"
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-            manylinux: "auto"
-            artifact: wheel-macos-x86_64
-            maturin_flags: ""
-            venv_python: /tmp/smoke-venv/bin/python
-            console_script: /tmp/smoke-venv/bin/eggserve
-
-          # Windows
-          - name: "Build wheel (Windows x86_64)"
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            manylinux: "auto"
-            artifact: wheel-windows-x86_64
-            maturin_flags: ""
-            venv_python: /tmp/smoke-venv/Scripts/python
-            console_script: /tmp/smoke-venv/Scripts/eggserve.exe
-          - name: "Build wheel (Windows arm64)"
-            os: windows-latest
-            target: aarch64-pc-windows-msvc
-            manylinux: "auto"
-            artifact: wheel-windows-arm64
-            maturin_flags: ""
-            venv_python: /tmp/smoke-venv/Scripts/python
-            console_script: /tmp/smoke-venv/Scripts/eggserve.exe
+        include: ${{ fromJSON(needs.preflight.outputs.matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -155,9 +90,9 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-        if: matrix.os == 'ubuntu-latest' && (contains(matrix.target, 'aarch64-unknown-linux') || contains(matrix.target, 'armv7-unknown-linux'))
+        if: matrix.qemu_platform != ''
         with:
-          platforms: linux/${{ startsWith(matrix.target, 'aarch64') && 'arm64' || 'arm/v7' }}
+          platforms: ${{ matrix.qemu_platform }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
@@ -167,55 +102,168 @@ jobs:
           maturin-version: "1.14.1"
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
-          args: "--profile dist --locked --interpreter python3.11 ${{ matrix.maturin_flags }} --out dist"
+          args: "--profile dist --locked --interpreter python3.11 --out dist"
           working-directory: crates/eggserve-python
       - name: Verify wheel composition
         shell: bash
         run: python "$GITHUB_WORKSPACE/scripts/check-wheel-composition.py" "$GITHUB_WORKSPACE/crates/eggserve-python/dist"
-      - name: Smoke test wheel
-        if: "!(contains(matrix.target, 'armv7') || contains(matrix.target, 'musl') || contains(matrix.target, 'aarch64-pc-windows') || contains(matrix.target, 'aarch64-unknown-linux'))"
+      - name: Smoke test wheel (native)
+        if: matrix.smoke == 'native'
         shell: bash
         run: |
           python -m venv /tmp/smoke-venv
-          ${{ matrix.venv_python }} -m pip install --disable-pip-version-check -q "$GITHUB_WORKSPACE/crates/eggserve-python/dist"/*.whl
+          ${{ matrix.venv_python }} -m pip install --disable-pip-version-check -q --only-binary=:all: "$GITHUB_WORKSPACE/crates/eggserve-python/dist"/*.whl
           ${{ matrix.console_script }} --help >/dev/null
           ${{ matrix.venv_python }} -m eggserve --help >/dev/null
           ${{ matrix.venv_python }} "$GITHUB_WORKSPACE/scripts/release_smoke.py"
-      - name: Smoke test wheel (QEMU ARMv7)
-        if: contains(matrix.target, 'armv7')
+          ${{ matrix.venv_python }} "$GITHUB_WORKSPACE/scripts/abi_smoke.py"
+      - name: Smoke test wheel (QEMU)
+        if: matrix.smoke == 'qemu'
         shell: bash
         run: |
-          docker run --rm --platform linux/arm/v7 \
+          docker run --rm --platform ${{ matrix.qemu_platform }} \
             -v "$GITHUB_WORKSPACE/crates/eggserve-python/dist:/wheels:ro" \
             -v "$GITHUB_WORKSPACE/scripts:/scripts:ro" \
-            arm32v7/python:3.11-bookworm \
+            ${{ matrix.qemu_image }} \
             bash -c '
-              pip install --disable-pip-version-check -q /wheels/*.whl
+              pip install --disable-pip-version-check -q --only-binary=:all: /wheels/*.whl
               python -c "import eggserve; import eggserve._native; print(f\"version={eggserve.__version__}\")"
               eggserve --help >/dev/null
               python -m eggserve --help >/dev/null
               python /scripts/release_smoke.py
+              python /scripts/abi_smoke.py
             '
-      - name: "Stable ABI proof: same wheel on CPython 3.14"
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: "3.14"
-      - name: Run ABI proof smoke
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        shell: bash
-        run: |
-          python3.14 -m venv /tmp/smoke-venv-314
-          /tmp/smoke-venv-314/bin/python -m pip install --disable-pip-version-check -q "$GITHUB_WORKSPACE/crates/eggserve-python/dist"/*.whl
-          /tmp/smoke-venv-314/bin/python -c "import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')"
-          /tmp/smoke-venv-314/bin/eggserve --help >/dev/null
-          /tmp/smoke-venv-314/bin/python -m eggserve --help >/dev/null
-          /tmp/smoke-venv-314/bin/python "$GITHUB_WORKSPACE/scripts/release_smoke.py"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}
           path: crates/eggserve-python/dist/*.whl
+
+  abi-proof:
+    # Plan 264 Track B: build-once, test-many. The exact Linux x86_64
+    # cp311-abi3 artifact from the build matrix is installed with
+    # binary-only resolution on every supported CPython minor.
+    name: "ABI proof (CPython ${{ matrix.python-version }})"
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Download representative wheel artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: wheel-manylinux-x86_64
+          path: abi-wheel
+      - name: Install same wheel bytes (binary-only)
+        shell: bash
+        run: |
+          python -m venv /tmp/abi-venv
+          /tmp/abi-venv/bin/python -m pip install --disable-pip-version-check -q --only-binary=:all: abi-wheel/*.whl
+          echo "wheel: $(ls abi-wheel/*.whl)"
+          /tmp/abi-venv/bin/python -c "import sys; print(f'interpreter={sys.version}')"
+      - name: Run ABI proof smoke
+        shell: bash
+        run: |
+          /tmp/abi-venv/bin/python -c "import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')"
+          /tmp/abi-venv/bin/eggserve --help >/dev/null
+          /tmp/abi-venv/bin/python -m eggserve --help >/dev/null
+          /tmp/abi-venv/bin/python scripts/release_smoke.py
+          /tmp/abi-venv/bin/python scripts/abi_smoke.py
+
+  qualify-aarch64-native:
+    # Plan 266 Track A+E: the cross-built AArch64 artifacts execute natively
+    # on the ARM64 hosted runner (Plan 266 option 2). Endpoint coverage uses
+    # both ends of the supported CPython range (3.11 minimum, 3.15 maximum).
+    name: "Native AArch64 (CPython ${{ matrix.python-version }})"
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.15"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Record native evidence
+        shell: bash
+        run: |
+          uname -a
+          python -c "import platform; print(f'machine={platform.machine()}')"
+          python -c "import platform; print(f'python={platform.python_version()}')"
+          python -c "import ctypes; f=ctypes.CDLL(None).gnu_get_libc_version; f.restype=ctypes.c_char_p; print(f'libc=glibc {f().decode()}')"
+      - name: Download AArch64 artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: wheel-*-aarch64
+          path: aarch64-wheels
+          merge-multiple: true
+      - name: Smoke each AArch64 wheel natively
+        shell: bash
+        run: |
+          for whl in aarch64-wheels/*.whl; do
+            echo "--- $whl ---"
+            rm -rf /tmp/aarch64-venv
+            python -m venv /tmp/aarch64-venv
+            /tmp/aarch64-venv/bin/python -m pip install --disable-pip-version-check -q --only-binary=:all: "$whl"
+            /tmp/aarch64-venv/bin/python -c "import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')"
+            /tmp/aarch64-venv/bin/eggserve --help >/dev/null
+            /tmp/aarch64-venv/bin/python -m eggserve --help >/dev/null
+            /tmp/aarch64-venv/bin/python scripts/release_smoke.py
+            /tmp/aarch64-venv/bin/python scripts/abi_smoke.py
+          done
+
+  qualify-windows-arm64:
+    # Plan 266 Track B: the cross-built win_arm64 artifact executes natively
+    # on the Windows ARM64 hosted runner. If that runner is unavailable to
+    # this repository, the failure is the recorded blocker and support
+    # wording stays conservative (see docs/toolchain-support.md).
+    name: "Native Windows ARM64"
+    needs: [preflight, build]
+    runs-on: windows-11-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+      - name: Record native evidence
+        shell: pwsh
+        run: |
+          Get-ComputerInfo -Property WindowsProductName,WindowsVersion,OsBuildNumber
+          Get-Volume -DriveLetter $env:SystemDrive.TrimEnd(':') | Select-Object DriveLetter,FileSystem,FileSystemLabel
+          python -c "import platform; print(platform.machine(), platform.python_version())"
+      - name: Download Windows ARM64 artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: wheel-windows-arm64
+          path: win-arm64-wheel
+      - name: Smoke Windows ARM64 wheel natively
+        shell: bash
+        run: |
+          python -m venv /tmp/win-arm64-venv
+          /tmp/win-arm64-venv/Scripts/python -m pip install --disable-pip-version-check -q --only-binary=:all: win-arm64-wheel/*.whl
+          echo "wheel: $(ls win-arm64-wheel/*.whl)"
+          /tmp/win-arm64-venv/Scripts/python -c "import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')"
+          /tmp/win-arm64-venv/Scripts/eggserve.exe --help
+          /tmp/win-arm64-venv/Scripts/python -m eggserve --help
+          /tmp/win-arm64-venv/Scripts/python scripts/release_smoke.py
+          /tmp/win-arm64-venv/Scripts/python scripts/abi_smoke.py
 
   aggregate:
     name: Aggregate wheel set
@@ -245,6 +293,7 @@ jobs:
         run: |
           echo "Source: ${{ needs.preflight.outputs.sha }}" > dist/MANIFEST
           echo "Version: ${{ needs.preflight.outputs.version }}" >> dist/MANIFEST
+          echo "Matrix authority: release/wheel-matrix.toml@$(sha256sum release/wheel-matrix.toml | cut -d' ' -f1)" >> dist/MANIFEST
           echo "" >> dist/MANIFEST
           echo "Wheel files and SHA-256 digests:" >> dist/MANIFEST
           for whl in dist/*.whl; do
@@ -296,7 +345,13 @@ jobs:
           packages-dir: dist/
 
   post-publish:
-    name: "Post-publish smoke: ${{ matrix.name }}"
+    # Plan 264 Track E + Plan 266 Track F: binary-only install smoke across
+    # the published matrix, including both ends of the CPython range (3.11
+    # minimum, 3.15 maximum) on the representative host. ARMv7 lanes execute
+    # under a matching ARMv7 userspace via QEMU. If a hosted runner cannot
+    # execute one target, the limitation is documented in
+    # docs/release-process.md rather than pretended.
+    name: "Post-publish smoke: ${{ matrix.name }} (CPython ${{ matrix.python-version }})"
     needs: [preflight, publish-testpypi, publish-pypi]
     if: always() && (needs.publish-testpypi.result == 'success' || needs.publish-pypi.result == 'success')
     runs-on: ${{ matrix.os }}
@@ -305,26 +360,56 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "Linux x86_64"
+          - name: "Linux x86_64 glibc (min)"
             os: ubuntu-latest
-          - name: "Linux aarch64"
+            mode: native
+            python-version: "3.11"
+          - name: "Linux x86_64 glibc (max)"
+            os: ubuntu-latest
+            mode: native
+            python-version: "3.15"
+          - name: "Linux aarch64 glibc"
             os: ubuntu-24.04-arm
-          - name: "Linux musl (Alpine)"
+            mode: native
+            python-version: "3.11"
+          - name: "Linux armv7 glibc"
             os: ubuntu-latest
+            mode: qemu-glibc-armv7
+            python-version: "3.11"
+          - name: "Linux x86_64 musl (Alpine)"
+            os: ubuntu-latest
+            mode: alpine
+            python-version: "3.11"
+          - name: "Linux aarch64 musl (Alpine)"
+            os: ubuntu-24.04-arm
+            mode: alpine
+            python-version: "3.11"
+          - name: "Linux armv7 musl (Alpine)"
+            os: ubuntu-latest
+            mode: qemu-musl-armv7
+            python-version: "3.11"
           - name: "macOS arm64"
             os: macos-14
+            mode: native
+            python-version: "3.11"
           - name: "Windows x86_64"
             os: windows-latest
+            mode: native
+            python-version: "3.11"
+          - name: "Windows ARM64"
+            os: windows-11-arm
+            mode: native
+            python-version: "3.11"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.preflight.outputs.sha }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        if: matrix.name != 'Linux musl (Alpine)'
+        if: matrix.mode == 'native'
         with:
-          python-version: "3.11"
-      - name: Install from PyPI (native)
-        if: "!contains(matrix.name, 'musl')"
+          python-version: ${{ matrix.python-version }}
+      - name: Install from index (native, binary-only)
+        if: matrix.mode == 'native'
         shell: bash
         run: |
           VERSION="${{ needs.preflight.outputs.version }}"
@@ -333,15 +418,18 @@ jobs:
           else
             pip install --only-binary=:all: "eggserve==${VERSION}"
           fi
+          pip show -f eggserve | grep -E "^(Name|Version|Location)" || true
+          python -c "import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')"
       - name: Smoke test (native)
-        if: "!contains(matrix.name, 'musl')"
+        if: matrix.mode == 'native'
         shell: bash
         run: |
           eggserve --help >/dev/null
           python -m eggserve --help >/dev/null
           python scripts/release_smoke.py
-      - name: Install from PyPI (musl Alpine container)
-        if: contains(matrix.name, 'musl')
+          python scripts/abi_smoke.py
+      - name: Install and smoke from index (musl Alpine container)
+        if: matrix.mode == 'alpine'
         shell: bash
         run: |
           VERSION="${{ needs.preflight.outputs.version }}"
@@ -353,7 +441,31 @@ jobs:
             -v "$(pwd)/scripts:/scripts:ro" \
             python:3.11-alpine \
             sh -c "
-              pip install --no-cache-dir --index-url ${INDEX_URL} 'eggserve==${VERSION}'
+              pip install --no-cache-dir --only-binary=:all: --index-url ${INDEX_URL} 'eggserve==${VERSION}'
+              python -c \"import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')\"
+              eggserve --help >/dev/null
+              python -m eggserve --help >/dev/null
+              python /scripts/release_smoke.py
+            "
+      - name: Install and smoke from index (QEMU ARMv7)
+        if: matrix.mode == 'qemu-glibc-armv7' || matrix.mode == 'qemu-musl-armv7'
+        shell: bash
+        run: |
+          VERSION="${{ needs.preflight.outputs.version }}"
+          INDEX_URL="https://pypi.org/simple/"
+          if [ "${{ needs.publish-testpypi.result }}" = "success" ]; then
+            INDEX_URL="https://test.pypi.org/simple/"
+          fi
+          if [ "${{ matrix.mode }}" = "qemu-glibc-armv7" ]; then
+            IMAGE="arm32v7/python:3.11-bookworm"
+          else
+            IMAGE="arm32v7/python:3.11-alpine"
+          fi
+          docker run --rm --platform linux/arm/v7 \
+            -v "$(pwd)/scripts:/scripts:ro" \
+            "$IMAGE" \
+            bash -c "
+              pip install --disable-pip-version-check -q --only-binary=:all: --index-url ${INDEX_URL} 'eggserve==${VERSION}'
               python -c \"import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')\"
               eggserve --help >/dev/null
               python -m eggserve --help >/dev/null

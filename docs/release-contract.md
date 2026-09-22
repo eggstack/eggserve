@@ -18,10 +18,11 @@ body-bearing requests, while custom services may declare buffering or streaming
 for the actual method. The runtime owns one server-wide file-stream admission
 pool and closes incomplete streamed requests.
 
-The Python wheel compatibility declaration is CPython 3.11+ with abi3 stable ABI
-(`>=3.11`) on Linux, macOS, and Windows. The wheel contains the matching
-platform-native extension and its extension-backed CLI entry point; PyPy and
-free-threaded CPython are not supported.
+The Python wheel compatibility declaration is GIL-enabled CPython 3.11–3.15
+with abi3 stable ABI (`>=3.11`, one `cp311-abi3` wheel per platform, proven
+by a build-once/test-many ABI proof) on Linux, macOS, and Windows. The wheel
+contains the matching platform-native extension and its extension-backed CLI
+entry point; PyPy and free-threaded CPython are not supported.
 
 ## Release Artifacts
 
@@ -443,10 +444,11 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 | Linux armv7 (glibc) | Supported | Release matrix | Full (descriptor-relative) |
 | Linux x86_64 (musl) | Supported | Release matrix | Full (descriptor-relative) |
 | Linux aarch64 (musl) | Supported | Release matrix | Full (descriptor-relative) |
+| Linux armv7 (musl) | Supported | Release matrix (QEMU runtime) | Full (descriptor-relative) |
 | macOS arm64 | Supported | Release matrix | Full (descriptor-relative) |
 | macOS x86_64 | Supported | Release matrix | Full (descriptor-relative) |
 | Windows x86_64 | Supported | Release matrix | Partial (handle-relative child resolution + directory enumeration are qualified; two open-descendant root-rename cases are skipped by NTFS path-rename semantics) |
-| Windows arm64 | Supported | Release matrix | Partial (same as Windows x86_64; cross-qualified) |
+| Windows arm64 | Supported | Release matrix (native hosted execution) | Partial (same as Windows x86_64; cross-built, natively executed) |
 
 ## Deployment Status
 
