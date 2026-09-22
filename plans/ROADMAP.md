@@ -758,4 +758,4 @@ mandatory before aggregation/publication, handles the CPython 3.15 RC-to-final
 transition, and requires one complete manual `publish_target=none` release run
 on the exact candidate SHA before this campaign is closed.
 
-Status: **263 CLOSED (program); 264–267 IMPLEMENTED; 268 PLANNED (campaign remains open pending corrective + full no-publish release qualification).**
+Status: **263 CLOSED (program); 264–267 IMPLEMENTED; 268 IMPLEMENTED, AWAITING CLOSURE RUN (campaign remains open pending full no-publish release qualification on the exact corrective SHA).**

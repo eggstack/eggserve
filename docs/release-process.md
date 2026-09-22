@@ -29,13 +29,12 @@ preflight (version-sync check, wheel-matrix authority, source commit)
 wide wheel build matrix (10 required targets, from wheel-matrix.toml)
   │
   ├──▶ ABI proof: same x86_64 wheel on CPython 3.11–3.15 (binary-only)
-  ├──▶ native AArch64 + Windows ARM64 qualification lanes
-  │
+  ├──▶ qualify-aarch64-glibc: manylinux wheel, native ARM64 Ubuntu
+  ├──▶ qualify-aarch64-musl: musllinux wheel, native ARM64 Alpine container
+  ├──▶ qualify-windows-arm64: win_arm64 wheel, native Windows ARM64
+  │         (all three are required gates; see below)
   ▼
-aggregate + validate complete wheel set
-  │
-  ▼
-aggregate + validate complete wheel set
+aggregate + validate complete wheel set (blocked until all gates pass)
   │
   ├──▶ optional TestPyPI publication
   │
@@ -51,6 +50,11 @@ post-publication binary-only smoke checks
 
 No matrix build job may independently publish its wheel. The publication job
 receives only the already-built and already-qualified release artifact set.
+Pre-publication qualification carries the mandatory release gate:
+`aggregate` needs `preflight`, `build`, `abi-proof`,
+`qualify-aarch64-glibc`, `qualify-aarch64-musl`, and `qualify-windows-arm64`
+(Plan 268 Track E). Post-publication smoke is evidence only and cannot
+protect an already-completed upload.
 
 ## Maintainer procedure
 
@@ -117,20 +121,29 @@ generated from it in preflight):
 
 | Platform family | Wheel target | Build method |
 |---|---|---|
-| Linux x86_64 (glibc) | `manylinux_2_17_x86_64` | manylinux container |
-| Linux aarch64 (glibc) | `manylinux_2_17_aarch64` | manylinux container (cross-build, native hosted execution) |
-| Linux armv7 (glibc) | `manylinux_2_17_armv7l` | cross-build + QEMU smoke under matching ARMv7 glibc userspace |
-| Linux x86_64 (musl) | `musllinux_1_2_x86_64` | musllinux container |
-| Linux aarch64 (musl) | `musllinux_1_2_aarch64` | musllinux container (cross-build, native hosted execution where available) |
-| Linux armv7 (musl) | `musllinux_1_2_armv7l` | cross-build + QEMU smoke under matching ARMv7 musl userspace |
-| macOS x86_64 | `macosx_11_0_x86_64` | native hosted runner |
-| macOS arm64 | `macosx_11_0_arm64` | native hosted runner |
-| Windows x86_64 | `win_amd64` | native hosted runner |
-| Windows arm64 | `win_arm64` | cross-build + native hosted execution |
+| Linux x86_64 (glibc) | `manylinux_2_17_x86_64` | manylinux `2_17` baseline + `--compatibility pypi`; same-arch container, build-host native smoke |
+| Linux aarch64 (glibc) | `manylinux_2_17_aarch64` | manylinux `2_17` baseline + `--compatibility pypi`; cross-built, never executed on the x86_64 build host — deferred to `qualify-aarch64-glibc` (native ARM64 Ubuntu) |
+| Linux armv7 (glibc) | `manylinux_2_17_armv7l` | manylinux `2_17` baseline + `--compatibility pypi`; cross-build + QEMU smoke under matching ARMv7 glibc userspace (`sh -c`) |
+| Linux x86_64 (musl) | `musllinux_1_2_x86_64` | musllinux `1_2` baseline + `--compatibility pypi`; pre-publish composition gate only, runtime proof is Alpine post-publication smoke |
+| Linux aarch64 (musl) | `musllinux_1_2_aarch64` | musllinux `1_2` baseline + `--compatibility pypi`; cross-built, never installed on glibc — deferred to `qualify-aarch64-musl` (native ARM64 Alpine container) |
+| Linux armv7 (musl) | `musllinux_1_2_armv7l` | musllinux `1_2` baseline + `--compatibility pypi`; cross-build + QEMU smoke under matching ARMv7 musl userspace (`sh -c`, minimal Alpine has no bash) |
+| macOS x86_64 | `macosx_11_0_x86_64` | native hosted runner (`manylinux: auto`, ignored on non-Linux; `--compatibility pypi` separately) |
+| macOS arm64 | `macosx_11_0_arm64` | native hosted runner (same split policy) |
+| Windows x86_64 | `win_amd64` | native hosted runner (same split policy) |
+| Windows arm64 | `win_arm64` | cross-built, never executed on the x86_64 Windows build host — deferred to `qualify-windows-arm64` (required gate; native Windows ARM64 runner) |
+
+The manifest keeps the container/platform baseline (`manylinux`) and the
+maturin PyPI policy (`compatibility`) as separate controls (Plan 268
+Track A). The action's `manylinux:` input receives only the baseline
+(`2_17`, `musllinux_1_2`, or `auto`); `pypi` travels only as
+`--compatibility pypi` in the build args. `scripts/wheel-matrix.py`
+rejects `pypi` as a baseline, musl targets carrying a manylinux baseline,
+and cross-built targets claiming build-host native smoke; see
+`scripts/check-release-workflow.py` for the workflow-structure guard.
 
 Each wheel is built with exact Rust **1.98.1** and
-`--profile dist --locked --interpreter python3.11` and
-validated for platform/ABI/version correctness, wheel composition (no second
+`--profile dist --locked --interpreter python3.11 --compatibility pypi --out dist`
+and validated for platform/ABI/version correctness, wheel composition (no second
 standalone binary), and runtime smoke (import, CLI help, real fixture serving).
 
 ### Stable-ABI proof (build-once, test-many)
@@ -141,20 +154,37 @@ built bytes: the `abi-proof` job downloads the Linux x86_64 wheel artifact
 and installs it with `--only-binary=:all:` on CPython 3.11, 3.12, 3.13,
 3.14, and 3.15, running import, CLI/module help, `scripts/release_smoke.py`,
 and the compact native fixture (`scripts/abi_smoke.py`) on each, recording
-the wheel filename and interpreter version.
+the wheel filename and interpreter version. Until final CPython 3.15 is
+available through the pinned setup-python action, the 3.15 lanes (abi-proof,
+AArch64 glibc, and post-publish max) resolve 3.15 RC builds via
+`allow-prereleases: true`; remove once final 3.15 resolves without it
+(Plan 268 Track F).
 
 ### Architecture-aware qualification
 
-- Linux AArch64 wheels execute natively on the ARM64 hosted runner on both
-  CPython 3.11 (minimum) and CPython 3.15 (maximum); this lane is the
-  representative evidence for 64-bit Raspberry Pi and Le Potato-class
-  userspaces (userspace/architecture claims only, never board-specific
-  kernel/device claims).
+- Linux AArch64 glibc executes natively on the ARM64 hosted runner on both
+  CPython 3.11 (minimum) and CPython 3.15 (maximum, via prerelease until
+  final per Plan 268 Track F); only the `manylinux_2_17_aarch64` wheel is
+  installed there (binary-only). A musllinux install on glibc Ubuntu is not
+  qualification. This lane is the representative evidence for 64-bit
+  Raspberry Pi and Le Potato-class userspaces (userspace/architecture claims
+  only, never board-specific kernel/device claims).
+- Linux AArch64 musl executes natively on the ARM64 hosted runner inside a
+  matching AArch64 Alpine/musl container (`python:3.11-alpine`,
+  binary-only install of only the `musllinux_1_2_aarch64` wheel; import,
+  CLI/module help, release + ABI smokes; Alpine/musl identity recorded).
 - The Windows ARM64 wheel executes natively on the Windows ARM64 hosted
-  runner. If that runner is unavailable, the blocker is recorded and support
-  wording stays conservative.
+  runner as a required gate (no `continue-on-error`): `win_arm64` stays a
+  required published artifact, so its native qualification must succeed
+  before aggregation (Plan 268 Track E). Support remains functional
+  (trusted/local-content only), not hardened.
 - ARMv7 glibc and musl wheels execute under matching ARMv7 runtime
-  environments via QEMU (never AArch64 compat mode alone).
+  environments via QEMU (never AArch64 compat mode alone): glibc under
+  `arm32v7/python:3.11-bookworm`, musl under `arm32v7/python:3.11-alpine`,
+  both via `sh -c` (minimal Alpine has no bash), binary-only install, both
+  smokes. Post-publication ARMv7 lanes run explicit pinned
+  `docker/setup-qemu-action` (`linux/arm/v7`) before any Docker invocation
+  and follow the same matching-userspace + `sh` pattern.
 - `scripts/qualify-python-wheel-target.sh` provides a repeatable rootless
   real-device path (local wheel or published package) for maintainer-run SBC
   proof; volunteer hardware is never a mandatory per-PR gate.

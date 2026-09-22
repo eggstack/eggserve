@@ -114,7 +114,7 @@ no push/tag/merge ever publishes.
 - No pre-build/codegen: `cargo build` / `cargo test` suffice.
 - `cargo run -p eggserve-bin` serves CWD on `127.0.0.1:8000`.
 - `eggserve-python` is workspace-excluded: `cargo test --workspace` does not cover it; check it via the `cargo check --manifest-path ...` line or `test-python-wheel.sh`.
-- Wheels: GIL-enabled CPython 3.11–3.15 via one `cp311-abi3` wheel per platform (build-once/test-many ABI proof on 3.11–3.15; no per-minor wheels; free-threaded owned by Plan 267); routine CI tests Linux only; release targets 10 required platforms from `release/wheel-matrix.toml` (manylinux x86_64/aarch64/armv7, musllinux x86_64/aarch64/armv7, macOS x86_64/arm64, Windows x86_64/arm64) + declared i686/win32 candidates.
+- Wheels: GIL-enabled CPython 3.11–3.15 via one `cp311-abi3` wheel per platform (build-once/test-many ABI proof on 3.11–3.15; no per-minor wheels; free-threaded owned by Plan 267); routine CI tests Linux only; release targets 10 required platforms from `release/wheel-matrix.toml` (manylinux x86_64/aarch64/armv7, musllinux x86_64/aarch64/armv7, macOS x86_64/arm64, Windows x86_64/arm64) + declared i686/win32 candidates. Plan 268: `manylinux` baseline vs `--compatibility pypi` are separate controls; cross-built AArch64 glibc/musl + Windows ARM64 are deferred to native qualifiers gating aggregation (AArch64 musl via Alpine container); ARMv7 via matching QEMU userspace with `sh`; 3.15 lanes use prerelease until final.
 
 ## Tripwires (mistakes agents actually make)
 

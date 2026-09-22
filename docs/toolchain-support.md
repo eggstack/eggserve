@@ -119,14 +119,15 @@ directory.
 | Platform | Classification | Hardening |
 |----------|---------------|-----------|
 | Linux x86_64 (glibc) | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile/reparse hardening. Pinned root identity. |
-| Linux aarch64 (glibc) | supported-hardened | Same as Linux x86_64. |
-| Linux armv7 (glibc) | supported-hardened | Same as Linux x86_64. |
-| Linux x86_64 (musl) | supported-hardened | Same as Linux x86_64. musl libc uses the same descriptor-relative path. |
-| Linux aarch64 (musl) | supported-hardened | Same as Linux x86_64 (musl). |
+| Linux aarch64 (glibc) | supported-hardened | Same as Linux x86_64. Pre-publish proof is native ARM64 Ubuntu (`qualify-aarch64-glibc`, manylinux wheel only; never a musl install on glibc). |
+| Linux armv7 (glibc) | supported-hardened | Same as Linux x86_64. Matching ARMv7 glibc userspace via QEMU (`sh -c`). |
+| Linux x86_64 (musl) | supported-hardened | Same as Linux x86_64. musl libc uses the same descriptor-relative path. Pre-publish composition gate only; runtime proof is Alpine post-publication smoke. |
+| Linux aarch64 (musl) | supported-hardened | Same as Linux x86_64 (musl). Pre-publish proof is a native ARM64 Alpine container (`qualify-aarch64-musl`, musllinux wheel only). |
+| Linux armv7 (musl) | supported-hardened | Same as Linux x86_64 (musl). Matching ARMv7 musl userspace via QEMU (`sh -c`; minimal Alpine has no bash). |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. Pinned root identity. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
 | Windows x86_64 | supported-functional | Handle-relative confinement and manual qualification are complete for the executed classes. Two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation; Windows remains trusted/local-content only. |
-| Windows arm64 | supported-functional | Same as Windows x86_64. The `win_arm64` artifact is cross-built and executed natively on the Windows ARM64 hosted runner (release `qualify-windows-arm64` lane plus post-publication smoke); support remains functional (trusted/local-content only), not hardened. |
+| Windows arm64 | supported-functional | Same as Windows x86_64. The `win_arm64` artifact is cross-built and executed natively on the Windows ARM64 hosted runner as a required pre-publication gate (`qualify-windows-arm64` blocks aggregation; plus post-publication smoke); support remains functional (trusted/local-content only), not hardened. |
 
 ### Qualification evidence tiers
 

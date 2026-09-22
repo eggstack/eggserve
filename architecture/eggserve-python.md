@@ -235,10 +235,13 @@ bytes prove GIL-enabled CPython 3.11–3.15 without duplicating the suite
 (Plan 264 build-once/test-many). The CI default is a test-interpreter
 constraint, not a package requirement; release wheels are built against the
 CPython 3.11 ABI baseline. The release target set is owned by
-`release/wheel-matrix.toml` (`scripts/wheel-matrix.py` validates it and emits
-the build matrix; `scripts/check-release-wheel-set.py` enforces it at
-aggregate time), with native AArch64/Windows-ARM64 execution and matching
-ARMv7 QEMU userspaces plus a rootless real-device path
+`release/wheel-matrix.toml` (`scripts/wheel-matrix.py` validates the split
+`manylinux` baseline vs `compatibility` policy and emits the build matrix;
+`scripts/check-release-wheel-set.py` enforces the 10-wheel set at aggregate
+time; `scripts/check-release-workflow.py` guards the release graph), with
+deferred native AArch64 glibc (direct) / AArch64 musl (Alpine container) /
+Windows-ARM64 qualifiers gating aggregation (Plan 268) and matching ARMv7
+QEMU userspaces plus a rootless real-device path
 (`scripts/qualify-python-wheel-target.sh`). Subprocess helpers are
 canonically owned by `eggserve.subprocess`
 (`eggserve.server` retains compatibility re-exports). Release version,
