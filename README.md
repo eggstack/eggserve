@@ -6,280 +6,88 @@
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/eggserve?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/eggserve)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/eggstack/eggserve/blob/main/LICENSE)
 
-EggServe is a hardened, HTTP-correct static file server and reusable Rust HTTP/static-serving library, with a Python `http.server`-shaped api.
+EggServe is a hardened, HTTP-correct static file server, plus a reusable
+static-serving library for Python and Rust. It is a secure alternative to
+`python -m http.server` with the same mental model and safe defaults.
 
-The CLI serves static files only. The Python package provides hardened static
-serving plus a bounded, synchronous custom-handler path shaped like
-`http.server`, and a public `eggserve.lowlevel` handler-only runtime/service
-substrate for downstream bounded application servers. The Rust crate exposes a
-low-level, embeddable HTTP runtime and service boundary. EggServe itself is not
-an application framework, ASGI/WSGI runtime, CGI executor, FastCGI gateway,
-proxy, or general-purpose `socketserver` replacement.
+Safe defaults: loopback bind, path confinement, no symlinks, no dotfiles, no
+directory listing. Broader behavior is always an explicit opt-in. See
+[security policy](docs/security-policy.md).
 
-## Secure alternative to `python -m http.server`
-
-`python -m http.server` is a useful local-development tool with a
-well-understood interface. EggServe provides a secure alternative built on
-the same mental model: loopback binding, path confinement, dotfile denial,
-and disabled directory listings are the defaults; broader behavior requires
-an explicit opt-in. It also adds native range and conditional responses,
-bounded resource limits, and the same hardened static service behind its
-CLI, Python, and Rust surfaces.
-
-The concise surface comparison is in the
-[Python compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md).
-
-## CLI quickstart
-
-Serve the small example fixture on loopback:
+## Install
 
 ```sh
-eggserve --directory ./examples/site
+pip install eggserve          # Python library + CLI (CPython 3.11+)
+cargo install --path crates/eggserve-bin   # CLI from source
 ```
 
-For a source checkout, the equivalent is:
+## Quick start
 
-```sh
-cargo run -p eggserve-bin -- --directory ./examples/site
+### Python
+
+Static files with the familiar `http.server` shape:
+
+```python
+from functools import partial
+from eggserve.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+handler = partial(SimpleHTTPRequestHandler, directory="public")
+with ThreadingHTTPServer(("127.0.0.1", 8000), handler) as server:
+    server.serve_forever()
 ```
 
-Make a public bind explicit when serving beyond the local machine:
+A custom handler on the same runtime (bounded, synchronous):
 
-```sh
-eggserve --directory ./examples/site --public --port 8080
+```python
+from eggserve.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"ok\n" if self.path == "/health" else b"not found\n"
+        status = 200 if self.path == "/health" else 404
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
+    server.serve_forever()
 ```
 
-The positional form is `eggserve [OPTIONS] [PORT] [DIRECTORY]`. Explicit port
-sources occupy the PORT slot, so a numeric directory remains unambiguous after
-them—for example, `eggserve --port 9000 1234` serves directory `1234`. Use
-`--directory 1234` when selecting a numeric directory without a positional
-port; a single positional numeric token continues to mean PORT.
+A handler-only service without the `http.server` facade:
 
-The CLI is a static file server. Directory listings, symlink following, and
-dotfile serving are separate explicit flags. Static metadata can be set with
-`--content-type` and repeatable `-H/--header`; see the [CLI reference](https://github.com/eggstack/eggserve/blob/main/docs/cli.md)
-and [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md).
+```python
+from eggserve import lowlevel
 
-## Python `http.server` facade
+def handler(request):
+    if request.path == "/health":
+        return lowlevel.Response.text(200, "ok\n")
+    return lowlevel.Response.text(404, "not found\n")
 
-The canonical Python static-serving example is
-[examples/python_http_server_static.py](https://github.com/eggstack/eggserve/blob/main/examples/python_http_server_static.py).
-Run it with `python examples/python_http_server_static.py`; it is source-
-familiar while keeping the filesystem and transport in Rust.
+server = lowlevel.Server(
+    config=lowlevel.RuntimeConfig(bind="127.0.0.1", port=8000),
+    handler=handler,
+)
+server.start()
+server.wait_ready()
+```
 
-Stock `SimpleHTTPRequestHandler` with the documented default eligibility uses
-the native static fast path. Directory listings, dotfiles, and symlinks remain
-denied unless explicitly enabled through the supported facade settings.
-The Python 3.15-shaped static metadata hooks are supported: set
-`default_content_type` for unknown suffixes and pass ordered
-`extra_response_headers` through a stock handler or `functools.partial`.
-Extra headers are emitted only on final `200` static responses and cannot
-override runtime-owned metadata. See
-[examples/python_custom_headers.py](https://github.com/eggstack/eggserve/blob/main/examples/python_custom_headers.py) for a
-working demonstration.
+See [Python API](docs/python-api.md) and the
+[compatibility contract](docs/python-http-server-compatibility.md) for
+intentional `http.server` deviations.
 
-For bounded synchronous custom responses, use the complete
-[examples/python_custom_handler.py](https://github.com/eggstack/eggserve/blob/main/examples/python_custom_handler.py). For the
-handler-only runtime/service substrate without the facade, use
-[examples/python_lowlevel_service.py](https://github.com/eggstack/eggserve/blob/main/examples/python_lowlevel_service.py)
-(buffered plus bounded streamed responses over the shared native runtime).
-The optional subprocess lifecycle example is
-[examples/python_subprocess.py](https://github.com/eggstack/eggserve/blob/main/examples/python_subprocess.py); it is not the
-canonical `http.server` replacement.
+### Rust
 
-When the `tls` feature is available, HTTPS serving uses
-`HTTPSServer` / `ThreadingHTTPSServer` — see
-[examples/python_https_server.py](https://github.com/eggstack/eggserve/blob/main/examples/python_https_server.py).
+Add the smallest crate you need (`eggserve-core` for the composed server):
 
-Custom handlers are synchronous and receive bounded in-memory `rfile`/`wfile`
-facades. They do not receive raw sockets and do not turn EggServe itself into
-an application framework. For a downstream bounded application server, use the
-public `eggserve.lowlevel` runtime/service substrate: handler-only
-`Server(config, handler)` with no static root, frozen `RuntimeConfig` (admission,
-parser, timeout, and safe privacy controls, projected via the single
-`_native_kwargs()` helper), bounded `Response.stream` over a
-16-chunk backpressured bridge (HEAD/body-forbidden never advance the iterator;
-sync iterables only), and caller-owned `StaticResponder` composition. For
-async downstream servers, use the experimental H1-only
-`AsyncServer(config, async_handler, max_async_tasks=...)` with incremental
-`aread`/`aiter_chunks`/`trailers`, `AsyncResponse.stream` over async
-iterables (bounded 16-queue, trailers via `stream_with_trailers`), bounded
-interim 1xx (`send_interim`), and one-shot generic tunnels (`take_tunnel` /
-`accept` + bounded `recv`/`send`; WebSocket framing stays downstream). The
-optional subprocess helpers are canonically owned by `eggserve.subprocess`
-(`eggserve.server` retains compatibility re-exports; top-level
-`eggserve.serve_directory` re-exports the subprocess implementation); the primary API is
-`eggserve.server`. See the [Python API reference](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) for the full six-class
-surface and [the compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md)
-for intentional deviations from the stdlib.
+```toml
+[dependencies]
+eggserve-core = "0.2"
+tokio = { version = "1", features = ["full"] }
+```
 
-The installed package keeps these namespaces distinct:
-
-| Namespace | Role |
-| --- | --- |
-| `eggserve.server` | Supported `http.server`-shaped compatibility facade and stock static handlers. |
-| `eggserve.lowlevel` | In-process native sync/experimental async runtime and canonical service primitives. |
-| `eggserve.subprocess` | Optional CLI/subprocess lifecycle helpers; `server` keeps compatibility aliases. |
-
-`py.typed` and `lowlevel.pyi` ship with the wheel. Similarly named policy or
-response concepts remain owned by their respective namespace and should not be
-mixed without the documented bridge.
-
-## Rust library
-
-The compatibility and composition entry point remains `eggserve-core`, which preserves
-the historical `primitives` and experimental `server` paths over the direct
-authorities. Plan 214 makes
-the direct dependency layers the implementation homes: `eggserve-primitives`
-owns the canonical request/response/body/lifecycle model, `eggserve-server`
-owns the mature generic H1 connection runtime (observability, error taxonomy,
-response policy, shared limit authority, service contract, connection
-vocabulary, H1 config/state, H1 connection driver, Hyper conversion
-boundary), and `eggserve-static` owns hardened descriptor/handle-relative
-static serving and the direct `StaticService`. The generic server does not pull
-static serving, and the
-primitives leaf does not pull Hyper, Tokio, TLS, QUIC, or filesystem code.
-New Rust consumers should depend directly on the smallest layer they need;
-the compatibility/composition umbrella exposes the layers through
-`eggserve_core::layers`. Plan 215 adds a 16-scenario direct-vs-compatibility
-H1 parity suite (`crates/eggserve-core/tests/direct_h1_parity.rs`) and a
-topology gate owning the boundary. Plan 216 moves tunnel authority to the
-direct crates (neutral intent vocabulary in `eggserve-primitives::tunnel`,
-transport execution in `eggserve-server::tunnel`, compatibility H1/H2
-delegating through shared helpers and the shared future). Plan 217 finishes
-service/request convergence: `eggserve-primitives::Request`/`RequestContext`
-(plus body/lifecycle, response, authority, header, and tunnel vocabulary)
-are the canonical types used by the direct server, `eggserve-server::Service`
-is the single service contract for direct H1 and compatibility H2 (tunnel
-via additive `call_with_tunnel`, H2 as explicit transport glue), and
-`eggserve-core` keeps those paths as facades plus a downstream fixture
-(`crates/eggserve-core/tests/direct_service_convergence.rs`) proving one
-direct `Service` drives both. Plan 219 collapses the remaining
-static/path/filesystem duplication onto `eggserve-static` as the sole
-implementation authority (path parsing, secure-root resolution, filesystem
-confinement, MIME selection, response planning); `eggserve-core` keeps
-`primitives::{SecureRoot, ConfinedPath, ...}` working as facades with no
-second resolver, proven by the authority conformance fixture
-(`crates/eggserve-core/tests/static_authority_conformance.rs`). Plan 220 moves
-the H3/QUIC transport adapter into `eggserve-h3` as the sole implementation
-authority (endpoint, request, response, tunnel, QUIC assembly, `Http3Config`);
-`eggserve-core` keeps `server::http3` working as a thin facade with no second
-state machine. H3 stays experimental under Plans 213 and 220. Plan 221 makes
-the first-party frontends prove the direct architecture: `eggserve-bin` and
-`eggserve-python` name `eggserve-primitives`, `eggserve-server`,
-`eggserve-static`, and `eggnet-tls` directly for every neutral path (policy,
-observability, shared limits with one Rust validation authority, static
-planning/capabilities, tunnel, neutral TLS loading), with the binary's unit
-tests driving leaf `Server` + leaf `StaticService`. The extended server
-orchestration (serve_config, full TLS/H2/H3 `Server`, full `StaticService`,
-`ServeConfig`/listing budgets, handle lifecycle) and the extension-backed
-CLI (`eggserve_bin::run_cli`, confirmed used) stay compatibility-owned as
-documented orchestration under the Plan 225 facade closure (classified
-inventory, no second security/protocol authority; removal requires a
-separate migration plan). Plan 224 closes as NO-GO: no `eggserve-capfs`/`eggcapfs`
-crate is created; `eggserve-static` remains the single path/filesystem
-confinement authority (see
-`release/plan-224-capability-filesystem-evaluation.md`). Advanced
-listener/proxy/TLS-identity paths remain in core while their extraction phases
-are completed. There is no additional
-`eggserve` facade crate.
-
-Plans 243–247 complete the next maintainability convergence. Direct H1 server
-shutdown is durable and `wait()` drains runtime-owned connection tasks; core H1
-entry points project into that direct runtime while H2/TLS and other protocol
-composition remains in core. `eggserve-static::StaticService` now owns static
-request planning/rendering, with core retaining a compatibility wrapper. Python
-ships maintained typing stubs and `py.typed`; the PyO3 registration table is
-isolated from implementation modules. The topology gate rejects orphan
-production Rust sources and documents accepted inert feature names on the H1
-only leaf crates. See
-`release/plan-248-maintainability-convergence-closure.md` for evidence.
-Plans 249–250 close the post-closure corrective: normal compatibility `Auto`
-classification resolves before any Hyper service exists and every H1 path
-delegates to the single `eggserve-server` authority (core drives H2 only),
-and per-connection shutdown is structured under the connection task with no
-detached forwarder. See
-`release/plan-250-h1-authority-lifetime-corrective-closure.md`.
-Plans 251–258 close the post-convergence maintenance campaign with no public
-API, capability, or support-tier change (Python stub fidelity, connection
-overlap ledger, topology-gate cleanup, bounded async first-pull plus the
-suppressed-body permit fix). See
-`release/plan-256-post-convergence-maintenance-interop-closure.md` and
-`release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`.
-
-### Choosing a Rust profile
-
-- **Direct generic H1 substrate:** depend on `eggserve-primitives` +
-  `eggserve-server` (add `eggserve-static` for confined static serving).
-  This is the leaf architecture for the generic H1 runtime and canonical
-  `Service` boundary. The accepted `http2`/`tls` feature names on
-  `eggserve-server` are inert compatibility names; the direct crate stays
-  H1-only.
-- **Compatibility/multiprotocol composition:** depend on
-  `eggserve-core::server` when H2, extended TLS/listener/proxy
-  integration, or the H3 facade is needed. `eggserve-core` is a supported
-  compatibility/composition umbrella, not deprecated; H2/H3 remain
-  experimental and the canonical application types remain Hyper-free.
-
-See `docs/public-api-boundary.md` for the full boundary and
-`architecture/crate-topology.md` for the ownership ledger.
-
-Plan 212 extracts the reusable server-side TLS security substrate into
-[`eggnet-tls`](https://github.com/eggstack/eggserve/tree/main/crates/eggnet-tls).
-It has only rustls and rustls-pki-types as production dependencies and owns
-bounded PEM parsing, SNI identity selection, explicit WebPKI client-auth modes,
-trust/CRL limits, and atomic reload snapshots. EggServe re-exports that API at
-`eggserve_core::tls` for compatibility; Tokio stream wrapping stays
-consumer-owned and HTTP/3 QUIC assembly lives once in `eggserve-h3` (Plan 220).
-Plan 222 completes the eggserve side of the cross-repo consolidation: a neutral
-`alpn_protocols` hook (with `TlsError::InvalidAlpn` bounds) lets non-HTTP
-transports advertise their own identifiers instead of the HTTP `http2`
-convenience, while the eggress server migration (including its optional-mTLS
-correction), the eggfetch no-dependency evaluation, sibling rustls-floor bumps,
-and the crates.io publication path are recorded as follow-ups in the neutral
-TLS architecture. See the [neutral TLS architecture](https://github.com/eggstack/eggserve/blob/main/architecture/eggnet-tls.md)
-and [TLS deployment guide](https://github.com/eggstack/eggserve/blob/main/docs/tls.md).
-
-Plan 223 records the eggserve side of the outbound HTTP CONNECT
-consolidation as complete with no runtime change: eggserve owns only
-inbound server-side `CONNECT`/tunnel acceptance (Plans 199/216) and
-acquires no outbound client handshake, no neutral CONNECT-crate
-dependency, and no eggfetch/eggress product dependency. The shared
-outbound H1 wire primitive (caller-owned-stream encode/read with
-bounded response-head parsing and read-ahead preservation; dialing, DNS,
-TLS, timeout/retry, routing, and lifecycle caller-owned) plus the
-eggfetch/eggress migrations are follow-ups in those repositories; the
-boundary is owned by the crate topology and non-goals docs.
-
-Canonical response/request types and `Service` in the direct layers do not
-require consumers to name Hyper directly.
-`eggserve_server::adapters::to_hyper_response()` is the explicit opt-in
-outbound transport adapter owned by the direct runtime; the compatibility
-`primitives::to_hyper_response()` delegates to that single authority over the
-same canonical types (Plan 217 identity, no second framing implementation),
-with behavior parity covered by the direct-vs-compatibility H1 suite plus the
-direct-service convergence fixture. The returned body
-type is opaque in both cases, so consumers should rely on the
-`http_body::Body` contract rather than naming `BoxBody`. This adapter change is
-the intentional `0.1.x` → `0.2.0` pre-1.0 transition documented
-in the [migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md);
-the workspace now develops on the `0.2.0` line and must not be published
-as another `0.1.x` patch.
-
-Optional ecosystem adapters (never in default builds) connect the canonical
-model to standard types: `http-interop` (`primitives::interop` — loss-aware
-`http`/`http-body` conversions, `RequestBody: http_body::Body`,
-`response_from_http_body`) and `tower` (`server::tower` —
-`TowerToEggserve` per-request clones plus `EggserveToTower`); see the
-[interop guide](https://github.com/eggstack/eggserve/blob/main/docs/http-interop.md).
-Native `Service` remains the maximum-fidelity path.
-
-For a generic HTTP/1 application service without static concerns, use
-`eggserve-server` directly. Add `eggserve-static` only when a confined static
-service is needed. The ownership and machine-checked dependency rules are in
-[`architecture/crate-topology.md`](https://github.com/eggstack/eggserve/blob/main/architecture/crate-topology.md).
-
-The concise static-server flow is:
+Serve a confined static directory:
 
 ```rust,no_run
 use eggserve_core::server::{RuntimeConfig, Server};
@@ -287,359 +95,65 @@ use eggserve_core::server::{RuntimeConfig, Server};
 # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 let server = Server::builder()
     .runtime(RuntimeConfig::builder()
-        .bind("127.0.0.1:0".parse()?)
+        .bind("127.0.0.1:8000".parse()?)
         .build()?)
     .static_service("public")?;
 let handle = server.start().await?;
 handle.ready().await?;
-println!("listening on {}", handle.local_addr());
-// ... make requests ...
-handle.shutdown();
-handle.wait().await?;
 # Ok(())
 # }
 ```
 
-The executable, mechanically checked examples are [the static server](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/static_server.rs),
-[the custom service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/custom_service.rs),
-[the streaming service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/streaming_service.rs),
-[the application service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/application_service.rs),
-[the caller-owned stream](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/caller_owned_stream.rs),
-[the direct caller-owned embedding](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-server/examples/caller_owned.rs),
-and [the primitives demo](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/primitives.rs).
-They use public EggServe modules only, include readiness plus graceful
-shutdown, and are the recommended starting points for custom services.
+Serve a custom service instead:
 
-The runtime owns listeners, protocol parsing, framing, timeouts, and lifecycle.
-Default builds and the Python facade remain HTTP/1.1-shaped. Rust builds with
-the opt-in `http2` feature add cleartext prior-knowledge HTTP/2 and, when
-combined with `tls`, ALPN selection (`h2` before `http/1.1`) through the same
-canonical service pipeline. H2 resource limits are owned by `Http2Config` and
-remain separate from server-wide service admission. The feature remains
-experimental after Plans 186, 190, and 191: deterministic tests, targeted H2
-body-policy regressions, two-family interop (curl/libnghttp2 plus python-h2),
-h2spec classification, and Linux wire/flow-control/load qualification pass, but
-browser/platform evidence, trailer-scope determinism, and a
-public safe per-stream reset hook are still release gaps. See the
-[HTTP/2 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http2.md)
-and [qualification records](https://github.com/eggstack/eggserve/blob/main/release/plan-186-http2-qualification.md) plus the
-[Plan 191 promotion attempt](https://github.com/eggstack/eggserve/blob/main/release/plan-191-http2-supported-tier-qualification.md).
-H2's response no-progress guard observes per-response application-body
-polling, not guaranteed stream-level wire progress after Hyper accepts a
-frame; a stall therefore uses the conservative connection-shutdown fallback.
-H3's guard is per-stream instead: the `ResponseStream` producer wait runs
-under an absolute `response_write_timeout` no-progress deadline that only
-non-empty production plus successful send re-arms (Plan 194; empty chunks are
-not progress), each send call keeps its own bound, and a stall resets
-only the affected stream while siblings survive. The opt-in `http3` feature
-is backed by the dedicated `eggserve-h3` package, which owns the H3/QUIC
-transport adapter plus the coordinated Quinn/H3/H3-Quinn dependency set;
-the core facade delegates to that package only behind the feature. It adds an experimental native QUIC/HTTP/3 endpoint
-beside that TCP listener. It requires `tls`, a certificate/key identity passed
-to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
-`--http3` enables the CLI endpoint and its runtime-owned `Alt-Svc` response
-advertisement. QUIC uses TLS 1.3 with `h3` ALPN and rejects application 0-RTT.
-HTTP/3 remains Rust-only and experimental after Plans 188, 190, 192, 193, 194, 195, and 220 closure:
-deterministic bounded implementation checks and in-process corrective
-regressions pass, but independent-client, adversarial-wire, and cross-platform
-runtime evidence is incomplete, and the Plan 192 dependency-readiness gate
-closed `BLOCKED` on the latest released stack (`h3` 0.0.8 / `h3-quinn` 0.0.10 /
-Quinn 0.11.11): upstream `hyperium/h3#338` has no released fix and the
-`hyperium/h3#262` stream-drop remainder is unresolved. Plan 193 closed at preflight
-without entering promotion qualification (unmet Plan 192 prerequisite) after
-re-checking both issues and inventorying the missing evidence; Plan 194
-bounds the H3 response-producer wait without changing
-the tier, Plan 195 correctively qualifies that bound (stalled,
-progress-then-stall, slow-progress, empty-chunk, and sibling evidence plus
-shutdown-race and write-stall observability regressions) without changing
-the tier, and Plan 220 moves the adapter into `eggserve-h3` with no behavior
-or tier change. See the
-[HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md)
-and [qualification records](https://github.com/eggstack/eggserve/blob/main/release/plan-188-http3-qualification.md) plus the
-[Plan 190 corrective record](https://github.com/eggstack/eggserve/blob/main/release/plan-190-multiprotocol-corrective-qualification.md), the
-[Plan 192 readiness record](https://github.com/eggstack/eggserve/blob/main/release/plan-192-http3-dependency-readiness.md), the
-[Plan 193 promotion record](https://github.com/eggstack/eggserve/blob/main/release/plan-193-http3-supported-tier-qualification.md), the
-[Plan 194 correction record](https://github.com/eggstack/eggserve/blob/main/release/plan-194-http3-producer-timeout-correction.md), and the
-[Plan 195 corrective qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-195-http3-response-timeout-corrective-qualification.md).
-Plan 213 records the dependency-isolation and qualification boundary in the
-[Plan 213 release record](https://github.com/eggstack/eggserve/blob/main/release/plan-213-http3-quic-isolation-qualification.md); it does not change the
-experimental support tier.
-Reject-body handling is protocol-aware: H2 uses Hyper's end-stream state and
-H3 performs one bounded receive probe when headers do not establish an empty
-request. H3 request lifecycles are registered for peer-loss, timeout, stream,
-and forced-shutdown cancellation, while sibling streams remain isolated.
-`Service` owns request handling and response construction. Connections,
-in-flight service executions, and file streams have independent observable
-budgets; parser ceilings, keep-alive idle, per-connection request counts, and
-response write no-progress timeouts are configured via CLI flags, `Limits`, or
-`RuntimeConfig` (see the [per-profile defaults](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md)
-and [timeout reference](https://github.com/eggstack/eggserve/blob/main/docs/timeout-reference.md)).
-Shared runtime defaults and validation live once in the canonical
-`eggserve_server::runtime_limits` authority (re-exported by
-`eggserve_core::runtime_limits`) consumed by `Limits`,
-`RuntimeConfig`, and the `ServeConfig` bridge; static listing/extra-header
-budgets stay service-owned, and hand-constructed `RuntimeConfig` values are
-rejected at `ServerBuilder`, `RuntimeState::try_new`, and the caller-owned
-connection boundary before semaphore/Hyper use. Each runtime also owns a
-per-runtime observability context (`OpsContext`: sink, counters, connection
-correlation IDs) attached via `ServerBuilder::ops_context` or
-`RuntimeState::with_ops`, with bounded snapshots via
-`RuntimeState::ops_snapshot` / `ServerHandle::ops_snapshot`; default
-construction clones the process-global default so CLI behavior is unchanged
-(see the [operations logging guide](https://github.com/eggstack/eggserve/blob/main/docs/ops-logging.md)). Services may lower
-request-body ceilings but cannot raise the runtime hard ceiling.
-Canonical `HttpVersion` metadata is non-exhaustive and represents HTTP/1.0,
-HTTP/1.1, HTTP/2, and HTTP/3 without silently relabeling an unsupported
-transport. `RequestHead::authority()` exposes validated effective host
-authority independently of HTTP/1 `Host` or HTTP/2/3 pseudo-header spelling;
-forwarding headers are untrusted by default and populate provenance-tagged
-effective fields (`effective_client`/`effective_scheme`/`effective_authority`)
-only under an explicit Plan 202 trusted-proxy policy. `serve_http1_connection` remains a strict
-HTTP/1 entry point; `serve_http_connection` is the opt-in Rust H1/H2 entry
-point when the `http2` feature is enabled. The opt-in `http3` feature also
-provides a native experimental QUIC/H3 server path; the Python facade and
-default builds remain HTTP/1.1-shaped.
-The `server` module
-is experimental before 1.0. For caller-owned byte streams (for example an
-anonymity-network transport), `server::connection::serve_http1_connection`
-drives the same canonical pipeline over any `AsyncRead + AsyncWrite` stream
-with an explicit `ConnectionContext` (no fabricated socket addresses) and
-shared `RuntimeState` admission; the direct `eggserve-server` crate owns this
-driver (Plan 215) and the compatibility facade shares its H1 semantics,
-proven by the direct-vs-compatibility parity suite. For caller-owned listeners, the same runtime
-accepts prebound sockets without rebinding: `ServerBuilder::from_listener` /
-`from_std_listener` (Tokio / std TCP, socket options preserved except
-nonblocking) are available in both the direct and compatibility servers;
-`from_unix_listener` / `from_std_unix_listener` (Unix-only,
-EggServe never unlinks filesystem paths; Unix is plaintext and H3 is
-unavailable over it), `from_systemd_index` / `from_systemd_name`
-(validated `LISTEN_PID`/`LISTEN_FDS`/`LISTEN_FDNAMES`, `SOCK_STREAM` plus
-listening-state plus family checks, no silent fd 3, no supervision in core),
-and `http3_socket` (prebound UDP wrapped in Quinn at startup with same-port
-TCP+UDP validation) remain compatibility-owned. `ServerHandle::endpoints()` exposes the adopted
-endpoints with stable `tcp-0`/`unix-0` IDs; `local_addr()` preserves the
-common TCP path. See the [Rust architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/eggserve-core.md),
-[primitives facade](https://github.com/eggstack/eggserve/blob/main/architecture/primitives-api.md), and
-[runtime contract](https://github.com/eggstack/eggserve/blob/main/architecture/runtime.md).
+```rust,no_run
+use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
+use eggserve_core::server::{service_fn, Request, RuntimeConfig, Server, ServiceError};
 
-Downstream application servers build on the same canonical `Service`
-boundary. Plan 208 closes the Plan 196 program with evidence-driven tiers,
-and Plan 215 makes `eggserve-server` the implementation home of the mature
-H1 runtime with a direct-vs-compatibility parity suite and topology gate
-(tunnel acceptance and `Service` identity unification are explicit Plan 216
-input):
-HTTP/1.1 plus the canonical `primitives` value types are the supported
-contract; the `server` runtime, H2/H3 transports, trailers/interim/tunnel
-capabilities, `http`/`tower` adapters, listener/proxy/TLS-identity options,
-and the async Python substrate stay experimental; Plan 205 observability
-hooks are explicitly deferred (Plan 181 `OpsContext` remains the boundary).
-The currently qualified path is HTTP plus the generic tunnel handoff: its builder-facing HTTP-half contract (bounded full-duplex
-bridging, deferred body ownership, lifecycle cancellation, timeout and
-admission splits, byte metadata, plus the Plan 197 stabilized `RequestContext`
-single attachment point, `Response`-only final return, 7-stage
-commitment/cancellation contract, `Send + Sync` sharing with no `poll_ready`,
-and `#[non_exhaustive]` error tolerance) is documented in
-[downstream-app-server.md](https://github.com/eggstack/eggserve/blob/main/docs/downstream-app-server.md)
-and qualified externally by `crates/eggserve-core/tests/app_server_consumer.rs`
-plus the Hyper-free `crates/eggserve-core/tests/application_service_contract.rs`.
-Cross-protocol conformance is inventoried once in `conformance/app_server_conformance.toml` (Plan 207, 55 scenarios) with the routine deterministic subset in `crates/eggserve-core/tests/cross_protocol_conformance.rs` (H1 TCP/prebound/Unix/caller-owned plus H2/Tower-gated; H1 TLS/H2 TLS/H3/`http-interop`/async-Python/ASGI owned by their existing suites; manual interop/soak fail-closed; see `release/plan-207-cross-protocol-conformance.md`). No tier promotion follows; H2/H3 stay experimental.
-The minimal native demonstration is
-`crates/eggserve-core/examples/application_service.rs` (buffered echo,
-bounded streamed pipe, lifecycle long-poll, no static filesystem).
-EggServe itself remains a static server and library, not an application
-framework or ASGI/WSGI runtime. Qualification of this substrate does not make
-the experimental `server` module a stable 1.0 API.
-
-## Security and compatibility boundaries
-
-- Loopback bind, no symlinks, no dotfiles, and no directory listing are the
-  safe defaults for static serving.
-- Static serving is GET/HEAD only and rejects request bodies; custom services
-  may opt into bounded bodies under the runtime ceiling and return
-  known/unknown-length streaming responses (`ResponseBody::Stream`) without
-  importing Hyper. `ResponseStream` producers must be `Send` and are one-shot;
-  they do not need to be `Sync` because one connection task owns polling.
-  Stream services may return response-start while a downstream task still owns
-  an Active `RequestBody`; reuse waits for body Complete and abandonment still
-  forces safe close, with a transport-neutral `RequestLifecycle` for
-  disconnect/cancel observation.
-- Path traversal and symlink escape are denied at library level. Unix safe
-  defaults use descriptor-relative resolution; Windows is qualified for the
-  executed handle-relative classes but remains trusted/local-content only.
-- The workspace denies Rust `unsafe_code` by default. The only application
-  exceptions are the reviewed Windows filesystem and systemd listener FFI
-  boundaries plus isolated test fixtures; see the [unsafe Rust policy](https://github.com/eggstack/eggserve/blob/main/docs/unsafe-code-policy.md).
-- HTTP/1.1, optional Rust HTTP/2, ranges, conditional requests, canonical response normalization
-  (including known/unknown-length streaming bodies with runtime-owned
-  framing, terminal trailers, and bounded interim 1xx), and bounded resource admission are part of the implemented contract.
-  Request trailers arrive as distinct terminal metadata (`trailers()` /
-  `read_all_with_trailers()`, denylist + count/byte limits, one validator for
-  H1/H2/H3); response trailers stream as one terminal block
-  (`ResponseStream::with_trailers`, no data after, `HEAD`/body-forbidden never
-  poll); interim 1xx are bounded request-scoped (`InterimSender`, no 101/body,
-  no post-commit, HTTP/1.0 suppressed, single 100); `100 Continue` follows body
-  policy (`Reject` → 413 without inviting, `Buffer`/`Stream` → Hyper owns wire
-  `100`, unknown `Expect` → 417). H1 trailers require `TE: trailers`;
-  HTTP/1.0 carries none. See [HTTP primitives](https://github.com/eggstack/eggserve/blob/main/docs/http-primitives.md).
-- Final-boundary response privacy: `Server` suppressed by default (optional
-  fixed value, never versions), EggServe-owned `Date` (system clock by default,
-  caller-supplied provider or explicit suppression), validated header denylist,
-  generic errors, and configurable static `ETag`/`Last-Modified`. The
-  minimal-fingerprint profile minimizes gratuitous signals without claiming
-  un-fingerprintability; see [deployment](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md).
-- The CLI accepts hostnames in `--bind`, repeatable safe `-H/--header` static
-  metadata, and `--content-type`; TLS accepts a combined cert/key PEM when
-  `--tls-key` is omitted. Rust production TLS (Plan 203) adds SNI
-  multi-identity (exact + single-level `*.suffix` + optional default, no IO in
-  selection), WebPKI mTLS (`Disabled`/`Optional`/`Required` + bounded roots/CRLs,
-  no revocation implied without CRLs), verified `TlsInfo` (SNI/ALPN/client-auth
-  + opt-in bounded DER chain), bounded handshake/admission (`TCP → PROXY → TLS
-  → HTTP`, sanitized errors), atomic reload for new handshakes
-  (`TlsReloadHandle`/`ServerHandle::replace_tls_config`, established keep
-  session, no watcher), and conservative session/0-RTT defaults
-  (`max_early_data_size = 0`); CLI/Python `HTTPSServer` stay single-identity
-  compatible and H3 keeps a separate QUIC identity requiring endpoint
-  replacement (see `docs/tls.md`).
-- Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
-  unbounded response generators, ASGI/WSGI server implementations, and
-  CGI (`CGIHTTPRequestHandler`/`--cgi`, removed Python 3.15 surface) / FastCGI
-  gateways are intentionally unavailable. Sync `Response.stream` still rejects
-  async producers (use `AsyncServer`/`AsyncResponse.stream` for asyncio).
-  Generic tunnel handoff (Plan 199,
-  superseding deferred Plan 176; Plan 216 moves authority to the direct
-  crates) **is** available: validated H1 `Upgrade`,
-  `CONNECT`, and H2/H3 Extended `CONNECT` (H3 generic `:protocol` blocked by
-  `h3` 0.0.8, see tunnel docs) yield a one-shot, transport-backed
-  `TunnelCapability` on `RequestContext` (`take_tunnel()`, double-take `None`,
-  `AfterCommit` after final commitment; direct services use additive
-  `Service::call_with_tunnel`). `accept(headers, handler)` returns a
-  handshake `Response` (`101` for H1, `200` otherwise; runtime owns
-  transition/framing bytes, no raw socket) and a bounded, single-owner
-  `TunnelIo` (`AsyncRead + AsyncWrite`, 32 KiB backpressure; handlers own
-  only IO — capture the lifecycle for cancellation;
-  no payload logged) for the downstream codec. The Python async substrate
-  exposes the same one-shot capability (`take_tunnel` / `accept` returning a
-  handshake plus bounded `Tunnel` with 16-chunk backpressure; H1 in Python,
-  H2/H3 Rust-only). Denial stays ordinary HTTP;
-  WebSocket framing itself remains downstream (see `tunnel_upgrade.rs`
-  echo + `tokio-tungstenite` interop fixture, no WS in core; Python ASGI
-  WebSocket echo lives in the test fixture only). Downstream
-  gateways build on the canonical `Service` boundary instead.
-
-See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md),
-[threat model](https://github.com/eggstack/eggserve/blob/main/docs/threat-model.md),
-[unsafe Rust policy](https://github.com/eggstack/eggserve/blob/main/docs/unsafe-code-policy.md),
-[Python compatibility matrix](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md), and
-[non-goals](https://github.com/eggstack/eggserve/blob/main/docs/non-goals.md).
-
-## Installation
-
-```sh
-# Python wheel: CPython 3.11+ with prebuilt wheels for 9 platforms
-# including Linux (manylinux/musllinux, x86_64/aarch64/armv7),
-# macOS (x86_64/arm64), and Windows (x86_64/arm64).
-# Covers Raspberry Pi/SBC via aarch64/armv7 wheels and Alpine via musllinux.
-pip install eggserve
-
-pipx run eggserve
-
-# From source (requires a Rust toolchain)
-cargo install --path crates/eggserve-bin
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+let server = Server::builder()
+    .runtime(RuntimeConfig::builder()
+        .bind("127.0.0.1:8000".parse()?)
+        .build()?)
+    .build()?;
+let service = service_fn(|request: Request| async move {
+    let body = b"ok\n";
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(ResponseBody::Bytes(body.to_vec()))
+        .map_err(|e| ServiceError::internal(e.to_string()))
+});
+let handle = server.start_with_service(service).await?;
+handle.ready().await?;
+# Ok(())
+# }
 ```
 
-The source-checkout command installs the `eggserve-bin` package's `eggserve`
-binary. New Rust consumers should depend directly on the smallest leaf crate
-they need (`eggserve-primitives`, `eggserve-server`, `eggserve-static`, or
-`eggserve-h3`); `eggserve-core` is the compatibility and composition umbrella
-(facades, adapters, and documented orchestration; see
-`release/plan-225-compatibility-facade-closure.md`). Keeping that
-orchestration in core is intentional for the current pre-1.0 line:
-first-party frontends may depend on core for full composed-server behavior,
-while new low-level consumers should prefer the direct crates; removing or
-deprecating core requires a separate future migration plan.
-The executable crate is intentionally a thin CLI surface.
+H1 is the supported transport; H2/H3 are opt-in and experimental. See
+[public API boundary](docs/public-api-boundary.md) and
+[downstream app servers](docs/downstream-app-server.md).
 
-The Python wheel includes the native extension and extension-backed CLI entry
-point; it does not bundle a second standalone CLI binary. See
-[toolchain and wheel support](https://github.com/eggstack/eggserve/blob/main/docs/toolchain-support.md).
-
-## Deeper references
-
-**CLI and installation:**
-- [CLI reference](https://github.com/eggstack/eggserve/blob/main/docs/cli.md) — all flags, positional parsing, and examples
-- [Timeout reference](https://github.com/eggstack/eggserve/blob/main/docs/timeout-reference.md) — every runtime timeout, semantics, and precedence
-- [TLS support](https://github.com/eggstack/eggserve/blob/main/docs/tls.md) — building with `--features tls`, certificate requirements
-- [Toolchain and wheel support](https://github.com/eggstack/eggserve/blob/main/docs/toolchain-support.md) — platform matrix, Python versions
-- [Deployment guidance](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md) — production profiles, reverse-proxy patterns
-
-**Python:**
-- [Python API reference](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) — `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, handler classes
-- [Python compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md) — deviations from `http.server`
-- [Python packaging](https://github.com/eggstack/eggserve/blob/main/docs/python-packaging.md) — wheel architecture, build from source
-- [Request body migration](https://github.com/eggstack/eggserve/blob/main/docs/body-migration.md) — body modes, one-shot enforcement, error hierarchy
-
-**Rust library:**
-- [Rust HTTP primitives](https://github.com/eggstack/eggserve/blob/main/docs/http-primitives.md) — HTTP/1.1 primitive contract
-- [Public API boundary](https://github.com/eggstack/eggserve/blob/main/docs/public-api-boundary.md) — stability tiers, semver policy
-- [Downstream application servers](https://github.com/eggstack/eggserve/blob/main/docs/downstream-app-server.md) — builder-facing HTTP-half contract for downstream app servers (not an EggServe feature)
-- [Migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md) — legacy → canonical type mappings, breaking-change policy
-- [Library capability matrix](https://github.com/eggstack/eggserve/blob/main/docs/library-capability-matrix.md) — cross-surface feature inventory
-
-**Operations:**
-- [Operations logging guide](https://github.com/eggstack/eggserve/blob/main/docs/ops-logging.md) — JSON Lines schema, event reference, counters, troubleshooting
-- [Benchmark methodology](https://github.com/eggstack/eggserve/blob/main/benchmarks/README.md) — measurement method, regression policy, claims policy, machine-readable results
-
-**Security:**
-- [Security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md) — safe defaults and enforcement
-- [Threat model](https://github.com/eggstack/eggserve/blob/main/docs/threat-model.md) — attacker profiles, trust boundaries
-- [Security review](https://github.com/eggstack/eggserve/blob/main/docs/security-review.md) — posture summary for adopters
-- [Non-goals](https://github.com/eggstack/eggserve/blob/main/docs/non-goals.md) — explicit exclusions
-
-**Architecture:**
-- [Architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/overview.md) — workspace layout, module map, data flow
-- [Examples](https://github.com/eggstack/eggserve/tree/main/examples) — all runnable demonstrations
-
-## Local verification
+### CLI
 
 ```sh
-./scripts/verify.sh fast    # format, clippy, and workspace tests
-./scripts/verify.sh full    # fast + examples + TLS + installed Python wheel checks
-./scripts/verify.sh deep    # expensive suites selected for release risk
-bash scripts/install-cargo-tools.sh
-bash scripts/check-supply-chain.sh  # audits root and excluded Python lockfiles
-bash scripts/qualify-http2.sh  # manual H2 wire/ALPN qualification
-bash scripts/qualify-http3.sh  # manual H3/QUIC qualification; external clients required for direct H3
+eggserve --directory ./public            # loopback, static only
+eggserve --directory ./public --public --port 8080   # explicit public bind
 ```
 
-The routine CI workflow has separate Rust and Python jobs. A scheduled daily
-workflow re-runs the supply-chain audit/deny gates over both lockfiles without
-requiring a push or pull request. Platform
-qualification and release certification are manual workflows; see
-[the release process](https://github.com/eggstack/eggserve/blob/main/docs/release-process.md).
+See [CLI reference](docs/cli.md).
 
-Performance evidence is profile-specific and manual. The Plan 170 Linux
-x86_64 matrix is recorded in
-[`benchmarks/170-closure/results.json`](benchmarks/170-closure/results.json);
-the current-head baseline and Plan 231 optimization closure are recorded in
-[`benchmarks/227-current-head/`](benchmarks/227-current-head/) and
-[`benchmarks/231-optimization-closure/`](benchmarks/231-optimization-closure/).
-These artifacts document representative scaling, streaming, low-level Python,
-TLS, caller-owned transport, and CPython substitution behavior; absolute
-timings are not CI gates or universal performance claims.
-Plan 232 adds the corrective file-stream read-bound regression and the
-follow-up 64/128 KiB, range, and TLS evidence in
-[`benchmarks/232-corrective/`](benchmarks/232-corrective/); its 128 KiB default
-decision remains profile-specific and bounded by `max_file_streams`.
-Plan 233 retains the full per-trial native/range/TLS captures behind that
-decision in
-[`benchmarks/233-evidence-polish/`](benchmarks/233-evidence-polish/);
-future manual performance qualification must retain compact per-trial JSON
-rather than only aggregate reductions. Plans 234–240 extend this evidence-led
-campaign to fixed-cost request, static-resolution, H1 dispatch, shared-state,
-and Python-bridge paths. The retained implementation and same-machine closure
-record are in [`benchmarks/234-fixed-cost-baseline/`](benchmarks/234-fixed-cost-baseline/)
-and [`benchmarks/240-fixed-cost-closure/`](benchmarks/240-fixed-cost-closure/);
-they document profile-specific observations, not universal timing claims.
-The follow-up custom-H1, static-shape, established-TLS, installed-wheel, and
-slow-stream evidence is in
-[`benchmarks/241-fixed-cost-evidence-corrective/`](benchmarks/241-fixed-cost-evidence-corrective/).
+## Examples
+
+Runnable starting points in [examples/](examples/README.md):
+
+- Python: static facade, custom handler, `lowlevel` service, HTTPS
+- Rust: static server, custom service, streaming service, caller-owned stream
+- CLI: local static server, explicit public bind, directory listing opt-in
+
+## Documentation
+
+- [CLI reference](docs/cli.md) · [deployment](docs/deployment.md) · [timeouts](docs/timeout-reference.md) · [TLS](docs/tls.md)
+- [Python API](docs/python-api.md) · [compatibility contract](docs/python-http-server-compatibility.md)
+- [HTTP primitives](docs/http-primitives.md) · [migration guide](docs/migration-guide.md)
+- [Threat model](docs/threat-model.md) · [non-goals](docs/non-goals.md)
+- [Architecture overview](architecture/overview.md)
