@@ -717,3 +717,37 @@ the transport-owning service/runtime seam is a documented downstream embedding
 path according to its stability classification. EggServe does not promise to
 be an ASGI/WSGI server, framework, process manager, reverse proxy, or WebSocket
 implementation.
+
+## Python wheel distribution expansion — Plans 263–267
+
+Plans 263–267 broaden PyPI distribution without changing EggServe's API or
+runtime behavior. The program keeps the normal CPython stable-ABI baseline at
+`cp311-abi3`: one wheel per platform serves GIL-enabled CPython 3.11–3.15,
+while release effort is spent on architecture/platform breadth and real
+installed-wheel evidence.
+
+```text
+263  Python wheel distribution expansion program
+ |
+ +--264  CPython 3.11–3.15 stable-ABI qualification
+ |
+ +--265  Declarative wheel-matrix authority + ARM/SBC/legacy-x86 expansion
+ |
+ +--266  Native ARM64, Windows ARM64, ARMv7, and real-SBC qualification
+ |
+ `--267  Free-threaded + long-tail architecture feasibility gate
+```
+
+Plan 264 adds Python 3.15 metadata and proves the same built
+`cp311-abi3` wheel on CPython 3.11/3.12/3.13/3.14/3.15 rather than producing
+per-minor artifacts. Plan 265 replaces the duplicated hard-coded nine-target
+release authority with a declarative wheel manifest, adds ARMv7 musllinux for
+the missing core SBC/Alpine case, and may promote i686/win32 only after
+binary-install evidence. Plan 266 raises ARM support evidence with native
+AArch64/Windows ARM64 execution where hosted runners exist, matching ARMv7
+QEMU userspaces, and a rootless real-SBC qualification harness suitable for
+Raspberry Pi/Le Potato-class systems. Plan 267 is an evidence gate only:
+free-threaded/abi3t, ARMv6, PPC64LE, s390x, and RISC-V receive explicit
+GO/NO-GO/DEFERRED decisions and may not force a TLS/security-provider change.
+
+Status: **263 PLANNED; 264–267 PLANNED.**
