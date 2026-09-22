@@ -537,15 +537,21 @@ API, ownership, topology, or support-tier change.
   makes `architecture/overview.md` the bird's-eye index over the deep dives.
 - Plan 260 (`plans/260-systematic-deep-dive-refresh.md`, commit `7bce227`)
   refreshes the deep dives against the code.
-- Plan 261 (`plans/261-skills-docs-staleness-refresh.md`, this session)
-  fixes the remaining agent-facing drift: skill plan range 251–256 → 251–258
+- Plan 261 (`plans/261-skills-docs-staleness-refresh.md`, commits `1e42563`,
+  `28b8b2f`) fixed the remaining agent-facing drift: skill plan range 251–256 → 251–258
   (+259/260 note, topology-gate scope, `verify.sh full` Python 3.14 gotcha),
   `AGENTS.md` skills-location/path notes, overview gate ranges, `docs/tls.md`
   + `docs/http-interop.md` `0.2` versions, the phantom
   `benchmarks/207-conformance/` evidence path, README 251–258 + 241-evidence
   pointers, and this ROADMAP entry.
+- Plan 262 (`plans/262-agent-docs-staleness-followup.md`, this session)
+  closes the residual follow-up: skill CI order matches `ci.yml`
+  (TLS-bin before H2), `crate-topology.md` header 211–247 → 211–253
+  (+ Plan 253 ledger pointer), 261 marked COMPLETE, and a historical
+  header on `RELEASE-READINESS-ROADMAP.md`. `AGENTS.md`, `docs/`,
+  `README.md`, and `conformance/` verified current, left intact.
 
-Status: **259 COMPLETE, 260 COMPLETE, 261 IN PROGRESS**.
+Status: **259 COMPLETE, 260 COMPLETE, 261 COMPLETE, 262 COMPLETE**.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 

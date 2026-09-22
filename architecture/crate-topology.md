@@ -1,6 +1,6 @@
 # Crate topology
 
-Plans 211–247 establish dependency layers while preserving the historical
+Plans 211–253 establish dependency layers while preserving the historical
 `eggserve-core` 0.x source contract. Plan 214 moves the qualified canonical
 and static implementations into their direct crates; Plan 215 moves the
 mature generic H1 connection runtime into `eggserve-server` with a
@@ -49,7 +49,7 @@ connection task with no detached forwarder, superseding two Plan 248 claims
 `plans/249-core-auto-h1-authority-and-shutdown-forwarder-corrective.md`).
 Plans 251–252 and 254–258 continue as an API-preserving
 maintenance/interop/async-lifetime campaign — Python stub fidelity, the
-connection-overlap classification ledger below, import/topology-gate cleanup
+connection-overlap classification ledger below (Plan 253), import/topology-gate cleanup
 with direct-vs-compatibility consumption profiles, and bounded async
 first-pull plus suppressed-body permit lifetimes — with no public API,
 capability, or tier change (see

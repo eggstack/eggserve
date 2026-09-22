@@ -157,12 +157,12 @@ cargo +1.89 check --workspace --all-targets --features http3,tls
 cargo clippy --workspace --lib --bins --tests -- -D warnings  # lint (warnings are errors)
 cargo test --workspace
 cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked  # excluded crate still parses
+cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings  # TLS lint
+cargo test -p eggserve-bin --features tls                   # TLS tests
 cargo clippy -p eggserve-core --features http2,tls --lib --tests -- -D warnings
 cargo test -p eggserve-core --features http2,tls
 cargo clippy -p eggserve-bin --features http2,tls --lib --bins --tests -- -D warnings
 cargo test -p eggserve-bin --features http2,tls
-cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings  # TLS lint
-cargo test -p eggserve-bin --features tls                   # TLS tests
 cargo clippy -p eggserve-core --features http3,tls --lib --tests -- -D warnings
 cargo test -p eggserve-core --features http3,tls
 cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings

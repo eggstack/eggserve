@@ -1,5 +1,9 @@
 # EggServe Release Readiness Roadmap
 
+> Historical record. The Phase 31–44 scheme below is superseded by
+> `plans/ROADMAP.md`; see also Plans 259–262 docs-only refreshes.
+> Do not treat phase numbers here as open work items.
+
 ## Status
 
 The HTTP primitive roadmap through phase 30 is substantially complete. EggServe now has a hardened static server, a Rust primitive layer, resolver-opened body capabilities, Python server callbacks with Rust-owned I/O, and an experimental low-level HTTP client with optional TLS. The remaining work is release hardening, not broad feature expansion.
