@@ -52,6 +52,11 @@ Routine CI (`.github/workflows/ci.yml`) runs three concurrent jobs:
 python3 scripts/verify-conformance-matrix.py
 python3 scripts/check-crate-topology.py
 python3 scripts/check-python-release-metadata.py
+python3 scripts/wheel-matrix.py validate
+python3 scripts/wheel-matrix.py self-test
+python3 scripts/check-release-wheel-set.py --self-test
+python3 scripts/check-release-workflow.py
+python3 scripts/check-release-workflow.py --self-test
 cargo fmt --all -- --check
 cargo +1.89 check --workspace --all-targets
 cargo +1.89 check --workspace --all-targets --features http2,tls

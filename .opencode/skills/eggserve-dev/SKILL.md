@@ -150,6 +150,11 @@ Routine CI runs three concurrent jobs (`rust`, `supply-chain`, `python`):
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
 python3 scripts/check-crate-topology.py                     # Plan 211–253 ownership/topology/facade/orphan-source/feature rules (+254–258 notes)
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
+python3 scripts/wheel-matrix.py validate
+python3 scripts/wheel-matrix.py self-test
+python3 scripts/check-release-wheel-set.py --self-test
+python3 scripts/check-release-workflow.py
+python3 scripts/check-release-workflow.py --self-test
 cargo fmt --all -- --check
 cargo +1.89 check --workspace --all-targets
 cargo +1.89 check --workspace --all-targets --features http2,tls

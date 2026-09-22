@@ -42,6 +42,8 @@ jobs:
           python3 scripts/wheel-matrix.py validate
           python3 scripts/wheel-matrix.py self-test
           python3 scripts/check-release-wheel-set.py --self-test
+          python3 scripts/check-release-workflow.py
+          python3 scripts/check-release-workflow.py --self-test
       - name: Format check
         run: cargo fmt --all -- --check
       - name: MSRV check
