@@ -127,7 +127,7 @@ generated from it in preflight):
 | Linux x86_64 (musl) | `musllinux_1_2_x86_64` | musllinux `1_2` baseline + `--compatibility pypi`; pre-publish composition gate only, runtime proof is Alpine post-publication smoke |
 | Linux aarch64 (musl) | `musllinux_1_2_aarch64` | musllinux `1_2` baseline + `--compatibility pypi`; cross-built, never installed on glibc — deferred to `qualify-aarch64-musl` (native ARM64 Alpine container) |
 | Linux armv7 (musl) | `musllinux_1_2_armv7l` | musllinux `1_2` baseline + `--compatibility pypi`; cross-build + QEMU smoke under matching ARMv7 musl userspace (`sh -c`, minimal Alpine has no bash) |
-| macOS x86_64 | `macosx_11_0_x86_64` | native hosted runner (`manylinux: auto`, ignored on non-Linux; `--compatibility pypi` separately) |
+| macOS x86_64 | `macosx_11_0_x86_64` | native hosted runner (`manylinux: auto`, ignored on non-Linux; `--compatibility pypi` separately). The build job pins `MACOSX_DEPLOYMENT_TARGET: "11.0"` — maturin otherwise defaults x86_64 to 10.12 (aarch64 already floors at 11.0), emitting a tag outside the matrix authority (Plan 269 Track F); the pin is structure-guarded by `scripts/check-release-workflow.py` |
 | macOS arm64 | `macosx_11_0_arm64` | native hosted runner (same split policy) |
 | Windows x86_64 | `win_amd64` | native hosted runner (same split policy) |
 | Windows arm64 | `win_arm64` | cross-built, never executed on the x86_64 Windows build host — deferred to `qualify-windows-arm64` (required gate; native Windows ARM64 runner) |

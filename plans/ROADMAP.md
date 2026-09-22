@@ -764,4 +764,4 @@ routine CI, freeze one final candidate SHA, run the complete no-publish release
 graph, retain the 10-wheel MANIFEST/SHA-256 and job evidence, then reconcile the
 release record and roadmap only after every mandatory lane succeeds.
 
-Status: **263 CLOSED (program); 264–267 IMPLEMENTED; 268 IMPLEMENTED; 269 PLANNED (campaign remains open pending CI-guard integration + full no-publish release execution/evidence closure).**
+Status: **263 CLOSED (program); 264–267 CLOSED through the 268/269 qualification; 268 COMPLETE; 269 COMPLETE.** Closure candidate `5960380` passed routine CI run `35779724999` and the mandatory no-publish release run `35782377840` (`publish_target=none`, all 10 wheel lanes + 3.11–3.15 ABI proof + native AArch64 glibc/musl + Windows ARM64 + ARMv7 QEMU smoke + aggregate success; 3.15 evidence is `3.15.0rc2` RC); evidence record `release/plan-269-wheel-release-execution-closure.md`. Closure also repaired two repo-side defects found by execution (Apple `SO_ACCEPTCONN` gating, macOS deployment-target pin, both structure-guarded). The `allow-prereleases` 3.15 mechanism stays until final 3.15 resolves without it.

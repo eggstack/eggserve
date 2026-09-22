@@ -213,7 +213,7 @@ each layer fits `fast`/`full`/`deep`.
 | `qualify-http2.sh` / `qualify-http3.sh` | Manual wire qualification harnesses (fail-closed promotion gates; not part of `fast`/`full`/`deep`) |
 | `check-wheel-composition.py`, `check-release-wheel-set.py`, `release_smoke.py` | Wheel-content, matrix-driven release-set (10 required targets from `release/wheel-matrix.toml`), and artifact smoke checks |
 | `wheel-matrix.py` | Canonical wheel-target authority: `validate`, `emit-matrix` (release build matrix with split `manylinux` baseline + `compatibility` policy), `expected-tags`, `self-test` (baseline/policy + deferred-routing guards) |
-| `check-release-workflow.py` | Release-graph guard: aggregate gates abi-proof + AArch64 glibc/musl + Windows ARM64, no `continue-on-error` on gates, explicit QEMU setup + `sh` (not bash), 3.15 prerelease (Plan 268) |
+| `check-release-workflow.py` | Release-graph guard: aggregate gates abi-proof + AArch64 glibc/musl + Windows ARM64, no `continue-on-error` on gates, explicit QEMU setup + `sh` (not bash), 3.15 prerelease (Plan 268), `MACOSX_DEPLOYMENT_TARGET 11.0` pin (Plan 269); also runs in routine CI's `Wheel-target authority` step |
 | `abi_smoke.py`, `qualify-python-wheel-target.sh` | Compact native ABI fixture (cross-interpreter proof) and rootless real-device SBC qualification |
 
 ### Conformance corpora (`conformance/`)

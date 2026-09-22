@@ -7,9 +7,10 @@ Execution evidence for the Python wheel distribution expansion (Plans 264,
 - Source SHA: `f483b267bfc456b9452215ca46ff36773ec053d3` (Plan 263 program
   commit; implementation commits follow on top — see `git log`).
 - Workflow run: local verification below; remote release-workflow lanes
-  (`abi-proof`, `qualify-aarch64-native`, `qualify-windows-arm64`,
-  expanded post-publish matrix) execute on the next manual release dispatch,
-  not on push/PR.
+  executed in the Plan 269 closure run
+  (`release/plan-269-wheel-release-execution-closure.md`, candidate
+  `5960380`, Release run `35782377840`, `publish_target=none`) — the
+  "pending release dispatch" rows below are superseded by that record.
 - Matrix authority: `release/wheel-matrix.toml`
   (`sha256 20cb514dbca4447b2e83ba7d3aade58ee6d14013d662fafec48881515e0ddf94`
   at record time; the aggregate MANIFEST records the release-time revision).
@@ -53,13 +54,13 @@ routine CI (`scripts/test-python-wheel.sh` default mode).
 | Target | Strategy | Evidence at record time |
 |---|---|---|
 | Linux x86_64 glibc | native | Local proof above (this host) |
-| Linux AArch64 glibc | native hosted (`ubuntu-24.04-arm`, `qualify-aarch64-glibc`, CPython 3.11 + 3.15) | Pending release dispatch (Plan 268 split: manylinux wheel only) |
-| Linux AArch64 musl | native ARM64 Alpine container (`qualify-aarch64-musl`, musllinux wheel only) | Pending release dispatch (Plan 268 split; glibc-host musl install is not qualification) |
-| Linux ARMv7 glibc/musl | QEMU matching userspace (`arm32v7/python:3.11-bookworm`, `arm32v7/python:3.11-alpine`, `sh -c`) | Release build `qemu` smoke steps; pending release dispatch |
-| Linux x86_64/aarch64 musl | Alpine post-publish smoke | Release post-publish `alpine` lanes; pending release dispatch |
-| macOS x86_64/arm64 | native hosted | Release build `native` smoke; pending release dispatch |
-| Windows x86_64 | native hosted | Release build `native` smoke; pending release dispatch |
-| Windows ARM64 | native hosted (`windows-11-arm`, required gate) | Release `qualify-windows-arm64` lane (blocks aggregation per Plan 268); pending release dispatch |
+| Linux AArch64 glibc | native hosted (`ubuntu-24.04-arm`, `qualify-aarch64-glibc`, CPython 3.11 + 3.15) | Closed by Plan 269 (`manylinux` wheel only; 3.11.16 + 3.15.0rc2) |
+| Linux AArch64 musl | native ARM64 Alpine container (`qualify-aarch64-musl`, musllinux wheel only) | Closed by Plan 269 (glibc-host musl install is not qualification) |
+| Linux ARMv7 glibc/musl | QEMU matching userspace (`arm32v7/python:3.11-bookworm`, `arm32v7/python:3.11-alpine`, `sh -c`) | Closed by Plan 269 (release build `qemu` smoke steps) |
+| Linux x86_64/aarch64 musl | Alpine post-publish smoke | Post-publish lanes (evidence-only; skipped under `publish_target=none`) |
+| macOS x86_64/arm64 | native hosted | Closed by Plan 269 (release build `native` smoke; `MACOSX_DEPLOYMENT_TARGET=11.0` pinned) |
+| Windows x86_64 | native hosted | Closed by Plan 269 (release build `native` smoke) |
+| Windows ARM64 | native hosted (`windows-11-arm`, required gate) | Closed by Plan 269 (`qualify-windows-arm64` lane blocked aggregation per Plan 268 and succeeded) |
 
 No AArch64 compat-mode execution is accepted as ARMv7 proof; the manifest
 pins per-target `qemu_image` values for the matching userspaces.
@@ -80,17 +81,18 @@ runs remain maintainer-optional and are recorded here when executed:
 ## Blocked lanes
 
 - Windows ARM64 hosted runner (`windows-11-arm`) availability to this
-  repository is assumed but unproven until the first release dispatch. Per
-  Plan 268 Track E it is a required gate: if the lane fails to schedule or
-  fails, aggregation blocks and the failure itself is the recorded blocker.
+  repository was assumed but unproven until the first release dispatch.
+  Resolved by the Plan 269 closure run: `qualify-windows-arm64` scheduled
+  and succeeded on the native hosted runner as a required gate.
   `docs/toolchain-support.md` support wording stays at supported-functional
   without a hardened claim.
-- Final CPython 3.15 on hosted runners: local evidence used 3.15.0rc2. Per
+- Final CPython 3.15 on hosted runners: local evidence used 3.15.0rc2, and
+  the Plan 269 closure run likewise recorded 3.15.0rc2 (RC evidence). Per
   Plan 268 Track F the release `abi-proof`, AArch64 glibc, and post-publish
   max lanes carry `allow-prereleases: true` until final 3.15 resolves
   without it; the exact interpreter version is recorded in each lane.
 
-## Plan 268 corrective (implemented, awaiting closure run)
+## Plan 268 corrective (implemented; closed by Plan 269)
 
 Corrective baseline: Plan 268 plan commit plus the implementation in this
 tree (`release/wheel-matrix.toml` split baseline/policy + deferred smoke
@@ -101,12 +103,14 @@ gating aggregation, QEMU `sh` + explicit binfmt setup, 3.15 prerelease
 handling).
 
 No configured-but-never-executed lane is claimed as runtime qualification
-above: every release lane remains "pending release dispatch" until the
+above: every release lane was "pending release dispatch" until the
 mandatory `publish_target=none` manual run on the exact corrective SHA
-succeeds and its run ID/URL, 10 wheel filenames, SHA-256 manifest, ABI-proof
-(3.11–3.15), native/QEMU results, and aggregate validator output are
-recorded in a dedicated Plan 268 closure record. Until then Plans 263–267
-remain implemented but not closed.
+succeeded. That run is recorded in the dedicated Plan 269 closure record
+(`release/plan-269-wheel-release-execution-closure.md`, candidate
+`5960380`, Release run `35782377840`), which also records the two
+Track F corrective repairs found during closure (Apple
+`SO_ACCEPTCONN` gating, macOS `MACOSX_DEPLOYMENT_TARGET` pin). Plans
+263–267 are closed through that qualification.
 
 ## Support claims retained
 
