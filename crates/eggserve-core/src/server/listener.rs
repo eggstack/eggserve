@@ -292,6 +292,13 @@ pub(crate) fn adopt_systemd_listener(
 /// descriptors and connected (non-listening) sockets before any ownership is
 /// taken, so validation failure never closes the descriptor. `label` names
 /// the fd in error messages (for example `systemd fd 3`).
+///
+/// The listening-state probe is platform-gated: Apple targets declare
+/// `SO_ACCEPTCONN` but do not implement it (rustix gates `socket_acceptconn`
+/// with `#[cfg(not(apple))]`), so there the check rejects connected sockets
+/// via `getpeername` instead — a listening socket has no peer. A
+/// bound-but-never-listening descriptor cannot be distinguished on Apple and
+/// proceeds to adoption, where it fails naturally if unusable.
 #[cfg(unix)]
 pub(crate) fn validate_stream_listener_fd(
     fd: std::os::fd::BorrowedFd<'_>,
@@ -306,12 +313,23 @@ pub(crate) fn validate_stream_listener_fd(
             "{label} is not SOCK_STREAM; datagram descriptors are rejected from the stream listener path"
         )));
     }
-    let listening = rustix::net::sockopt::socket_acceptconn(fd)
-        .map_err(|e| ServerError::Config(format!("{label} accept-conn probe failed: {e}")))?;
-    if !listening {
-        return Err(ServerError::Config(format!(
-            "{label} is not in listening state; refusing to adopt a connected socket as a listener"
-        )));
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        let listening = rustix::net::sockopt::socket_acceptconn(fd)
+            .map_err(|e| ServerError::Config(format!("{label} accept-conn probe failed: {e}")))?;
+        if !listening {
+            return Err(ServerError::Config(format!(
+                "{label} is not in listening state; refusing to adopt a connected socket as a listener"
+            )));
+        }
+    }
+    #[cfg(target_vendor = "apple")]
+    {
+        if rustix::net::getpeername(fd).is_ok() {
+            return Err(ServerError::Config(format!(
+                "{label} is not in listening state; refusing to adopt a connected socket as a listener"
+            )));
+        }
     }
     Ok(())
 }
