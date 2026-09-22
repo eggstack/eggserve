@@ -14,7 +14,10 @@ rules without executing the release graph:
 - QEMU/Alpine executions use `sh -c`, never `bash -c` in minimal images;
 - CPython 3.15 lanes enable prerelease resolution until final is available;
 - the build job pins `MACOSX_DEPLOYMENT_TARGET` to the matrix policy
-  (`11.0`; maturin otherwise defaults x86_64 to 10.12).
+  (`11.0`; maturin otherwise defaults x86_64 to 10.12);
+- both publish jobs exclude the evidence `dist/MANIFEST` from the twine
+  upload set (the aggregate artifact carries it alongside the wheels and
+  twine rejects non-distribution files).
 
 Usage:
     python3 scripts/check-release-workflow.py [--workflow .github/workflows/release.yml]
@@ -172,6 +175,17 @@ def check_workflow(text: str) -> list[str]:
             "(matrix policy is macosx_11_0_*; unpinned x86_64 defaults to 10.12)"
         )
 
+    # --- Publish hygiene: twine upload set must be wheels only ---
+    # The `release-wheel-set` artifact bundles the evidence MANIFEST with
+    # the wheels; both publish jobs must drop it before invoking twine,
+    # which rejects unknown distribution formats and fails the upload.
+    if text.count("rm -f dist/MANIFEST") < 2:
+        errors.append(
+            "both publish jobs must exclude the evidence manifest "
+            "(`rm -f dist/MANIFEST` before the pypi-publish step; "
+            "twine rejects non-distribution files)"
+        )
+
     return errors
 
 
@@ -230,6 +244,12 @@ def cmd_self_test() -> int:
         False,
         "MACOSX_DEPLOYMENT_TARGET",
     )
+    check(
+        "manifest in upload set fails",
+        real.replace("rm -f dist/MANIFEST", "rm -f dist/NOTHING"),
+        False,
+        "exclude the evidence manifest",
+    )
     return 1 if failures else 0
 
 
@@ -258,6 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  explicit QEMU setup + sh (not bash) in minimal images")
     print("  3.15 prerelease resolution present")
     print('  MACOSX_DEPLOYMENT_TARGET "11.0" pinned')
+    print("  evidence MANIFEST excluded from twine upload set")
     return 0
 
 

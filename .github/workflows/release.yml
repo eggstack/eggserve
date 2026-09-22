@@ -393,6 +393,11 @@ jobs:
         with:
           name: release-wheel-set
           path: dist/
+      # The aggregate artifact carries the evidence MANIFEST alongside the
+      # wheels; twine rejects non-distribution files, so keep wheels only.
+      - name: Exclude evidence manifest from upload set
+        shell: bash
+        run: rm -f dist/MANIFEST
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           repository-url: https://test.pypi.org/legacy/
@@ -412,6 +417,11 @@ jobs:
         with:
           name: release-wheel-set
           path: dist/
+      # The aggregate artifact carries the evidence MANIFEST alongside the
+      # wheels; twine rejects non-distribution files, so keep wheels only.
+      - name: Exclude evidence manifest from upload set
+        shell: bash
+        run: rm -f dist/MANIFEST
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist/
