@@ -325,3 +325,12 @@ dry-runs qualify the layered graph. The changed publish set is
 `eggserve-server` and `eggserve-core`. Track G remains pending because the
 crates.io publish is a manual maintainer action; the candidate is
 release-ready/publication-pending and no registry consumer unblock is claimed.
+
+## Closure execution handoff
+
+Plan 273 (`plans/273-direct-server-downstream-publication-and-evidence-closure.md`)
+is the authoritative execution/evidence follow-up for the remaining Track G
+work. It preserves this plan's implementation and qualification history,
+performs the crates.io publication/registry-only smoke, creates the missing
+`release/plan-272-downstream-embedding-qualification-closure.md`, and closes
+the program only if the published consumer proof succeeds.
