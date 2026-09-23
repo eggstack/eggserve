@@ -82,11 +82,12 @@ stable Rust API change uses an explicit minor transition, with release notes
 and migration guidance; experimental `server` APIs retain their separately
 documented policy.
 
-The historical initial release is `0.2.0`. The current development candidate
-is `0.2.1`, an additive Rust patch for direct-server supervision and optional
-unlimited total connection lifetime. Python defaults and wheel behavior stay
-the same; the existing Python server timeout parameter honors the shared zero
-sentinel.
+The historical initial release is `0.2.0`. The published `0.2.1` Rust patch
+adds direct-server supervision and optional unlimited total connection
+lifetime. Python defaults and wheel behavior stay the same; the existing
+Python server timeout parameter honors the shared zero sentinel. The
+registry-only downstream qualification is recorded in
+`release/plan-272-downstream-embedding-qualification-closure.md`.
 The release metadata remains synchronized. Rust crates are published in
 dependency order only after routine CI and the local layered package gate pass.
 Crates.io publication is a manual maintainer action and must be confirmed

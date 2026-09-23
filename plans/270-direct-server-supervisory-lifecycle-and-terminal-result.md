@@ -294,7 +294,8 @@ may use; downstream policy remains downstream-owned.
 
 ## Implementation status
 
-Implemented on the 0.2.1 release candidate. `ServerHandle::into_parts()`
+Implemented on the 0.2.1 release candidate and downstream-qualified through
+Plan 273. `ServerHandle::into_parts()`
 provides `ServerControl` and `ServerCompletion`; completion observes top-level
 join failures and escaping connection-task join failures, while its borrowed
 wait future is cancellation-safe in `tokio::select!`. Dropping an unfinished
@@ -302,3 +303,7 @@ completion requests graceful shutdown. Focused tests cover independent
 supervision, repeated control shutdown, top-level panic mapping, and the
 legacy wait path remains source-compatible. Combined downstream proof:
 `crates/eggserve-server/tests/downstream_embedding.rs`.
+
+Plan 273 published the API in `eggserve-server 0.2.1` and passed a clean
+registry-only consumer proof; see
+`release/plan-272-downstream-embedding-qualification-closure.md`.

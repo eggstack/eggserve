@@ -861,7 +861,7 @@ artifact is proven.
 Implementation plan:
 `plans/273-direct-server-downstream-publication-and-evidence-closure.md`.
 
-Status: **270 IMPLEMENTED; 271 IMPLEMENTED; 272 IMPLEMENTATION COMPLETE / PUBLICATION CLOSURE DELEGATED TO 273; 273 READY.**
+Status: **270–273 COMPLETE; direct-server downstream embedding UNBLOCKED.**
 The planning baseline is `100b33c`; implementation candidate
 `466cf6301f20c7202f696c495e6eb8d5e74664be` passed routine CI run
 `35808907965`; current synchronized metadata is 0.2.1. The direct-server
@@ -870,4 +870,6 @@ qualification are implemented. The verified changed Rust publish set is
 `eggserve-server` and `eggserve-core`; their dependency requirements continue
 to accept already-published compatible 0.2.0 leaves. Plan 273 closes the
 program only after crates.io publication, clean registry-only consumer proof,
-and the durable Plan-272 closure record exist.
+and the durable Plan-272 closure record exist. Both crates are now published,
+the registry-only consumer proof passes, and the closure evidence is recorded
+in `release/plan-272-downstream-embedding-qualification-closure.md`.

@@ -107,8 +107,10 @@ supervisors use the typed completion path; legacy `wait(self) -> ()` remains
 source-compatible and intentionally discards terminal detail. `Duration::ZERO`
 leaves independent request, idle, write, admission, and shutdown limits active.
 `scripts/verify-cargo-packages.sh` derives package versions from Cargo metadata.
-Crates.io publication remains a manual release action; until it happens,
-report the patch as release-ready/publication-pending.
+Crates.io publication remains a manual release action; report publication as
+complete only after registry visibility and a clean registry-only consumer
+proof. Plan 273 records the 0.2.1 publication and downstream smoke evidence in
+`release/plan-272-downstream-embedding-qualification-closure.md`.
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`

@@ -335,28 +335,28 @@ qualification and routine CI on the corrected source candidate.
 
 ## Acceptance criteria
 
-- [ ] crates.io state is checked immediately before any publish attempt.
-- [ ] No immutable existing 0.2.1 artifact is overwritten or assumed.
-- [ ] `eggserve-server 0.2.1` is published and registry-resolvable.
-- [ ] `eggserve-core 0.2.1` is published when still required by the verified
+- [x] crates.io state is checked immediately before any publish attempt.
+- [x] No immutable existing 0.2.1 artifact is overwritten or assumed.
+- [x] `eggserve-server 0.2.1` is published and registry-resolvable.
+- [x] `eggserve-core 0.2.1` is published when still required by the verified
       changed package set.
-- [ ] Publication uses the verified 0.2.1 source candidate/package contents.
-- [ ] A fresh external consumer uses only crates.io dependencies with no
+- [x] Publication uses the verified 0.2.1 source candidate/package contents.
+- [x] A fresh external consumer uses only crates.io dependencies with no
       path/git/patch override.
-- [ ] The consumer resolves the new `eggserve-server` patch.
-- [ ] The consumer proves pre-bound listener adoption.
-- [ ] The consumer proves the control/completion supervisory split.
-- [ ] The consumer proves explicit unlimited total connection lifetime and
+- [x] The consumer resolves the new `eggserve-server` patch.
+- [x] The consumer proves pre-bound listener adoption.
+- [x] The consumer proves the control/completion supervisory split.
+- [x] The consumer proves explicit unlimited total connection lifetime and
       keep-alive reuse past a comparison lifetime.
-- [ ] The consumer shuts down cleanly with a typed completion result.
-- [ ] Resolved versions/checksums and execution commands are retained.
-- [ ] `release/plan-272-downstream-embedding-qualification-closure.md`
+- [x] The consumer shuts down cleanly with a typed completion result.
+- [x] Resolved versions/checksums and execution commands are retained.
+- [x] `release/plan-272-downstream-embedding-qualification-closure.md`
       exists and contains implementation, CI, publication, and registry-smoke
       provenance.
-- [ ] Plan 271's existing evidence reference resolves to that tracked file.
-- [ ] Roadmap and Plans 270–272 are reconciled without rewriting historical
+- [x] Plan 271's existing evidence reference resolves to that tracked file.
+- [x] Roadmap and Plans 270–272 are reconciled without rewriting historical
       publication-pending state.
-- [ ] Downstream unblock is claimed only after the registry-only smoke passes.
+- [x] Downstream unblock is claimed only after the registry-only smoke passes.
 
 ## Non-goals
 
@@ -377,3 +377,9 @@ consumer proof both exist.
 If manual crates.io publication is unavailable, the correct result is not a
 workaround: keep Plan 273 open as publication-pending and hand the exact publish
 commands/evidence to the maintainer.
+
+## Execution status
+
+**Complete — downstream unblocked (2026-09-23).** Both packages were published,
+the registry-only smoke passed, and durable evidence is recorded in
+`release/plan-272-downstream-embedding-qualification-closure.md`.

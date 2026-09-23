@@ -294,7 +294,8 @@ boundary.
 
 ## Implementation status
 
-Implemented on the 0.2.1 release candidate. Shared validation treats zero as
+Implemented on the 0.2.1 release candidate and downstream-qualified through
+Plan 273. Shared validation treats zero as
 disabled and retains the nonzero cross-field checks. Direct and compatibility
 drivers use optional deadlines, without a synthetic far-future total deadline;
 tunnel drains stay bounded during shutdown. The combined leaf-only fixture

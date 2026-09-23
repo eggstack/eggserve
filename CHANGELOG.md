@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.1 — release-ready, publication pending
+## 0.2.1 — published
 
 - Added `eggserve-server::ServerHandle::into_parts()` with cloneable
   `ServerControl` and typed, cancellation-safe `ServerCompletion` supervision.
@@ -15,5 +15,7 @@
 - Generalized layered crate package verification to derive release versions
   from Cargo metadata.
 
-The source candidate is qualified locally. crates.io publication and the
-registry-only consumer smoke remain pending maintainer publication.
+Published from implementation candidate
+`466cf6301f20c7202f696c495e6eb8d5e74664be`. The registry-only consumer proof
+resolves `eggserve-server 0.2.1` and passes the supervised keep-alive smoke;
+see [the Plan 272 closure evidence](release/plan-272-downstream-embedding-qualification-closure.md).

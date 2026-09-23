@@ -25,10 +25,11 @@ tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remain
 experimental. `plans/` + `ROADMAP.md` are change-trace records, not normative
 API docs — normative user contracts live in `docs/`.
 
-Plans 270–272 add the direct H1 control/completion split and opt-in disabled
-total connection lifetime, then qualify the combined leaf-crate embedding
-contract for the additive 0.2.1 Rust patch. Local qualification is complete;
-crates.io publication and the registry-only consumer smoke remain pending.
+Plans 270–273 add the direct H1 control/completion split and opt-in disabled
+total connection lifetime, qualify the combined leaf-crate embedding contract,
+publish the additive 0.2.1 Rust patch, and prove it from a clean registry-only
+consumer. The direct-server downstream embedding contract is registry-qualified;
+see [the closure evidence](../release/plan-272-downstream-embedding-qualification-closure.md).
 
 ## What eggserve Is
 

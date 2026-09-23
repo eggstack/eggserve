@@ -334,3 +334,13 @@ work. It preserves this plan's implementation and qualification history,
 performs the crates.io publication/registry-only smoke, creates the missing
 `release/plan-272-downstream-embedding-qualification-closure.md`, and closes
 the program only if the published consumer proof succeeds.
+
+### Plan 273 closure
+
+Plan 273 completed the manual publication and registry proof on 2026-09-23.
+`eggserve-server 0.2.1` and `eggserve-core 0.2.1` are published; the fresh
+registry-only supervised consumer resolves the 0.2.1 server and exits cleanly
+with `ShutdownResult::Clean`. This records completion without rewriting the
+publication-pending state that was true at this plan's implementation handoff.
+Full provenance is in
+`release/plan-272-downstream-embedding-qualification-closure.md`.
