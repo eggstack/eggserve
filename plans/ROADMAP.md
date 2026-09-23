@@ -796,7 +796,10 @@ capability, or downstream-project-specific types.
  |       (may implement in parallel with 270)
  |
  `--272  combined downstream fixture, package-version authority cleanup,
-          0.2.x Rust patch qualification, publication, registry-only smoke
+          0.2.x Rust patch qualification
+           |
+           `--273  crates.io publication, registry-only consumer proof,
+                    closure evidence + roadmap reconciliation
 ```
 
 ### Plan 270 — supervisory lifecycle split
@@ -844,12 +847,27 @@ direct-server APIs.
 Implementation plan:
 `plans/272-downstream-embedding-qualification-and-patch-release.md`.
 
-Status: **270 IMPLEMENTED; 271 IMPLEMENTED; 272 RELEASE-READY / PUBLICATION PENDING.**
-The planning baseline is `100b33c`; the initial public 0.2.0 release remains
-the historical baseline; current synchronized metadata is 0.2.1. The direct
-server fixture, shared timeout policy, version-derived package gate, and local
+### Plan 273 — publication and evidence closure
+
+Plan 273 is the execution-only follow-up to the implemented 0.2.1 candidate.
+It does not reopen Plans 270–271 runtime work. It rechecks crates.io state,
+publishes the verified changed Rust set (`eggserve-server` and
+`eggserve-core`) when still unpublished, runs a fresh crates.io-only supervised
+consumer smoke, creates the missing
+`release/plan-272-downstream-embedding-qualification-closure.md` already
+referenced by Plan 271, and reconciles Plans 270–272 only after the registry
+artifact is proven.
+
+Implementation plan:
+`plans/273-direct-server-downstream-publication-and-evidence-closure.md`.
+
+Status: **270 IMPLEMENTED; 271 IMPLEMENTED; 272 IMPLEMENTATION COMPLETE / PUBLICATION CLOSURE DELEGATED TO 273; 273 READY.**
+The planning baseline is `100b33c`; implementation candidate
+`466cf6301f20c7202f696c495e6eb8d5e74664be` passed routine CI run
+`35808907965`; current synchronized metadata is 0.2.1. The direct-server
+fixture, shared timeout policy, version-derived package gate, and local
 qualification are implemented. The verified changed Rust publish set is
 `eggserve-server` and `eggserve-core`; their dependency requirements continue
-to accept the already-published 0.2.0 leaf crates. Crates.io publication and
-the registry-only consumer smoke remain pending. Plan 272 closes only after
-the published registry artifact exists and that smoke passes.
+to accept already-published compatible 0.2.0 leaves. Plan 273 closes the
+program only after crates.io publication, clean registry-only consumer proof,
+and the durable Plan-272 closure record exist.
