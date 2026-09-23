@@ -765,3 +765,89 @@ graph, retain the 10-wheel MANIFEST/SHA-256 and job evidence, then reconcile the
 release record and roadmap only after every mandatory lane succeeds.
 
 Status: **263 CLOSED (program); 264–267 CLOSED through the 268/269 qualification; 268 COMPLETE; 269 COMPLETE.** Closure candidate `5960380` passed routine CI run `35779724999` and the mandatory no-publish release run `35782377840` (`publish_target=none`, all 10 wheel lanes + 3.11–3.15 ABI proof + native AArch64 glibc/musl + Windows ARM64 + ARMv7 QEMU smoke + aggregate success; 3.15 evidence is `3.15.0rc2` RC); evidence record `release/plan-269-wheel-release-execution-closure.md`. Closure also repaired two repo-side defects found by execution (Apple `SO_ACCEPTCONN` gating, macOS deployment-target pin, both structure-guarded). The `allow-prereleases` 3.15 mechanism stays until final 3.15 resolves without it.
+
+## Direct-server downstream embedding unblock — Plans 270–272
+
+Plans 270–272 are the post-0.2.0 additive corrective program for direct Rust
+embedders that supervise EggServe as one critical task and may intentionally
+retain healthy pooled keep-alive connections beyond the hardened default total
+connection lifetime.
+
+The program is driven by two concrete gaps in the published
+`eggserve-server 0.2.0` direct API:
+
+1. `ServerHandle::shutdown(&self)` and consuming
+   `ServerHandle::wait(self) -> ()` do not provide an independent
+   shutdown-controller/completion split, and the legacy wait path discards the
+   top-level Tokio join result;
+2. `connection_total_timeout` is a mandatory nonzero `Duration`, defaults
+   to 60 seconds, and therefore cannot represent an intentionally unlimited
+   healthy connection lifetime while retaining the independent
+   header/handler/body/idle/write/shutdown bounds.
+
+The work remains generic EggServe substrate. It does not add application
+routing, process/service-manager integration, static policy, TLS/H2/H3
+capability, or downstream-project-specific types.
+
+```text
+270  direct-server supervisory lifecycle split + typed terminal result
+ |
+ +--271  optional unlimited total connection lifetime with shared policy parity
+ |       (may implement in parallel with 270)
+ |
+ `--272  combined downstream fixture, package-version authority cleanup,
+          0.2.x Rust patch qualification, publication, registry-only smoke
+```
+
+### Plan 270 — supervisory lifecycle split
+
+Plan 270 adds an additive direct-server control/completion seam while keeping
+the existing 0.2.0 `ServerHandle` methods source-compatible. The target is a
+cloneable explicit shutdown/control capability plus one single-owner completion
+authority returning a typed terminal result. The new path must propagate
+top-level runtime task panic/cancellation instead of discarding the
+`JoinError`, retain Plan 243 durable shutdown/connection drain, and support a
+normal `tokio::select!` critical-supervision pattern without routing direct H1
+callers through `eggserve-core`.
+
+Implementation plan:
+`plans/270-direct-server-supervisory-lifecycle-and-terminal-result.md`.
+
+### Plan 271 — optional unlimited total connection lifetime
+
+Plan 271 keeps the default 60-second hard total lifetime but makes the total
+ceiling explicitly disableable without changing the public
+`RuntimeConfig.connection_total_timeout: Duration` field type. The preferred
+source-compatible representation is `Duration::ZERO` meaning
+disabled/unlimited, plus a discoverable builder convenience. Shared validation
+must skip only the total-lifetime cross-field comparisons in that mode; all
+other request/idle/write/admission/shutdown bounds remain active. Every
+H1/H2/H3/compatibility consumer that can receive zero must treat it safely and
+must never interpret it as immediate expiry.
+
+Implementation plan:
+`plans/271-optional-unlimited-total-connection-lifetime.md`.
+
+### Plan 272 — qualification and published Rust patch
+
+Plan 272 is the combined closure/release-readiness gate. It adds a leaf-crate
+only supervised-daemon fixture proving pre-bound listener + independent
+control/completion + unlimited total lifetime together, generalizes
+`scripts/verify-cargo-packages.sh` so its layered local-registry validation
+derives the workspace version instead of hardcoding `0.2.0`, performs full
+source/API/security/package qualification, prepares the next available 0.2.x
+patch metadata, and requires a crates.io-published `eggserve-server` patch
+plus a registry-only consumer smoke before downstream unblock is claimed.
+PyPI publication is not required because the new capabilities are Rust
+direct-server APIs.
+
+Implementation plan:
+`plans/272-downstream-embedding-qualification-and-patch-release.md`.
+
+Status: **270 READY; 271 READY; 272 BLOCKED ON 270+271 IMPLEMENTATION.**
+The planning baseline is `100b33c`; the initial public 0.2.0 release remains
+the historical baseline. Plans 270 and 271 may be implemented independently.
+Plan 272 closes only after the published registry artifact exists; if code and
+qualification are complete but manual crates.io publication has not occurred,
+its truthful status is release-ready/publication-pending rather than complete.
+
