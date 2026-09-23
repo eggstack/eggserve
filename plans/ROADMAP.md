@@ -844,10 +844,12 @@ direct-server APIs.
 Implementation plan:
 `plans/272-downstream-embedding-qualification-and-patch-release.md`.
 
-Status: **270 READY; 271 READY; 272 BLOCKED ON 270+271 IMPLEMENTATION.**
+Status: **270 IMPLEMENTED; 271 IMPLEMENTED; 272 RELEASE-READY / PUBLICATION PENDING.**
 The planning baseline is `100b33c`; the initial public 0.2.0 release remains
-the historical baseline. Plans 270 and 271 may be implemented independently.
-Plan 272 closes only after the published registry artifact exists; if code and
-qualification are complete but manual crates.io publication has not occurred,
-its truthful status is release-ready/publication-pending rather than complete.
-
+the historical baseline; current synchronized metadata is 0.2.1. The direct
+server fixture, shared timeout policy, version-derived package gate, and local
+qualification are implemented. The verified changed Rust publish set is
+`eggserve-server` and `eggserve-core`; their dependency requirements continue
+to accept the already-published 0.2.0 leaf crates. Crates.io publication and
+the registry-only consumer smoke remain pending. Plan 272 closes only after
+the published registry artifact exists and that smoke passes.

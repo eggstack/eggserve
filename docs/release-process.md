@@ -82,15 +82,16 @@ stable Rust API change uses an explicit minor transition, with release notes
 and migration guidance; experimental `server` APIs retain their separately
 documented policy.
 
-The current `main` tree contains the Plan 171 outbound response-conversion
-transition and later stable-facade changes. That line is classified as
-`0.2.0`, not as a compatible `0.1.x` patch release, and the development
-metadata reads `0.2.0` accordingly.
-The migration entry is the release note for this transition until the
-maintainer prepares the final release announcement. The development metadata
-reads `0.2.0`; that line must not be published as a `0.1.x` patch, and any
-future version change stays on the `0.2.x` line (fix forward, never roll
-back to `0.1.x`).
+The historical initial release is `0.2.0`. The current development candidate
+is `0.2.1`, an additive Rust patch for direct-server supervision and optional
+unlimited total connection lifetime. Python defaults and wheel behavior stay
+the same; the existing Python server timeout parameter honors the shared zero
+sentinel.
+The release metadata remains synchronized. Rust crates are published in
+dependency order only after routine CI and the local layered package gate pass.
+Crates.io publication is a manual maintainer action and must be confirmed
+before claiming downstream registry consumers are unblocked. Continue on the
+`0.2.x` line; never roll back to `0.1.x`.
 
 ## Preflight version-sync check
 

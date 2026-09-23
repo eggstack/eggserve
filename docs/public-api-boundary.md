@@ -42,6 +42,24 @@ composition (H2, extended TLS/listener/proxy integration, H3 facade).
 H2/TLS capability from its accepted inert `http2`/`tls` feature names;
 H2/H3 remain experimental; canonical application types remain Hyper-free.
 
+### Direct server supervision and total lifetime
+
+`eggserve-server` keeps the existing `ServerHandle` methods and adds
+`into_parts()` for an independent, cloneable `ServerControl` and single-owner
+`ServerCompletion`. Critical supervisors should select on the typed
+`completion.wait()` result and retain the control half for external shutdown.
+The future borrows the completion so it is cancellation-safe in
+`tokio::select!`. The legacy `wait(self) -> ()` remains compatible and
+intentionally discards terminal details. Dropping an unfinished completion
+requests graceful shutdown.
+
+`RuntimeConfig.connection_total_timeout` remains a `Duration` for source
+compatibility. Its default stays 60 seconds; explicitly setting
+`Duration::ZERO` disables only the total connection lifetime. Header, handler,
+body, idle, response-write, admission, request-count, and shutdown limits
+remain active. The compatibility configuration builder shares the same
+validation and runtime semantics.
+
 ## Internal modules (not public API)
 
 `response` and other `pub(crate)` helpers are internal. External callers must not depend on them. Types from these modules are re-exported through `primitives` where appropriate. The former `fs`/`path`/MIME modules live once in `eggserve-static`; their deleted core copies must not return.

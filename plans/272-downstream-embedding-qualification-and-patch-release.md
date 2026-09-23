@@ -268,7 +268,9 @@ Record that:
 - default connection lifetime remains 60 seconds;
 - critical supervisors should use the new typed control/completion path;
 - unlimited total lifetime is opt-in only;
-- Python behavior/support tiers are unchanged.
+- Python defaults and support tiers are unchanged. The existing
+  `connection_total_timeout_secs=0` setting now uses the shared opt-out
+  semantics; finite defaults and the Python API shape are unchanged.
 
 ## Acceptance criteria
 
@@ -293,8 +295,10 @@ Record that:
       supervised loopback smoke.
 - [ ] If manual publication has not occurred, status remains explicitly
       publication-pending rather than complete.
-- [ ] No Python wheel rerun, protocol-tier change, or unrelated release work is
-      pulled into this patch.
+- [ ] No protocol-tier change or unrelated release work is pulled into this
+      patch. The Python wheel suite is rerun because the existing timeout
+      parameter also needed to preserve independent handler/body budgets when
+      total lifetime is disabled.
 
 ## Non-goals
 
@@ -310,3 +314,14 @@ Plan 272 is complete only when the registry artifact needed by downstream
 consumers actually exists and the registry-only smoke passes. Until then,
 Plans 270–271 may be implementation-complete while the downstream unblock
 remains publication-pending.
+
+## Implementation status
+
+Tracks A–F are implementation-complete on the 0.2.1 release candidate:
+the leaf-only fixture is present, package verification derives its version
+from Cargo metadata, synchronized Rust/Python package metadata is 0.2.1,
+existing 0.2.0 dependency constraints remain compatible, and local package
+dry-runs qualify the layered graph. The changed publish set is
+`eggserve-server` and `eggserve-core`. Track G remains pending because the
+crates.io publish is a manual maintainer action; the candidate is
+release-ready/publication-pending and no registry consumer unblock is claimed.

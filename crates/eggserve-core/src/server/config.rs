@@ -129,6 +129,13 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Disable the total connection lifetime ceiling. Independent idle,
+    /// header, handler, body, response-write, and shutdown bounds remain.
+    pub fn disable_connection_total_timeout(mut self) -> Self {
+        self.connection_total_timeout = Some(Duration::ZERO);
+        self
+    }
+
     /// Set the handler invocation timeout.
     ///
     /// Must be <= `connection_total_timeout` when both are set explicitly;
@@ -777,15 +784,19 @@ mod tests {
     }
 
     #[test]
-    fn zero_connection_total_timeout_returns_error() {
+    fn zero_connection_total_timeout_is_accepted() {
         let result = RuntimeConfig::builder()
             .connection_total_timeout(Duration::ZERO)
             .build();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("connection_total_timeout must be > 0"));
+        assert_eq!(result.unwrap().connection_total_timeout, Duration::ZERO);
+        assert_eq!(
+            RuntimeConfig::builder()
+                .disable_connection_total_timeout()
+                .build()
+                .unwrap()
+                .connection_total_timeout,
+            Duration::ZERO
+        );
     }
 
     #[test]
@@ -981,7 +992,7 @@ mod tests {
             ..Default::default()
         };
         let errs = limits.validate().unwrap_err();
-        assert_eq!(errs.len(), 7);
+        assert_eq!(errs.len(), 6);
     }
 
     #[test]

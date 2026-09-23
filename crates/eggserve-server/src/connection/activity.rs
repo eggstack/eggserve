@@ -239,13 +239,17 @@ impl ConnectionActivity {
     /// Returns `true` when all tunnels drained cleanly, `false` on timeout
     /// (remainders aborted). Called by the driver after Hyper completion and
     /// on total/shutdown paths so tunnels never outlive the connection task.
-    pub(crate) async fn drain_tunnels(self: &Arc<Self>, deadline: tokio::time::Instant) -> bool {
+    pub(crate) async fn drain_tunnels(
+        self: &Arc<Self>,
+        deadline: Option<tokio::time::Instant>,
+    ) -> bool {
         if !self.tunnels_started.load(Ordering::Acquire) {
             return true;
         }
         loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() {
+            let remaining =
+                deadline.map(|at| at.saturating_duration_since(tokio::time::Instant::now()));
+            if remaining.is_some_and(|remaining| remaining.is_zero()) {
                 let mut guard = self.tunnels.lock().await;
                 guard.abort_all();
                 // Reap aborted tasks promptly (no unbounded wait: they were
@@ -258,7 +262,10 @@ impl ConnectionActivity {
                 if guard.is_empty() {
                     return true;
                 }
-                tokio::time::timeout(remaining, guard.join_next()).await
+                match remaining {
+                    Some(remaining) => tokio::time::timeout(remaining, guard.join_next()).await,
+                    None => Ok(guard.join_next().await),
+                }
             };
             match joined {
                 Ok(_) => continue,

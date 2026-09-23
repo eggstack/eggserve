@@ -11,20 +11,21 @@ This document defines every timeout and lifecycle deadline in the eggserve runti
 | 3 | Request-header timeout | `header_read_timeout` | 10s | HTTP/1 connection created | No | Complete header block received | Hyper `http1::Builder::header_read_timeout` | 408 Request Timeout | Hyper closes connection |
 | 4 | Request-body timeout | `body_read_timeout` | 30s | Body ingestion begins | No | Body fully consumed (all frames read) | `serve_connection_with_service()` | 408 Request Timeout response | Body dropped, connection kept alive |
 | 5 | Handler timeout | `handler_timeout` | 30s | Service `call()` invoked | No | Service future completes | `tokio::time::timeout` in `serve_connection_with_service()` | 504 Gateway Timeout response | Service future dropped |
-| 6 | Connection total timeout | `connection_total_timeout` | 60s | HTTP/1 connection created | No | N/A | Connection driver deadline loop | Graceful shutdown of Hyper connection | Connection dropped |
+| 6 | Connection total timeout | `connection_total_timeout` | 60s | HTTP/1 connection created | No | N/A | Connection driver deadline loop; `0` disables | Graceful shutdown of Hyper connection | Connection dropped |
 | 7 | Graceful shutdown timeout | `graceful_shutdown_timeout` | 10s | Shutdown requested | No | All connection tasks complete | `accept_loop()` drain loop | Abort remaining tasks, transition to Stopped | JoinSet aborted and joined |
 | 8 | Keep-alive idle timeout | `keep_alive_idle_timeout` | 60s | Last request/transport activity | Yes — every request completion and socket read/write | Completed response, new request bytes, any socket progress | Connection driver deadline loop | Graceful shutdown of Hyper connection | Connection dropped |
 | 9 | Response write no-progress timeout | `response_write_timeout` | 30s | Response handed to Hyper (H1/H2) or H3 send path | H1: every forward socket write; H2: per-response producer/poll; H3: absolute producer no-progress deadline + per-send bound | Protocol-specific observable progress | Connection driver + `ProgressIo` (H1), tracked producer polls (H2), H3 absolute producer deadline + send timeouts | H1/H2: connection shutdown; H3: stream reset (`H3_INTERNAL_ERROR`), siblings survive; producer cancelled | Connection/stream dropped, permits released |
 
-Lifecycle controls that are not timeouts but bound connection use: `max_requests_per_connection` (default unlimited; when reached, the current response completes with `Connection: close`), `max_in_flight_requests` (default 64; exhaustion answers 503 before service invocation), and `max_active_tunnels` (default 64; server-wide active duplex tunnels from Plan 199; exhaustion answers new handshakes 503). Ordinary `response_write_timeout` does not apply after tunnel transition; hard `connection_total_timeout` remains the outer bound; graceful shutdown stops new tunnel admission, signals lifecycles, waits within the drain deadline, then aborts remainders (no detached task survives `wait()`).
+Lifecycle controls that are not timeouts but bound connection use: `max_requests_per_connection` (default unlimited; when reached, the current response completes with `Connection: close`), `max_in_flight_requests` (default 64; exhaustion answers 503 before service invocation), and `max_active_tunnels` (default 64; server-wide active duplex tunnels from Plan 199; exhaustion answers new handshakes 503). Ordinary `response_write_timeout` does not apply after tunnel transition; a nonzero `connection_total_timeout` bounds tunnel age, while zero leaves active tunnels open until completion or shutdown. Graceful shutdown stops new tunnel admission, signals lifecycles, waits within the drain deadline, then aborts remainders (no detached task survives direct server completion).
 
 ## Per-field semantics
 
-Timeout values have no absolute upper ceiling. They must be positive and the
-request/handler/body budgets must not exceed `connection_total_timeout`, but a
-very large valid duration can effectively disable that deadline. Operators
-should choose an explicit finite timeout appropriate for the deployment rather
-than using an unbounded value.
+Timeout values have no absolute upper ceiling. Every timeout except
+`connection_total_timeout` must be positive. Total connection lifetime defaults
+to 60 seconds; setting it to zero explicitly disables that ceiling. When the
+total timeout is nonzero, request/handler/body budgets must not exceed it. When
+disabled, header, handler, body, idle, response-write, admission, request-count,
+and shutdown limits continue to apply.
 
 ### 1. Listener backoff
 
@@ -102,21 +103,20 @@ application-task admission is downstream-owned.
   `handler_timeout`, `response_write_timeout`), the
   `max_requests_per_connection` drain, and the graceful-shutdown deadline
   (Plan 192 decision; see `release/plan-192-http3-dependency-readiness.md`).
-  Builder validation still requires H3 handler/body budgets to fit under an
-  explicit `connection_total_timeout`, but no total-lifetime timer runs on
-  the QUIC path.
+  The shared builder accepts zero consistently; no total-lifetime timer runs
+  on the QUIC path.
 - **Clock starts**: HTTP/1 connection created (after TCP accept, optional TLS handshake).
 - **Progress resets**: No — this is a total connection lifetime limit, not an inactivity timeout.
 - **Progress definition**: N/A (timer never resets).
-- **Enforcement**: The connection driver compares `Instant::now()` against `start + connection_total_timeout` on every wake; on expiry the Hyper connection is gracefully shut down (`conn.graceful_shutdown()`), then awaited. The post-shutdown drain is bounded by `min(graceful_shutdown_timeout, 5s)` so a stalled client cannot hold its admission permit indefinitely.
+- **Enforcement**: For a nonzero value, the connection driver compares `Instant::now()` against `start + connection_total_timeout` on every wake; on expiry the Hyper connection is gracefully shut down (`conn.graceful_shutdown()`), then awaited. Zero creates no total-lifetime deadline. The post-shutdown drain is bounded by `min(graceful_shutdown_timeout, 5s)` so a stalled client cannot hold its admission permit indefinitely.
 - **Terminal behavior**: Hyper connection is gracefully shut down, then awaited within the bounded drain.
 - **Cleanup**: Connection dropped; permits released.
 
 **Design note**: This was originally named `response_write_timeout` but was renamed to `connection_total_timeout` because it wrapped the entire Hyper connection future, not just response writes. The per-write no-progress control now exists separately as `response_write_timeout` (#9); the old name was reused for the new semantic, which is documented here rather than hidden.
 
-**Precedence**: This is the hard ceiling for a connection. When it expires before the handler or body budget, the request dies mid-flight regardless of those wider budgets. Setting `handler_timeout` or `body_read_timeout` above an explicit `connection_total_timeout` via the `RuntimeConfig` builder is rejected as dead configuration; lowering only the total below the default budgets is accepted with this documented precedence. The Python facade caps forwarded handler/body budgets to the total and logs when adjustment occurs.
+**Precedence**: A nonzero total is the hard ceiling for a connection. When it expires before the handler or body budget, the request dies mid-flight regardless of those wider budgets. Setting `handler_timeout` or `body_read_timeout` above an explicit nonzero `connection_total_timeout` via the `RuntimeConfig` builder is rejected as dead configuration. Zero disables only this ceiling. The Python facade caps forwarded handler/body budgets to a nonzero total and logs when adjustment occurs; with zero, their independent values remain active.
 
-**Migration**: `connection_total_timeout` keeps its name, type (`Duration`), and hard-lifetime semantics — nothing is reinterpreted. What changes is that it is no longer the *only* way to bound idle or stalled clients: set `keep_alive_idle_timeout` for idle keep-alive turnover, `response_write_timeout` for stalled responses, and `max_requests_per_connection` for request-count bounds, and raise the total for deployments that want healthy long-lived keep-alive connections (see the per-profile defaults in `deployment.md`). The stdlib compatibility facade keeps the conservative 60-second default.
+**Migration**: `connection_total_timeout` keeps its name and type (`Duration`); the default remains 60 seconds. Setting it to zero explicitly removes the total-age ceiling while keeping `keep_alive_idle_timeout`, `response_write_timeout`, request/body/header/handler limits, admission, request-count limits, and shutdown bounds active. The direct and compatibility Rust builders and the Python `Server` parameter share this sentinel. The CLI/Python defaults remain unchanged (see the per-profile defaults in `deployment.md`).
 
 ### 7. Graceful shutdown timeout
 

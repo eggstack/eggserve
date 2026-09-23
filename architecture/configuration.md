@@ -140,13 +140,19 @@ timeout limits in addition to these protocol-owned values. See
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
 | `header_read_timeout` | `RuntimeConfig` | 10s | > 0 | `--header-timeout` | `header_timeout_secs` | Hyper header read timeout (also bounds idle keep-alive gaps when shorter than the idle timeout) |
-| `connection_total_timeout` | `RuntimeConfig` | 60s | > 0 | `--connection-total-timeout` | `connection_total_timeout_secs` | Hard maximum connection lifetime (driver deadline loop) |
+| `connection_total_timeout` | `RuntimeConfig` | 60s | > 0, or `0` to disable | `--connection-total-timeout` | `connection_total_timeout_secs` | Optional hard maximum connection lifetime (driver deadline loop); disabling it preserves idle/request/write/shutdown bounds |
 | `handler_timeout` | `RuntimeConfig` | 30s | > 0 | `--handler-timeout` | `handler_timeout_secs` | `tokio::time::timeout` around service call |
 | `body_read_timeout` | `RuntimeConfig` | 30s | > 0 | `--body-read-timeout` | `body_timeout_secs` | Total body consumption deadline |
 | `keep_alive_idle_timeout` | `RuntimeConfig` | 60s | > 0, independent of total | `--keep-alive-idle-timeout` | `keep_alive_idle_timeout_secs` (`lowlevel`; compat default) | Driver deadline loop; resets on request/transport activity |
 | `response_write_timeout` | `RuntimeConfig` | 30s | > 0, independent of total | `--response-write-timeout` | `response_write_timeout_secs` (`lowlevel`; compat default) | Driver + `ProgressIo` no-progress tracking; steady progress never trips |
 | `max_requests_per_connection` | `RuntimeConfig` | None (unlimited) | None or >= 1 | `--max-requests-per-connection` (`0` = unlimited) | `max_requests_per_connection` (`lowlevel` `None`; compat default) | H1 `Connection: close`, H2 graceful drain/GOAWAY after the limit response; every response counts |
 | `graceful_shutdown_timeout` | `RuntimeConfig` | 10s | > 0 | N/A | `graceful_shutdown_timeout_secs` | Drain deadline after SIGTERM |
+
+The Rust direct and compatibility builders accept `Duration::ZERO` for
+`connection_total_timeout` as an explicit opt-out. Existing CLI and Python
+timeout settings keep their defaults; the Python `Server` timeout parameter
+also maps zero to the same explicit opt-out. Header, handler, body, idle,
+response-write, admission, and shutdown limits continue to apply.
 
 Plan 243 keeps shutdown state durable: the direct server drains runtime-owned connection tasks under the graceful-shutdown deadline (see `../plans/243-direct-server-shutdown-lifecycle-corrective.md`).
 

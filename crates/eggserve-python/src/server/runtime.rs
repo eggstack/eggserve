@@ -213,21 +213,27 @@ impl PyServer {
         // trusted-proxy parsing below) stays local; Rust remains the final
         // limit authority at `RuntimeConfig::build`.
         //
-        // The connection total timeout is the hard ceiling, but handler/body
-        // budgets are capped to it at start (see `start_reserved`, which
-        // warns and clamps) rather than rejected at construction — so the
-        // projection validates the capped values, preserving the facade's
-        // construction-time contract.
+        // A nonzero connection total timeout is the hard ceiling, but
+        // handler/body budgets are capped to it at start. Zero disables only
+        // the total lifetime; independent handler/body budgets remain active.
         {
             use eggserve_server::runtime_limits::{
                 SharedRuntimeValues, DEFAULT_MAX_ACTIVE_TUNNELS, DEFAULT_STREAM_CHUNK_SIZE,
                 DEFAULT_TLS_HANDSHAKE_TIMEOUT,
             };
             let connection_total_timeout = Duration::from_secs(connection_total_timeout_secs);
-            let capped_handler_timeout =
-                Duration::from_secs(handler_timeout_secs).min(connection_total_timeout);
-            let capped_body_timeout =
-                Duration::from_secs(body_timeout_secs).min(connection_total_timeout);
+            let (capped_handler_timeout, capped_body_timeout) =
+                if connection_total_timeout.is_zero() {
+                    (
+                        Duration::from_secs(handler_timeout_secs),
+                        Duration::from_secs(body_timeout_secs),
+                    )
+                } else {
+                    (
+                        Duration::from_secs(handler_timeout_secs).min(connection_total_timeout),
+                        Duration::from_secs(body_timeout_secs).min(connection_total_timeout),
+                    )
+                };
             let shared = SharedRuntimeValues {
                 max_connections,
                 max_file_streams,
@@ -592,9 +598,17 @@ impl PyServer {
         // connection's lifetime. Cap handler/body budgets to it so the
         // total budget can never fire first and kill requests a wider
         // budget promised to allow.
-        let capped_handler_timeout = handler_timeout.min(connection_total_timeout);
-        let capped_body_read_timeout = body_read_timeout.min(connection_total_timeout);
-        if capped_handler_timeout != handler_timeout || capped_body_read_timeout != body_read_timeout
+        let (capped_handler_timeout, capped_body_read_timeout) =
+            if connection_total_timeout.is_zero() {
+                (handler_timeout, body_read_timeout)
+            } else {
+                (
+                    handler_timeout.min(connection_total_timeout),
+                    body_read_timeout.min(connection_total_timeout),
+                )
+            };
+        if capped_handler_timeout != handler_timeout
+            || capped_body_read_timeout != body_read_timeout
         {
             eggserve_server::ops::Logger::global().emit(eggserve_server::ops::Event::new(
                 eggserve_server::ops::Severity::Warn,

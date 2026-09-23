@@ -1358,7 +1358,14 @@ async fn config_validation_rejects_zero_timeouts() {
                 .build(),
             _ => unreachable!(),
         };
-        assert!(result.is_err(), "{name} = zero should return error");
+        if name == "connection_total_timeout" {
+            assert!(
+                result.is_ok(),
+                "{name} = zero disables the total lifetime ceiling"
+            );
+        } else {
+            assert!(result.is_err(), "{name} = zero should return error");
+        }
     }
 }
 

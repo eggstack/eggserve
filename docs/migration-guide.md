@@ -142,17 +142,30 @@ The `response_write_timeout` field has been renamed to `connection_total_timeout
 
 ### Zero-duration timeout validation
 
-`RuntimeConfigBuilder::build()` now rejects zero-duration values for all timeout fields. Previously, zero durations were silently accepted and could cause immediate request failures.
+`RuntimeConfigBuilder::build()` rejects zero-duration values for all timeout fields except `connection_total_timeout`, where zero explicitly disables the total lifetime ceiling.
 
 | Field | Minimum | Default | Error on zero |
 |-------|---------|---------|---------------|
 | `header_read_timeout` | > 0 | 10s | Yes |
-| `connection_total_timeout` | > 0 | 60s | Yes |
+| `connection_total_timeout` | > 0, or zero to disable total lifetime | 60s | No (zero is an explicit policy sentinel) |
 | `handler_timeout` | > 0 | 30s | Yes |
 | `body_read_timeout` | > 0 | 30s | Yes |
 | `graceful_shutdown_timeout` | > 0 | 10s | Yes |
 
-**Migration**: If you were setting any timeout to `Duration::ZERO`, choose a small positive value instead (e.g., `Duration::from_millis(1)`).
+**Migration**: Zero remains invalid for every timeout except `connection_total_timeout`. All other timeout fields require a positive value.
+
+### Additive direct-server embedding in 0.2.1
+
+The 0.2.1 Rust patch adds `ServerHandle::into_parts()` in
+`eggserve-server`, yielding a cloneable shutdown control and a typed,
+cancellation-safe completion authority. Use the typed path when unexpected
+runtime termination must be observed; the existing `ServerHandle::wait(self)
+-> ()` remains source-compatible and discards terminal detail. The new
+`RuntimeConfigBuilder::disable_connection_total_timeout()` convenience sets
+the existing duration field to zero. Its 60-second default is unchanged and
+all independent request, idle, write, admission, and shutdown bounds remain.
+The leaf-only combined example is tested in
+`crates/eggserve-server/tests/downstream_embedding.rs`.
 
 ### Shutdown observability
 

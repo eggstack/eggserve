@@ -537,10 +537,9 @@ class TestServerConstructorValidation(unittest.TestCase):
             Server(root=".", header_timeout_secs=0)
         self.assertIn("header_timeout_secs", str(ctx.exception))
 
-    def test_zero_connection_total_timeout(self):
-        with self.assertRaises(ValueError) as ctx:
-            Server(root=".", connection_total_timeout_secs=0)
-        self.assertIn("connection_total_timeout_secs", str(ctx.exception))
+    def test_zero_connection_total_timeout_disables_total_lifetime(self):
+        server = Server(root=".", connection_total_timeout_secs=0)
+        self.assertIsNotNone(server)
 
     def test_negative_max_connections(self):
         with self.assertRaises(OverflowError):

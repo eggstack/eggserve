@@ -291,3 +291,14 @@ Run routine CI on the exact implementation SHA.
 
 The goal is one explicit expert opt-out while preserving every other hardening
 boundary.
+
+## Implementation status
+
+Implemented on the 0.2.1 release candidate. Shared validation treats zero as
+disabled and retains the nonzero cross-field checks. Direct and compatibility
+drivers use optional deadlines, without a synthetic far-future total deadline;
+tunnel drains stay bounded during shutdown. The combined leaf-only fixture
+demonstrates a second request on the same keep-alive connection after the
+comparison deadline, and configuration tests assert the unchanged 60-second
+default and zero acceptance. Full feature and regression evidence is recorded
+in `release/plan-272-downstream-embedding-qualification-closure.md`.

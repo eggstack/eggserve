@@ -88,7 +88,15 @@ validates the candidate shared group plus `ResponsePolicy`;
 `RuntimeConfig::validate()` guards hand-constructed configs (fields are
 public); `ServerBuilder::build()`, `RuntimeState::try_new()`, and the
 caller-owned `serve_http1_connection` boundary all enforce before
-semaphore/Hyper use. `connection_total_timeout` keeps its hard-lifetime semantics and is no longer the only way to bound idle/stalled clients; see `docs/timeout-reference.md` for the migration. Migration from `server_header`: `None` is `response_policy.server_identification = None`; use `RuntimeConfigBuilder::server_header(..)` or `RuntimeConfig::server_header_value()`; see `docs/migration-guide.md`. Services may lower request-body ceilings but cannot raise the runtime hard ceiling.
+semaphore/Hyper use. `connection_total_timeout` defaults to 60 seconds;
+`Duration::ZERO` explicitly disables only that total lifetime ceiling.
+Independent idle, handler, body, header, write, admission, request-count, and
+shutdown bounds remain active. Migration from `server_header`: `None` is
+`response_policy.server_identification = None`; use
+`RuntimeConfigBuilder::server_header(..)` or
+`RuntimeConfig::server_header_value()`; see `docs/migration-guide.md`.
+Services may lower request-body ceilings but cannot raise the runtime hard
+ceiling.
 
 ### Service Trait
 
@@ -243,6 +251,17 @@ eggserve dependency, and eggress inbound `handle_connect`/auth/
 forwarding/relay stays locally owned there.
 
 ### ServerHandle
+
+For direct `eggserve-server` H1 embedding, `ServerHandle::into_parts()` yields
+a cloneable `ServerControl` and single-owner `ServerCompletion`. Keep the
+control value in a supervisor while selecting on
+`completion.wait() -> Result<ShutdownResult, ServerError>`; this future
+borrows the value and can be cancelled and awaited again. The typed path
+reports top-level and escaping runtime connection-task panics as
+`ServerError::Terminal`. The legacy direct `ServerHandle::wait(self) -> ()`
+remains source-compatible and discards that terminal detail. Dropping an
+unfinished `ServerCompletion` requests graceful shutdown. See the
+[leaf-only fixture](../crates/eggserve-server/tests/downstream_embedding.rs).
 
 Control handle returned by `Server::start()`. Not `Clone` — there is exactly one handle per server instance.
 

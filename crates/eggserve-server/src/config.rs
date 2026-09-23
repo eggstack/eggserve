@@ -54,7 +54,9 @@ pub struct RuntimeConfig {
     /// reject the same invalid values; the direct H1 driver performs no
     /// handshake itself.
     pub tls_handshake_timeout: Duration,
-    /// Timeout wrapping the entire connection future. Default: 60s.
+    /// Maximum connection lifetime shared across keep-alive requests.
+    /// Default: 60s. `Duration::ZERO` explicitly disables this ceiling;
+    /// independent idle, request, write, and shutdown bounds remain active.
     ///
     /// Maximum connection lifetime shared across all requests on a
     /// keep-alive connection, not reset per request.
@@ -269,9 +271,19 @@ impl RuntimeConfigBuilder {
         self
     }
 
-    /// Set the connection total timeout.
+    /// Set the maximum connection lifetime. `Duration::ZERO` disables the
+    /// total lifetime ceiling while preserving independent runtime bounds.
     pub fn connection_total_timeout(mut self, timeout: Duration) -> Self {
         self.connection_total_timeout = Some(timeout);
+        self
+    }
+
+    /// Disable the total connection lifetime ceiling.
+    ///
+    /// Idle, header, handler, body, response-write, admission, and shutdown
+    /// bounds remain active.
+    pub fn disable_connection_total_timeout(mut self) -> Self {
+        self.connection_total_timeout = Some(Duration::ZERO);
         self
     }
 
@@ -626,6 +638,24 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("handler_timeout must be <= connection_total_timeout"));
+    }
+
+    #[test]
+    fn zero_total_timeout_is_accepted_and_default_remains_sixty_seconds() {
+        assert_eq!(
+            RuntimeConfig::default().connection_total_timeout,
+            Duration::from_secs(60)
+        );
+        let config = RuntimeConfig::builder()
+            .disable_connection_total_timeout()
+            .build()
+            .unwrap();
+        assert_eq!(config.connection_total_timeout, Duration::ZERO);
+        let config = RuntimeConfig {
+            connection_total_timeout: Duration::ZERO,
+            ..RuntimeConfig::default()
+        };
+        config.validate().unwrap();
     }
 
     #[test]

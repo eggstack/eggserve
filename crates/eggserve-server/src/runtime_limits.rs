@@ -260,14 +260,9 @@ impl SharedRuntimeValues {
                 "> 0".into(),
             ));
         }
-        if self.connection_total_timeout.is_zero() {
-            errors.push(Violation::new(
-                "connection_total_timeout",
-                "0s".into(),
-                "> 0".into(),
-            ));
-        }
-        if self.header_read_timeout > self.connection_total_timeout {
+        if !self.connection_total_timeout.is_zero()
+            && self.header_read_timeout > self.connection_total_timeout
+        {
             errors.push(Violation::new(
                 "header_read_timeout",
                 duration_value(self.header_read_timeout),
@@ -287,14 +282,18 @@ impl SharedRuntimeValues {
         }
         // A handler or body budget wider than the total connection lifetime
         // is dead configuration: the connection budget always fires first.
-        if self.handler_timeout > self.connection_total_timeout {
+        if !self.connection_total_timeout.is_zero()
+            && self.handler_timeout > self.connection_total_timeout
+        {
             errors.push(Violation::new(
                 "handler_timeout",
                 duration_value(self.handler_timeout),
                 "<= connection_total_timeout".into(),
             ));
         }
-        if self.body_read_timeout > self.connection_total_timeout {
+        if !self.connection_total_timeout.is_zero()
+            && self.body_read_timeout > self.connection_total_timeout
+        {
             errors.push(Violation::new(
                 "body_read_timeout",
                 duration_value(self.body_read_timeout),

@@ -274,13 +274,12 @@ mod tests {
     }
 
     #[test]
-    fn zero_connection_total_timeout_is_invalid() {
+    fn zero_connection_total_timeout_disables_only_total_bound() {
         let limits = Limits {
             connection_total_timeout: Duration::ZERO,
             ..Default::default()
         };
-        let errs = limits.validate().unwrap_err();
-        assert!(errs.iter().any(|e| e.field == "connection_total_timeout"));
+        limits.validate().unwrap();
     }
 
     #[test]
@@ -570,12 +569,11 @@ mod tests {
             ..Default::default()
         };
         let errs = limits.validate().unwrap_err();
-        assert_eq!(errs.len(), 10);
+        assert_eq!(errs.len(), 9);
         let fields: Vec<&str> = errs.iter().map(|e| e.field).collect();
         assert!(fields.contains(&"max_connections"));
         assert!(fields.contains(&"max_file_streams"));
         assert!(fields.contains(&"header_read_timeout"));
-        assert!(fields.contains(&"connection_total_timeout"));
         assert!(fields.contains(&"handler_timeout"));
         assert!(fields.contains(&"body_read_timeout"));
         assert!(fields.contains(&"graceful_shutdown_timeout"));

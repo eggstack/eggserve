@@ -810,14 +810,14 @@ class TestTimeoutBoundaries(unittest.TestCase):
                 connection_total_timeout_secs=10,
             )
 
-    def test_connection_total_timeout_rejects_zero(self):
-        """Zero connection_total_timeout_secs is rejected."""
-        with self.assertRaises(ValueError):
-            Server(
-                root=self._td, port=0,
-                header_timeout_secs=10,
-                connection_total_timeout_secs=0,
-            )
+    def test_connection_total_timeout_zero_disables_total_lifetime(self):
+        """Zero opts out of total age while retaining other timeout bounds."""
+        server = Server(
+            root=self._td, port=0,
+            header_timeout_secs=10,
+            connection_total_timeout_secs=0,
+        )
+        self.assertIsNotNone(server)
 
     def test_connection_total_timeout_rejects_nan(self):
         """NaN timeout is rejected."""

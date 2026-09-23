@@ -11,11 +11,17 @@ shared runtime-limit authority (`runtime_limits`: defaults, `Violation`,
 vocabulary (`ConnectionContext`/`ConnectionShutdown`/`ConnectionOutcome`),
 H1 configuration/state (`config::RuntimeConfig` + builder,
 `runtime::RuntimeState`), the H1 connection driver (request conversion, body
-policy, admission, panic containment, handler/body/header/idle/write/total
-timeouts, max-requests handling, normalization, Hyper conversion via
+policy, admission, panic containment, handler/body/header/idle/write/optional
+total timeouts, max-requests handling, normalization, Hyper conversion via
 `adapters`), and the listener/prebound TCP `Server` (`bind`,
 `from_listener`/`from_std_listener`, accounted accept loop, per-connection
-shutdown relay, `wait()`/`ops_snapshot()`). It depends on
+shutdown relay, legacy `wait()` plus the typed `ServerControl` /
+`ServerCompletion` split, `ops_snapshot()`). Critical supervisors retain the
+control value while selecting on the cancellation-safe completion future;
+runtime and connection-task panics become `ServerError::Terminal`. Dropping an
+unfinished completion requests graceful shutdown. The legacy wait keeps its
+0.2.0 signature and discards terminal detail. `Duration::ZERO` disables only
+the total connection lifetime ceiling; 60 seconds remains the default. It depends on
 `eggserve-primitives` and transport dependencies (`bytes`, `futures-util`,
 `http-body`, `http-body-util`, `httpdate`, `hyper` http1/server,
 `hyper-util`, `tokio`).

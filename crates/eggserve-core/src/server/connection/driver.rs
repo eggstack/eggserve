@@ -279,8 +279,15 @@ fn record_protocol(protocol: WireProtocol, conn_id: u64, ops: &crate::ops::OpsCo
 /// configured duration. `Instant + Duration` panics on overflow, so
 /// unrepresentable deadlines saturate here instead.
 #[cfg(feature = "http2")]
-fn far_future() -> std::time::Instant {
-    std::time::Instant::now() + std::time::Duration::from_secs(365 * 24 * 3600)
+fn min_deadline(
+    current: Option<std::time::Instant>,
+    candidate: Option<std::time::Instant>,
+) -> Option<std::time::Instant> {
+    match (current, candidate) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) | (None, Some(a)) => Some(a),
+        (None, None) => None,
+    }
 }
 
 /// Gracefully close a connection with a bounded post-shutdown drain.
@@ -422,7 +429,9 @@ where
     C: std::future::Future<Output = Result<(), hyper::Error>> + ShutdownConn,
     F: std::future::Future<Output = ()>,
 {
-    let total_deadline = activity.start.checked_add(config.connection_total_timeout);
+    let total_deadline = (!config.connection_total_timeout.is_zero())
+        .then(|| activity.start.checked_add(config.connection_total_timeout))
+        .flatten();
     let ops = activity.ops().clone();
     let mut shutdown = std::pin::pin!(shutdown);
     loop {
@@ -442,7 +451,9 @@ where
             requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             // Outer bound for tunnels (Plan 199 Track F): abort remaining.
-            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
+            let _ = activity
+                .drain_tunnels(Some(tokio::time::Instant::now()))
+                .await;
             return ConnectionOutcome::TotalTimeout;
         }
         // Deferred-body timeout fired by the per-request watchdog: the body
@@ -452,13 +463,17 @@ where
         if activity.take_body_timeout() {
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
-            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
+            let _ = activity
+                .drain_tunnels(Some(tokio::time::Instant::now()))
+                .await;
             return ConnectionOutcome::ClientError;
         }
         if multiplexed && activity.take_drain_request() {
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             requests.cancel_all(RequestCancellationReason::ServerShutdown, conn_id, &ops);
-            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
+            let _ = activity
+                .drain_tunnels(Some(tokio::time::Instant::now()))
+                .await;
             return ConnectionOutcome::Shutdown;
         }
         let (in_flight, outstanding, _completed, deferred, state) = activity.snapshot();
@@ -479,7 +494,9 @@ where
                 .connection_id(conn_id),
             );
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
-            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
+            let _ = activity
+                .drain_tunnels(Some(tokio::time::Instant::now()))
+                .await;
             return ConnectionOutcome::IdleTimeout;
         }
         let write_stalled = if multiplexed {
@@ -501,33 +518,41 @@ where
             );
             requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
-            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
+            let _ = activity
+                .drain_tunnels(Some(tokio::time::Instant::now()))
+                .await;
             return ConnectionOutcome::WriteTimeout;
         }
-        let mut wake = total_deadline.unwrap_or_else(far_future);
+        let mut wake = total_deadline;
         if idle {
-            wake = wake.min(
+            wake = min_deadline(
+                wake,
                 state
                     .last_activity
-                    .checked_add(config.keep_alive_idle_timeout)
-                    .unwrap_or_else(far_future),
+                    .checked_add(config.keep_alive_idle_timeout),
             );
         }
         if multiplexed {
             if let Some(deadline) =
                 activity.h2_response_producer_deadline(config.response_write_timeout)
             {
-                wake = wake.min(deadline);
+                wake = min_deadline(wake, Some(deadline));
             }
         } else if outstanding > 0 {
-            wake = wake.min(
-                state
-                    .last_write
-                    .checked_add(config.response_write_timeout)
-                    .unwrap_or_else(far_future),
+            wake = min_deadline(
+                wake,
+                state.last_write.checked_add(config.response_write_timeout),
             );
         }
-        let sleep = tokio::time::sleep_until(tokio::time::Instant::from_std(wake));
+        let sleep = async move {
+            match wake {
+                Some(deadline) => {
+                    tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await
+                }
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::pin!(sleep);
         tokio::select! {
             result = &mut conn => {
                 let outcome = finish_conn_result(result, conn_id, &ops);
@@ -547,11 +572,8 @@ where
                 // connections have an empty set (immediate). Shutdown during
                 // drain cancels lifecycles and uses the post-shutdown budget.
                 if activity.tunnel_count().await > 0 {
-                    let total_tokio = total_deadline
-                        .map(tokio::time::Instant::from_std)
-                        .unwrap_or_else(|| tokio::time::Instant::from_std(far_future()));
                     tokio::select! {
-                        drained = activity.drain_tunnels(total_tokio) => {
+                        drained = activity.drain_tunnels(total_deadline.map(tokio::time::Instant::from_std)) => {
                             if !drained {
                                 requests.cancel_all(
                                     RequestCancellationReason::ConnectionTimeout,
@@ -569,7 +591,7 @@ where
                             );
                             let deadline = tokio::time::Instant::now()
                                 + post_shutdown_drain_budget(config);
-                            let _ = activity.drain_tunnels(deadline).await;
+                            let _ = activity.drain_tunnels(Some(deadline)).await;
                             return ConnectionOutcome::Shutdown;
                         }
                     }
@@ -583,7 +605,7 @@ where
                 // then aborts remainders (no detached task survives `wait()`).
                 let deadline =
                     tokio::time::Instant::now() + post_shutdown_drain_budget(config);
-                let _ = activity.drain_tunnels(deadline).await;
+                let _ = activity.drain_tunnels(Some(deadline)).await;
                 return ConnectionOutcome::Shutdown;
             }
             // A state change may have created an earlier deadline (new

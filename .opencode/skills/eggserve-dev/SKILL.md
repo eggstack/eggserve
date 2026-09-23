@@ -100,6 +100,16 @@ Plans 259–260 are docs-only (no behavior, ownership, or tier change): Plan 259
 makes `architecture/overview.md` the bird's-eye index over the deep dives;
 Plan 260 refreshes the deep dives against the code.
 
+Plans 270–272 add direct-server supervisory completion, an explicit zero
+sentinel for disabling only total connection lifetime, and downstream/package
+qualification for the additive 0.2.1 Rust patch. Critical direct-server
+supervisors use the typed completion path; legacy `wait(self) -> ()` remains
+source-compatible and intentionally discards terminal detail. `Duration::ZERO`
+leaves independent request, idle, write, admission, and shutdown limits active.
+`scripts/verify-cargo-packages.sh` derives package versions from Cargo metadata.
+Crates.io publication remains a manual release action; until it happens,
+report the patch as release-ready/publication-pending.
+
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
 crate. `eggserve_core::tls` remains a compatibility re-export; EggServe retains

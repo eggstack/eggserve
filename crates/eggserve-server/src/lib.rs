@@ -267,11 +267,18 @@ impl Server {
         let task_shutdown = shutdown.clone();
         let join = tokio::spawn(async move {
             let mut tasks = tokio::task::JoinSet::new();
+            let mut terminal_error = None;
             loop {
                 tokio::select! {
                     _ = task_shutdown.cancelled() => break,
                     Some(result) = tasks.join_next(), if !tasks.is_empty() => {
-                        let _ = result;
+                        if result.is_err() {
+                            terminal_error = Some(ServerError::Terminal(
+                                "runtime-owned connection task panicked or was cancelled".into(),
+                            ));
+                            task_shutdown.shutdown();
+                            break;
+                        }
                     }
                     accepted = listener.accept() => {
                         match accepted {
@@ -350,7 +357,15 @@ impl Server {
             // when it starts after shutdown. Keep the accept task alive until
             // every runtime-owned connection task has released its permit.
             while let Some(result) = tasks.join_next().await {
-                let _ = result;
+                if result.is_err() && terminal_error.is_none() {
+                    terminal_error = Some(ServerError::Terminal(
+                        "runtime-owned connection task panicked or was cancelled".into(),
+                    ));
+                }
+            }
+            match terminal_error {
+                Some(error) => Err(error),
+                None => Ok(ShutdownResult::Clean),
             }
         });
         Ok(ServerHandle {
@@ -366,11 +381,26 @@ impl Server {
 pub struct ServerHandle {
     local_addr: SocketAddr,
     shutdown: ServerShutdown,
-    join: Option<tokio::task::JoinHandle<()>>,
+    join: Option<tokio::task::JoinHandle<Result<ShutdownResult, ServerError>>>,
     ops: ops::OpsContext,
 }
 
 impl ServerHandle {
+    /// Split this legacy handle into a cloneable shutdown capability and a
+    /// single-owner typed completion authority.
+    pub fn into_parts(mut self) -> (ServerControl, ServerCompletion) {
+        let control = ServerControl {
+            local_addr: self.local_addr,
+            shutdown: self.shutdown.clone(),
+            ops: self.ops.clone(),
+        };
+        let completion = ServerCompletion {
+            shutdown: self.shutdown.clone(),
+            join: self.join.take(),
+        };
+        (control, completion)
+    }
+
     /// The bound address the server is accepting on.
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
@@ -396,6 +426,77 @@ impl ServerHandle {
     pub async fn wait(mut self) {
         if let Some(join) = self.join.take() {
             let _ = join.await;
+        }
+    }
+}
+
+/// Cloneable, explicit shutdown capability independent of runtime completion.
+/// Dropping this value never shuts the server down.
+#[derive(Clone)]
+pub struct ServerControl {
+    local_addr: SocketAddr,
+    shutdown: ServerShutdown,
+    ops: ops::OpsContext,
+}
+
+impl ServerControl {
+    /// The bound address the server is accepting on.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
+
+    /// Request graceful shutdown. Repeated calls are harmless.
+    pub fn shutdown(&self) {
+        self.shutdown.shutdown();
+    }
+
+    /// This runtime's observability context.
+    pub fn ops_context(&self) -> &ops::OpsContext {
+        &self.ops
+    }
+
+    /// Non-blocking snapshot of this runtime's counters.
+    pub fn ops_snapshot(&self) -> ops::OpsSnapshot {
+        self.ops.snapshot()
+    }
+}
+
+/// Single-owner authority for observing server termination.
+///
+/// [`wait`](Self::wait) borrows the completion so its future can be cancelled
+/// by `tokio::select!` and awaited again. Dropping an unfinished completion
+/// requests graceful shutdown; the runtime drains its owned connection tasks,
+/// though the terminal result can no longer be observed.
+pub struct ServerCompletion {
+    shutdown: ServerShutdown,
+    join: Option<tokio::task::JoinHandle<Result<ShutdownResult, ServerError>>>,
+}
+
+impl ServerCompletion {
+    /// Wait for terminal completion. Tokio task panic/cancellation is mapped
+    /// to a stable EggServe terminal error. This method does not request
+    /// shutdown.
+    pub async fn wait(&mut self) -> Result<ShutdownResult, ServerError> {
+        let Some(join) = self.join.as_mut() else {
+            return Err(ServerError::Terminal(
+                "server completion result was already observed".into(),
+            ));
+        };
+        let result = match join.await {
+            Ok(result) => result,
+            Err(_) => Err(ServerError::Terminal(
+                "top-level server task panicked or was cancelled".into(),
+            )),
+        };
+        self.join.take();
+        result
+    }
+}
+
+impl Drop for ServerCompletion {
+    fn drop(&mut self) {
+        if self.join.is_some() {
+            self.shutdown.shutdown();
         }
     }
 }
@@ -431,6 +532,82 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(1), handle.wait())
             .await
             .expect("shutdown before accept task scheduling must not hang");
+    }
+
+    #[tokio::test]
+    async fn split_control_and_completion_supports_independent_supervision() {
+        let server = Server::builder()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(service_fn(|_req: Request| async {
+                Ok(eggserve_primitives::Response::builder()
+                    .status(eggserve_primitives::StatusCode::OK)
+                    .body(eggserve_primitives::ResponseBody::Empty)
+                    .unwrap())
+            }))
+            .await
+            .unwrap();
+        let (control, mut completion) = handle.into_parts();
+        let cloned = control.clone();
+        tokio::select! {
+            result = completion.wait() => panic!("server unexpectedly ended: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(5)) => {}
+        }
+        drop(cloned);
+        tokio::select! {
+            result = completion.wait() => panic!("dropping a control clone stopped the server: {result:?}"),
+            _ = tokio::time::sleep(Duration::from_millis(5)) => {}
+        }
+        control.shutdown();
+        control.shutdown();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), completion.wait())
+                .await
+                .unwrap()
+                .unwrap(),
+            ShutdownResult::Clean
+        );
+    }
+
+    #[tokio::test]
+    async fn split_api_handles_shutdown_before_accept_task_first_poll() {
+        let server = Server::builder()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(service_fn(|_req: Request| async {
+                Ok(eggserve_primitives::Response::builder()
+                    .status(eggserve_primitives::StatusCode::OK)
+                    .body(eggserve_primitives::ResponseBody::Empty)
+                    .unwrap())
+            }))
+            .await
+            .unwrap();
+        let (control, mut completion) = handle.into_parts();
+        control.shutdown();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), completion.wait())
+                .await
+                .unwrap()
+                .unwrap(),
+            ShutdownResult::Clean
+        );
+    }
+
+    #[tokio::test]
+    async fn completion_maps_top_level_join_panic_to_terminal_error() {
+        let join = tokio::spawn(async { panic!("test panic payload is not exposed") });
+        let mut completion = ServerCompletion {
+            shutdown: ServerShutdown::new(),
+            join: Some(join),
+        };
+        let error = completion.wait().await.unwrap_err();
+        assert!(
+            matches!(error, ServerError::Terminal(message) if message.contains("panicked or was cancelled"))
+        );
     }
 
     #[tokio::test]

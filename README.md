@@ -87,6 +87,14 @@ eggserve-core = "0.2"
 tokio = { version = "1", features = ["full"] }
 ```
 
+For a generic supervised H1 daemon, depend on the direct leaf crates
+`eggserve-server`, `eggserve-primitives`, and Tokio. The direct handle can be
+split into independent shutdown control and typed completion; setting
+`connection_total_timeout(Duration::ZERO)` opts out of only the 60-second
+total-lifetime ceiling. Other request, idle, write, admission, and shutdown
+bounds remain. The combined leaf-only fixture is
+[`downstream_embedding.rs`](crates/eggserve-server/tests/downstream_embedding.rs).
+
 Serve a confined static directory:
 
 ```rust,no_run

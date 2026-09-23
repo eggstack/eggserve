@@ -25,6 +25,11 @@ tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remain
 experimental. `plans/` + `ROADMAP.md` are change-trace records, not normative
 API docs — normative user contracts live in `docs/`.
 
+Plans 270–272 add the direct H1 control/completion split and opt-in disabled
+total connection lifetime, then qualify the combined leaf-crate embedding
+contract for the additive 0.2.1 Rust patch. Local qualification is complete;
+crates.io publication and the registry-only consumer smoke remain pending.
+
 ## What eggserve Is
 
 - **A hardened static file server** — serves files from a directory with

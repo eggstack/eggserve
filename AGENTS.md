@@ -134,7 +134,8 @@ no push/tag/merge ever publishes.
 - **Inverted ranges are ignored (full 200), never 416** (RFC 9110 § 14.1.2).
 - **Python specifics:** `#[pyclass(frozen)]` / `frozen=True` dataclasses; `#[allow(dead_code)]` on public API types is for external Python bindings, not dead code; stock `SimpleHTTPRequestHandler` fast path requires the exact bare class (or `functools.partial` with `.keywords ⊆ {directory, extra_response_headers}`) — subclasses take the Python callback path; `Response.stream` bridge is 16 chunks, sync iterables only; `telemetry.rs` does not exist, `tracing` was never added — don't create them.
 - **H3 stays experimental** (upstream `hyperium/h3#338` + `#262` remainder unresolved; independent-client/adversarial evidence missing). Don't promote tiers; a promotion needs a new scoped plan.
-- `0.2.0` is the intentional pre-1.0 line (Plan 226) — never publish it as `0.1.x`. Every performance/release claim names a profile (`docs/deployment.md`) + evidence.
+- `0.2.0` is the historical initial pre-1.0 release; the synchronized current patch line is `0.2.1` (Plans 270–272). Never publish this API line as `0.1.x`. Every performance/release claim names a profile (`docs/deployment.md`) + evidence.
+- Direct `eggserve-server` supervisors use `ServerHandle::into_parts()` and retain cloneable `ServerControl` while selecting on the cancellation-safe typed `ServerCompletion::wait()`; legacy `ServerHandle::wait(self) -> ()` remains source-compatible and discards terminal detail. `RuntimeConfig.connection_total_timeout == Duration::ZERO` opts out of only the hard total lifetime; the default stays 60s and independent timeout/admission/shutdown limits remain.
 
 ## Reference docs
 
