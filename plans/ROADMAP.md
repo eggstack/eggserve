@@ -926,7 +926,9 @@ control/completion shutdown.
 Implementation plan:
 `plans/275-http-tower-adapter-patch-publication-and-registry-closure.md`.
 
-Status: **274 READY; 275 BLOCKED ON 274 IMPLEMENTATION.** Planning baseline is
+Status: **274 COMPLETE; 275 READY.** Plan 274 implementation candidate
+`e49d67b3a459a11686a20a9c13cb183fc2a1dbd4` passed hosted CI run
+`35954240517` and the local gates recorded in its plan. Planning baseline is
 `091cddc` with `eggserve-core 0.2.1` / `eggserve-server 0.2.1` published.
 This program does not reopen direct-server runtime ownership, static serving,
 H2/H3 tiers, or Python behavior; it repairs and permanently qualifies the

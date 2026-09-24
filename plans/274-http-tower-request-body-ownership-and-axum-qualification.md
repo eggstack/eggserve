@@ -419,26 +419,26 @@ Use the exact current commands if repository policy changes during execution.
 
 ## Acceptance criteria
 
-- [ ] `eggserve-core --features http-interop` compiles on Rust 1.89.
-- [ ] `eggserve-core --features tower` compiles on Rust 1.89.
-- [ ] No orphan impl remains for the canonical `RequestBody`.
-- [ ] `eggserve-primitives` gains no HTTP/Tower/Axum dependency.
-- [ ] A core-owned HTTP request-body adapter preserves data, trailers, limits,
+- [x] `eggserve-core --features http-interop` compiles on Rust 1.89.
+- [x] `eggserve-core --features tower` compiles on Rust 1.89.
+- [x] No orphan impl remains for the canonical `RequestBody`.
+- [x] `eggserve-primitives` gains no HTTP/Tower/Axum dependency.
+- [x] A core-owned HTTP request-body adapter preserves data, trailers, limits,
       size hints, errors, drop semantics, and lifecycle ownership.
-- [ ] `TowerToEggserve` and `EggserveToTower` consistently use the legal body
+- [x] `TowerToEggserve` and `EggserveToTower` consistently use the legal body
       adapter.
-- [ ] Existing generic Tower interop tests pass without weakening coverage.
-- [ ] A real Axum 0.8 Router composes with the direct
+- [x] Existing generic Tower interop tests pass without weakening coverage.
+- [x] A real Axum 0.8 Router composes with the direct
       `eggserve-server -> TowerToEggserve` path.
-- [ ] The Axum fixture proves request and response streaming remain
+- [x] The Axum fixture proves request and response streaming remain
       incremental and bounded.
-- [ ] Duplicate headers and middleware behavior remain correct.
-- [ ] Direct control/completion supervision remains usable around the adapter.
-- [ ] Routine CI and `verify.sh fast` permanently compile/test the adapter
+- [x] Duplicate headers and middleware behavior remain correct.
+- [x] Direct control/completion supervision remains usable around the adapter.
+- [x] Routine CI and `verify.sh fast` permanently compile/test the adapter
       features.
-- [ ] Default/no-feature, H2/TLS, H3/TLS, Python, topology, and supply-chain
+- [x] Default/no-feature, H2/TLS, H3/TLS, Python, topology, and supply-chain
       gates remain green.
-- [ ] No EggPool-specific runtime, route, configuration, or LLM policy enters
+- [x] No EggPool-specific runtime, route, configuration, or LLM policy enters
       EggServe.
 
 ## Non-goals
@@ -456,3 +456,15 @@ Use the exact current commands if repository policy changes during execution.
 Plan 274 ends when the source tree and routine CI prove the generic
 `http-interop`/Tower/Axum composition. Registry publication is owned by
 Plan 275.
+
+## Execution status
+
+**Complete — implementation qualified (2026-09-24).** Implementation
+candidate: `e49d67b3a459a11686a20a9c13cb183fc2a1dbd4`. Local qualification
+passed the focused Rust 1.89 interop/Tower checks, Tower Clippy and tests,
+standalone interop tests, Axum qualification, topology checks, and
+`scripts/verify.sh fast`. Hosted CI run
+[`35954240517`](https://github.com/eggstack/eggserve/actions/runs/35954240517)
+passed on that exact candidate SHA, including conformance, topology, supply
+chain, Python, MSRV, H2/TLS, and H3/TLS lanes. Plan 275 is unblocked and ready
+for release qualification; no other future plan dependency was found.
