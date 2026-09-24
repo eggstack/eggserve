@@ -1076,3 +1076,157 @@ Implementation plan:
 `plans/279-forward-proxy-seam-publication-and-downstream-closure.md`.
 
 Status: **278 BLOCKED ON 277 PUBLICATION; 279 BLOCKED ON 278.**
+
+
+## Direct H1 embedding policy-ownership program — Plans 280–286
+
+Plans 280–286 are a post-279 direct-runtime embedding program. They make
+selected application policy ownership explicit for sophisticated embedders
+without weakening EggServe's hardened standalone defaults or turning EggServe
+into a downstream-specific adapter.
+
+The program is deliberately **blocked on Plan 279 closure**. Plans 278–279
+already own the next direct-server request-target change and publication. The
+new program touches the same H1 config/request/runtime boundary and must not
+race or mutate those release candidates.
+
+Current planning baseline:
+`76bbcb9a85cded398d41799d5c60cf0d9ff74e7f`.
+
+```text
+279  forward-proxy seam published/closed
+ |
+280  external ownership for selected H1 deadlines + semantic ceilings
+ |\
+ | 281  external service/tunnel admission ownership
+ |/
+282  narrow H1 connection-policy/config projection
+ |
+283  typed runtime-rejection presentation
+ |
+ +----284  TunnelIo bridge optimization (evidence-gated KEEP/NO-GO)
+ |
+285  combined caller-owned TLS/default/Tower qualification + version decision
+ |
+286  crates.io publication + registry-only closure
+```
+
+Program index:
+`plans/280-286-direct-h1-embedding-policy-ownership-program.md`.
+
+### Plan 280 — explicit external deadline/semantic-limit ownership
+
+Plan 280 adds an opt-in ownership contract for the policies that can otherwise
+become duplicate authorities in an embedded server: handler deadline, request
+body deadline, keep-alive idle deadline, response-write progress deadline,
+global request-body ceiling, and semantic request-target ceiling.
+
+Existing APIs remain all-EggServe-owned by default. The plan explicitly avoids
+magic large values and does not reinterpret
+`max_request_body_bytes = 0` (which continues to mean reject bodies).
+Mandatory H1 parser buffer/header-count/framing protection remains
+EggServe-owned.
+
+Implementation plan:
+`plans/280-direct-h1-external-policy-ownership.md`.
+
+### Plan 281 — external service/tunnel admission ownership
+
+Plan 281 makes the direct runtime's service-call and tunnel admission gates
+explicitly EggServe-owned or External. Default semaphores and deterministic
+503 behavior remain unchanged. External mode removes the redundant EggServe
+gate rather than substituting a huge semaphore.
+
+File-stream admission remains EggServe-owned, and the high-level
+`Server` TCP connection cap remains unchanged.
+
+Implementation plan:
+`plans/281-direct-runtime-external-admission-ownership.md`.
+
+### Plan 282 — direct-H1 connection policy projection
+
+Plan 282 projects the monolithic `RuntimeConfig` into a validated narrow H1
+parser/connection policy at the embedding boundary. Existing public entry
+points remain compatibility wrappers. The canonical H1 driver should no longer
+need unrelated listener/TLS-handshake/static settings, and deep modules consume
+only the policy they actually own.
+
+This plan integrates the ownership models from Plans 280–281 and adds
+structural guards against policy authority drifting back into the monolithic
+config.
+
+Implementation plan:
+`plans/282-direct-h1-connection-policy-projection.md`.
+
+### Plan 283 — typed runtime-rejection presentation
+
+Plan 283 adds a typed, non-sensitive runtime-rejection presentation hook.
+EggServe continues to own rejection status, connection/lifecycle consequence,
+framing, and final privacy normalization; an embedder may customize only safe
+body/application-header presentation.
+
+The default presenter reproduces the existing
+`ErrorRepresentationPolicy` behavior. Parser failures that occur entirely
+inside Hyper may remain outside the hook and must be documented truthfully.
+
+Implementation plan:
+`plans/283-typed-runtime-rejection-presentation.md`.
+
+### Plan 284 — TunnelIo transport-bridge optimization
+
+Plan 284 is an evidence-gated optimization of the existing
+
+`Upgraded -> TokioIo -> copy_bidirectional -> DuplexStream -> TunnelIo`
+
+handoff. It first records same-machine tunnel performance/resource evidence,
+then evaluates an opaque direct transport-backed `TunnelIo` that still hides
+Hyper and preserves read-ahead, cancellation, commitment, admission, and
+shutdown semantics.
+
+The plan may close **NO-GO** with the current bridge retained. Correctness and
+ownership are more important than removing a copy.
+
+Implementation plan:
+`plans/284-tunnel-io-transport-bridge-optimization.md`.
+
+### Plan 285 — combined embedding qualification and version decision
+
+Plan 285 is the source/evidence closure gate. It proves the combined contract
+through a generic caller-owned Rustls/Tokio-Rustls H1 fixture:
+
+- real TLS handshake + ALPN `http/1.1`;
+- established `TlsStream` passed to the direct H1 driver;
+- default bounded behavior unchanged;
+- external deadline/semantic-limit ownership;
+- external service/tunnel admission;
+- custom rejection presentation;
+- retained tunnel design from Plan 284;
+- direct native and Tower/Axum variants;
+- no `eggserve-core`, `eggserve-static`, or PHF ancestry on the direct
+  graph.
+
+It also measures API compatibility and decides whether the release remains an
+additive 0.2.x patch or requires 0.3.0. No version number is hard-coded before
+that evidence.
+
+Implementation plan:
+`plans/285-embedding-contract-qualification-and-version-decision.md`.
+
+### Plan 286 — publication and registry-only closure
+
+Plan 286 derives the minimal publish set from the retained API, selects the
+version from live registry state plus Plan 285 compatibility evidence,
+publishes manually in dependency order, and proves the contract from fresh
+crates.io-only consumers.
+
+Closure requires both a hardened-default consumer and an advanced caller-owned
+TLS-H1 policy-owner consumer, plus a direct Tower consumer. Exact package
+versions, timestamps, checksums, dependency graphs, hosted CI, and known
+residuals are retained in a release evidence record.
+
+Implementation plan:
+`plans/286-embedding-contract-publication-and-registry-closure.md`.
+
+Status: **280–286 PLANNED; BLOCKED ON 279.** Plan 284 may independently close
+KEEP or NO-GO after the gate opens. Plan 286 is the only publication/downstream
+unblock authority for this program.
