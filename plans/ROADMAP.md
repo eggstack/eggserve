@@ -1020,3 +1020,59 @@ pushed implementation SHA and successful hosted CI run. Crates.io publication
 and exact published-registry consumer checks remain pending.
 Plans 274–275 remain complete historical corrective/publication evidence and
 are not reopened by this packaging optimization.
+
+
+## Forward-proxy request-target substrate — Plans 278–279
+
+Plans 278–279 are a narrow direct-server substrate corrective discovered by
+EggReplay M013B. They do not make EggServe a proxy and do not add outbound
+routing, CONNECT relay, CA/MITM, reverse-proxy, or application semantics.
+
+The current direct H1 request conversion intentionally rejects absolute-form
+targets before service dispatch. That default remains correct for static and
+ordinary application-server use, but it prevents an explicit forward-proxy
+embedder from applying its own target policy through the canonical Service
+boundary.
+
+The sequence is strict:
+
+```text
+277  publish/close the already-qualified 0.2.3 adapter candidate
+ |
+278  opt-in absolute-form H1 service dispatch + canonical target metadata
+ |
+279  next-patch publication + clean registry-only downstream proof
+```
+
+### Plan 278 — opt-in absolute-form service dispatch
+
+Plan 278 adds an explicit direct-runtime H1 request-target mode whose default
+remains origin-form-only. In the opt-in mode, validated absolute-form requests
+may reach the normal `Service` boundary with transport-neutral target form,
+scheme, authority, path, and query metadata.
+
+The plan preserves `RequestTarget::parse` as the origin-form-only constructor,
+keeps CONNECT authority-form on the existing tunnel path, leaves H2/H3
+semantics unchanged, bounds the full absolute target, preserves Host/URI
+authority mismatch rejection, and ensures StaticService/confinement never
+acquire an absolute-URI file-resolution surface.
+
+Implementation plan:
+`plans/278-forward-proxy-absolute-form-service-dispatch.md`.
+
+### Plan 279 — publication and downstream closure
+
+Plan 279 selects the next unused compatible 0.2.x patch only after Plan 278 is
+qualified, derives the minimal changed publish set, publishes in dependency
+order, and proves both the unchanged origin-only default and the new opt-in
+absolute-form seam from fresh crates.io-only consumers.
+
+Its generic EggReplay-shaped fixture must prove duplicate-preserving canonical
+headers, request streaming/trailers, bounded shutdown, and target
+form/scheme/authority/path/query access without Hyper types. EggReplay remains
+blocked until that exact published-artifact proof is complete.
+
+Implementation plan:
+`plans/279-forward-proxy-seam-publication-and-downstream-closure.md`.
+
+Status: **278 BLOCKED ON 277 PUBLICATION; 279 BLOCKED ON 278.**
