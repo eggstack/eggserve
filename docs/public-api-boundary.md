@@ -127,7 +127,8 @@ Plan 200 adds optional ecosystem adapters without leaking Hyper (see
 [http-interop.md](http-interop.md)):
 
 - `primitives::interop` (`http-interop` feature) — loss-aware `http` metadata
-  conversions, `RequestBody: http_body::Body` with trailers, and
+  conversions, `HttpRequestBody` wrapping canonical `RequestBody` with
+  trailers, and
   `response_from_http_body` into the canonical pipeline (EggServe stays the
   framing authority);
 - `server::tower` (`tower` feature) — `TowerToEggserve` (per-request Tower

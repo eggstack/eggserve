@@ -995,12 +995,12 @@ async fn h2_sibling_survives_reject() {
 #[cfg(feature = "tower")]
 #[tokio::test]
 async fn tower_adapter_parity() {
-    use eggserve_core::primitives::RequestBody;
+    use eggserve_core::primitives::interop::HttpRequestBody;
     use eggserve_core::server::TowerToEggserve;
 
     #[derive(Clone, Default)]
     struct Hello;
-    impl tower_service::Service<http::Request<RequestBody>> for Hello {
+    impl tower_service::Service<http::Request<HttpRequestBody>> for Hello {
         type Response = http::Response<http_body_util::Full<Bytes>>;
         type Error = std::convert::Infallible;
         type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
@@ -1010,7 +1010,7 @@ async fn tower_adapter_parity() {
         ) -> std::task::Poll<Result<(), Self::Error>> {
             std::task::Poll::Ready(Ok(()))
         }
-        fn call(&mut self, _req: http::Request<RequestBody>) -> Self::Future {
+        fn call(&mut self, _req: http::Request<HttpRequestBody>) -> Self::Future {
             std::future::ready(Ok(http::Response::builder()
                 .status(http::StatusCode::OK)
                 .body(http_body_util::Full::new(Bytes::from("tower-hello")))

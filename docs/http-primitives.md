@@ -130,7 +130,8 @@ Optional `http` / `http-body` / Tower adapters live behind `http-interop`
 and `tower` features (never in default builds). See
 [http-interop.md](http-interop.md): loss-aware metadata conversions with
 `RawTargetExt` / `ConnectionInfoExt` / `AuthorityExt` / `LifecycleExt`,
-`RequestBody: http_body::Body` (data + trailers, backpressured, sanitized),
+`HttpRequestBody` wraps canonical `RequestBody` as `http_body::Body` (data +
+trailers, backpressured, sanitized),
 `response_from_http_body` (framing-authoritative, validated trailers),
 `TowerToEggserve` (per-request clones, no shared mutex) and
 `EggserveToTower` (adapter-local readiness). Interim/tunnel capabilities

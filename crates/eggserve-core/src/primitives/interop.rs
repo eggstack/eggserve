@@ -214,6 +214,7 @@ pub fn version_to_http(version: HttpVersion) -> http::Version {
         HttpVersion::Http11 => http::Version::HTTP_11,
         HttpVersion::Http2 => http::Version::HTTP_2,
         HttpVersion::Http3 => http::Version::HTTP_3,
+        _ => unreachable!("all canonical HTTP versions are mapped"),
     }
 }
 
@@ -450,7 +451,7 @@ pub fn request_head_from_http<B>(
 // Request-body adapter (Track C)
 // ---------------------------------------------------------------------------
 
-/// Sanitized error for the `http_body::Body` view over [`RequestBody`].
+/// Sanitized error for the `http_body::Body` view over [`HttpRequestBody`].
 ///
 /// `Display` is intentionally generic (`"request body failed"`) so internal
 /// limit/framing/transport details never reach Tower middleware responses.
@@ -489,7 +490,34 @@ impl From<RequestBodyError> for RequestBodyHttpError {
     }
 }
 
-impl http_body::Body for RequestBody {
+/// HTTP ecosystem view over the canonical one-shot [`RequestBody`].
+///
+/// This core-owned newtype makes the external `http_body::Body` implementation
+/// legal without adding ecosystem dependencies to `eggserve-primitives`. It
+/// forwards all polling and ownership to the same canonical body.
+pub struct HttpRequestBody {
+    inner: RequestBody,
+}
+
+impl HttpRequestBody {
+    /// Wrap a canonical request body without buffering or cloning it.
+    pub fn new(inner: RequestBody) -> Self {
+        Self { inner }
+    }
+
+    /// Recover the same canonical body and its one-shot state.
+    pub fn into_inner(self) -> RequestBody {
+        self.inner
+    }
+}
+
+impl From<RequestBody> for HttpRequestBody {
+    fn from(inner: RequestBody) -> Self {
+        Self::new(inner)
+    }
+}
+
+impl http_body::Body for HttpRequestBody {
     type Data = Bytes;
     type Error = RequestBodyHttpError;
 
@@ -501,7 +529,7 @@ impl http_body::Body for RequestBody {
         // ownership, byte limits, and cancellation wake-ups. `poll_next`
         // carries the limit/framing checks; dropping preserves
         // abandoned-body/reuse semantics via `RequestBody::drop`.
-        let this = self.get_mut();
+        let this = &mut self.get_mut().inner;
         match Pin::new(&mut *this).poll_next(cx) {
             Poll::Ready(Some(Ok(chunk))) => Poll::Ready(Some(Ok(http_body::Frame::data(chunk)))),
             Poll::Ready(Some(Err(e))) => {
@@ -530,9 +558,9 @@ impl http_body::Body for RequestBody {
     fn size_hint(&self) -> http_body::SizeHint {
         // Truthful but not a guarantee after transport failure: remaining
         // declared bytes when known, unknown otherwise.
-        match self.declared_length() {
+        match self.inner.declared_length() {
             Some(declared) => {
-                let remaining = declared.saturating_sub(self.bytes_received());
+                let remaining = declared.saturating_sub(self.inner.bytes_received());
                 http_body::SizeHint::with_exact(remaining)
             }
             None => http_body::SizeHint::default(),
@@ -542,7 +570,7 @@ impl http_body::Body for RequestBody {
     fn is_end_stream(&self) -> bool {
         // End only when content completed *and* no terminal trailer frame
         // remains to be emitted.
-        self.is_complete() && self.completed_trailers_snapshot().is_none()
+        self.inner.is_complete() && self.inner.completed_trailers_snapshot().is_none()
     }
 }
 
@@ -814,6 +842,61 @@ pub fn default_trailer_limits() -> TrailerLimits {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body::Body as _;
+
+    #[tokio::test]
+    async fn http_request_body_forwards_canonical_frames_and_hints() {
+        use http_body_util::BodyExt;
+
+        let canonical = RequestBody::from_bytes(b"body".to_vec(), 64);
+        let mut adapter = HttpRequestBody::from(canonical);
+        assert_eq!(adapter.size_hint().exact(), Some(4));
+        let frame = adapter.frame().await.unwrap().unwrap();
+        assert_eq!(frame.into_data().unwrap(), Bytes::from_static(b"body"));
+        assert!(adapter.frame().await.is_none());
+        assert_eq!(adapter.size_hint().exact(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn http_request_body_emits_one_terminal_trailer_frame() {
+        use http_body_util::BodyExt;
+
+        let mut block = HeaderBlock::new();
+        block.push_str("x-end", "yes").unwrap();
+        let canonical = RequestBody::from_bytes_with_trailers(
+            b"part".to_vec(),
+            64,
+            Trailers::new(block).unwrap(),
+        );
+        let mut adapter = HttpRequestBody::new(canonical);
+        assert_eq!(
+            adapter.frame().await.unwrap().unwrap().into_data().unwrap(),
+            Bytes::from_static(b"part")
+        );
+        assert_eq!(
+            adapter
+                .frame()
+                .await
+                .unwrap()
+                .unwrap()
+                .into_trailers()
+                .unwrap()["x-end"],
+            "yes"
+        );
+        assert!(adapter.frame().await.is_none());
+        assert!(adapter.is_end_stream());
+    }
+
+    #[test]
+    fn http_request_body_error_display_is_sanitized_and_unwrap_preserves_owner() {
+        let body = RequestBody::empty();
+        let adapter = HttpRequestBody::new(body);
+        let error = RequestBodyHttpError::new("private transport detail");
+        assert_eq!(error.to_string(), "request body failed");
+        assert!(!error.to_string().contains("private"));
+        let body = adapter.into_inner();
+        assert_eq!(body.state(), super::super::request_body::BodyState::Unread);
+    }
 
     #[test]
     fn method_round_trip() {

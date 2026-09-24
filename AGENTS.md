@@ -61,8 +61,13 @@ cargo fmt --all -- --check
 cargo +1.89 check --workspace --all-targets
 cargo +1.89 check --workspace --all-targets --features http2,tls
 cargo +1.89 check --workspace --all-targets --features http3,tls
+cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features http-interop
+cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features tower
 cargo clippy --workspace --lib --bins --tests -- -D warnings
 cargo test --workspace
+cargo clippy -p eggserve-core --no-default-features --features tower --lib --tests -- -D warnings
+cargo test -p eggserve-core --no-default-features --features tower
+cargo test -p eggserve-core --no-default-features --features http-interop --lib
 cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked
 cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
 cargo test -p eggserve-bin --features tls

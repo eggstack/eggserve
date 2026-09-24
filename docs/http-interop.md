@@ -65,7 +65,8 @@ stays an outer hard ceiling; Tower readiness only further gates app work.
 
 ## Bodies
 
-- `RequestBody: http_body::Body` yields `Frame::data` then one optional
+- `RequestBody` converts to `HttpRequestBody`, the explicit core-owned
+  `http_body::Body` adapter. It yields `Frame::data` then one optional
   `Frame::trailers` after content completion. One-shot ownership, truthful
   `size_hint` (remaining declared bytes, not a post-failure guarantee),
   sanitized errors, drop preserves abandoned-body semantics, cancellation

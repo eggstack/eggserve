@@ -824,7 +824,21 @@ async fn client_disconnect_releases_producer() {
     conn.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
         .await
         .unwrap();
-    // Disconnect before reading the body.
+    // Synchronize on response commitment while its body producer is pending;
+    // otherwise an immediate close can race request parsing and never exercise
+    // cancellation of the response stream.
+    let mut headers = Vec::new();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !headers.windows(4).any(|window| window == b"\r\n\r\n") {
+            let mut byte = [0u8; 1];
+            let count = conn.read(&mut byte).await.unwrap();
+            assert_ne!(count, 0, "connection closed before response commitment");
+            headers.extend_from_slice(&byte[..count]);
+        }
+    })
+    .await
+    .unwrap();
+    // Disconnect while the server is waiting for the pending response body.
     drop(conn);
     tokio::time::sleep(Duration::from_millis(300)).await;
     let after = eggserve_core::ops::global_counters()

@@ -16,15 +16,15 @@
 //! admission ceiling held across native `Service::call`. Tower readiness may
 //! further delay or reject application work but can never raise that ceiling.
 //!
-//! Request bodies arrive as canonical [`RequestBody`](crate::primitives::RequestBody)
-//! (which implements `http_body::Body` with trailers, limits, and
-//! cancellation). Tower responses (`http::Response<B: http_body::Body>`) are
+//! Request bodies arrive as [`HttpRequestBody`](crate::primitives::interop::HttpRequestBody),
+//! a core-owned `http_body::Body` view over the canonical body, preserving
+//! trailers, limits, and cancellation. Tower responses (`http::Response<B: http_body::Body>`) are
 //! converted incrementally into the canonical pipeline; EggServe remains the
 //! final framing authority.
 //!
 //! # E2 — Expose an EggServe service as Tower (`EggserveToTower`)
 //!
-//! Implements `tower_service::Service<http::Request<RequestBody>>` around a
+//! Implements `tower_service::Service<http::Request<HttpRequestBody>>` around a
 //! native [`Service`]. `poll_ready` always reports ready: it reflects
 //! adapter-local readiness only and never claims transport admission has been
 //! acquired (admission stays runtime-owned). Responses convert through
@@ -50,9 +50,10 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 
 use crate::primitives::canonical::{normalize_response, NormalizeRequest};
-use crate::primitives::interop::{request_head_to_http, response_from_http_body, InteropError};
+use crate::primitives::interop::{
+    request_head_to_http, response_from_http_body, HttpRequestBody, InteropError,
+};
 use crate::primitives::request::Request;
-use crate::primitives::request_body::RequestBody;
 use crate::primitives::request_body_policy::RequestBodyPolicy;
 use crate::server::service::{Service, ServiceError};
 
@@ -63,7 +64,7 @@ use crate::server::service::{Service, ServiceError};
 /// Adapter running a Tower service as a native EggServe [`Service`].
 ///
 /// `S` is the Tower service type operating on
-/// `http::Request<RequestBody>`; `B` is its response-body type. `S` must be
+/// `http::Request<HttpRequestBody>`; `B` is its response-body type. `S` must be
 /// [`Clone`] so each request drives its own readiness without a shared
 /// mutex. See the module docs for the ownership contract.
 ///
@@ -117,7 +118,7 @@ where
 
 impl<S, B> Service for TowerToEggserve<S>
 where
-    S: tower_service::Service<http::Request<RequestBody>, Response = http::Response<B>>
+    S: tower_service::Service<http::Request<HttpRequestBody>, Response = http::Response<B>>
         + Clone
         + Send
         + Sync
@@ -155,7 +156,7 @@ where
             // hand-built heads that cannot map are an internal error).
             let http_head = request_head_to_http(&head, &connection, &lifecycle)
                 .map_err(|e| ServiceError::internal(format!("tower request conversion: {e}")))?;
-            let http_req = http_head.map(|()| body);
+            let http_req = http_head.map(|()| HttpRequestBody::new(body));
             // Readiness: per-clone, bounded by Tower semantics. Transport
             // admission (`max_in_flight_requests`) is already held by the
             // runtime across this `call`; readiness here only gates app work.
@@ -180,9 +181,8 @@ where
 
 /// Adapter exposing a native EggServe [`Service`] as a Tower service.
 ///
-/// The Tower request type is `http::Request<RequestBody>` (the canonical body
-/// already implements `http_body::Body`, so middleware can consume it
-/// incrementally with trailers). Generic foreign body types must be buffered
+/// The Tower request type is `http::Request<HttpRequestBody>`, which exposes
+/// the canonical body incrementally with trailers. Generic foreign body types must be buffered
 /// into [`RequestBody`] by downstream code with an explicit limit first;
 /// no unbounded buffering path is provided here.
 ///
@@ -211,7 +211,7 @@ where
     }
 }
 
-impl<S> tower_service::Service<http::Request<RequestBody>> for EggserveToTower<S>
+impl<S> tower_service::Service<http::Request<HttpRequestBody>> for EggserveToTower<S>
 where
     S: Service + Clone + Send + 'static,
 {
@@ -227,7 +227,7 @@ where
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: http::Request<RequestBody>) -> Self::Future {
+    fn call(&mut self, req: http::Request<HttpRequestBody>) -> Self::Future {
         // Clone the inner service so the returned future owns everything
         // (`tower_service::Service::Future` is not tied to `&mut self`).
         // Adapter-local readiness stays `Ready`; transport admission is never
@@ -238,6 +238,7 @@ where
         // it; otherwise origin-form rendering is validated (absolute-form
         // rejected, never normalized silently).
         let (mut parts, body) = req.into_parts();
+        let body = body.into_inner();
         let extensions = std::mem::take(&mut parts.extensions);
         let head_req = http::Request::from_parts(parts, ());
         let mut head_req = head_req;

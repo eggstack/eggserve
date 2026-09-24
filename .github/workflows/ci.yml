@@ -56,6 +56,10 @@ jobs:
         run: cargo +1.89 check --workspace --all-targets --features http2,tls
       - name: MSRV HTTP/3 cargo check
         run: cargo +1.89 check --workspace --all-targets --features http3,tls
+      - name: MSRV HTTP interop and Tower cargo checks
+        run: |
+          cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features http-interop
+          cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features tower
       - name: Restore stable toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
@@ -64,6 +68,11 @@ jobs:
         run: cargo clippy --workspace --lib --bins --tests -- -D warnings
       - name: Workspace tests
         run: cargo test --workspace
+      - name: HTTP interop and Tower qualification
+        run: |
+          cargo clippy -p eggserve-core --no-default-features --features tower --lib --tests -- -D warnings
+          cargo test -p eggserve-core --no-default-features --features tower
+          cargo test -p eggserve-core --no-default-features --features http-interop --lib
       - name: Check excluded Python crate
         run: cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked
       - name: Server TLS lint and tests

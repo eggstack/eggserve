@@ -10,6 +10,7 @@
 #![cfg(feature = "tower")]
 
 use bytes::Bytes;
+use eggserve_core::primitives::interop::HttpRequestBody;
 use eggserve_core::primitives::interop::{
     header_block_to_map, header_map_to_block, method_from_http, method_to_http,
     request_head_to_http, response_from_http_body, status_from_http, status_to_http,
@@ -39,7 +40,7 @@ use tower_layer::Layer as _;
 #[derive(Clone, Default)]
 struct FullHello;
 
-impl tower_service::Service<http::Request<RequestBody>> for FullHello {
+impl tower_service::Service<http::Request<HttpRequestBody>> for FullHello {
     type Response = http::Response<Full<Bytes>>;
     type Error = std::convert::Infallible;
     type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
@@ -48,7 +49,7 @@ impl tower_service::Service<http::Request<RequestBody>> for FullHello {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _req: http::Request<RequestBody>) -> Self::Future {
+    fn call(&mut self, _req: http::Request<HttpRequestBody>) -> Self::Future {
         let resp = http::Response::builder()
             .status(http::StatusCode::OK)
             .header("x-hello", "world")
@@ -70,7 +71,7 @@ type StreamingBody = StreamBody<
     >,
 >;
 
-impl tower_service::Service<http::Request<RequestBody>> for StreamingService {
+impl tower_service::Service<http::Request<HttpRequestBody>> for StreamingService {
     type Response = http::Response<StreamingBody>;
     type Error = std::convert::Infallible;
     type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
@@ -79,7 +80,7 @@ impl tower_service::Service<http::Request<RequestBody>> for StreamingService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _req: http::Request<RequestBody>) -> Self::Future {
+    fn call(&mut self, _req: http::Request<HttpRequestBody>) -> Self::Future {
         // Three chunks streamed incrementally (no full buffering).
         let stream = futures_util::stream::iter(vec![
             Ok(http_body::Frame::data(Bytes::from("chunk-one-"))),
@@ -106,7 +107,7 @@ impl tower_service::Service<http::Request<RequestBody>> for StreamingService {
 #[derive(Clone, Default)]
 struct TrailerEchoService;
 
-impl tower_service::Service<http::Request<RequestBody>> for TrailerEchoService {
+impl tower_service::Service<http::Request<HttpRequestBody>> for TrailerEchoService {
     type Response = http::Response<Full<Bytes>>;
     type Error = std::convert::Infallible;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -115,7 +116,7 @@ impl tower_service::Service<http::Request<RequestBody>> for TrailerEchoService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: http::Request<RequestBody>) -> Self::Future {
+    fn call(&mut self, req: http::Request<HttpRequestBody>) -> Self::Future {
         Box::pin(async move {
             let (_parts, mut body) = req.into_parts();
             // Drain data incrementally (backpressure preserved). Trailers
@@ -159,7 +160,7 @@ impl Clone for ReadinessService {
     }
 }
 
-impl tower_service::Service<http::Request<RequestBody>> for ReadinessService {
+impl tower_service::Service<http::Request<HttpRequestBody>> for ReadinessService {
     type Response = http::Response<Full<Bytes>>;
     type Error = std::convert::Infallible;
     type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
@@ -169,7 +170,7 @@ impl tower_service::Service<http::Request<RequestBody>> for ReadinessService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _req: http::Request<RequestBody>) -> Self::Future {
+    fn call(&mut self, _req: http::Request<HttpRequestBody>) -> Self::Future {
         let resp = http::Response::builder()
             .status(http::StatusCode::OK)
             .body(Full::new(Bytes::from("ready")))
@@ -193,7 +194,7 @@ impl std::fmt::Display for AppError {
 
 impl std::error::Error for AppError {}
 
-impl tower_service::Service<http::Request<RequestBody>> for FailingService {
+impl tower_service::Service<http::Request<HttpRequestBody>> for FailingService {
     type Response = http::Response<Full<Bytes>>;
     type Error = AppError;
     type Future = std::future::Ready<Result<Self::Response, Self::Error>>;
@@ -202,7 +203,7 @@ impl tower_service::Service<http::Request<RequestBody>> for FailingService {
         Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _req: http::Request<RequestBody>) -> Self::Future {
+    fn call(&mut self, _req: http::Request<HttpRequestBody>) -> Self::Future {
         std::future::ready(Err(AppError("boom")))
     }
 }
@@ -386,7 +387,11 @@ async fn request_body_streams_data_then_trailers() {
         b
     })
     .unwrap();
-    let mut body = RequestBody::from_bytes_with_trailers(b"hello ".to_vec(), 1024, trailers);
+    let mut body = HttpRequestBody::from(RequestBody::from_bytes_with_trailers(
+        b"hello ".to_vec(),
+        1024,
+        trailers,
+    ));
     // size_hint is truthful (remaining declared bytes).
     assert_eq!(body.size_hint().exact(), Some(6));
     // Poll data frames incrementally (real backpressure, no full buffering).
@@ -682,7 +687,7 @@ async fn eggserve_to_tower_round_trip() {
     let body = RequestBody::empty();
     let lifecycle = body.lifecycle();
     let http_head = request_head_to_http(&head, &test_connection(), &lifecycle).unwrap();
-    let http_req = http_head.map(|()| body);
+    let http_req = http_head.map(|()| HttpRequestBody::new(body));
     let resp = tower_svc.call(http_req).await.expect("tower call");
     assert_eq!(resp.status(), http::StatusCode::OK);
     let collected = resp.into_body().collect().await.unwrap().to_bytes();
