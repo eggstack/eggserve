@@ -67,9 +67,18 @@ Local-registry comparison, same host/toolchain and release profile:
 These figures describe only the two qualification fixtures and are not a
 general binary-size or performance claim.
 
+## Repository commit and hosted CI
+
+- Plan-276 implementation candidate: `a832b9fd38715d96969f24a73ba289a4a267d68b`
+  (pushed to `main`).
+- GitHub Actions CI run `36040748271` passed all `rust`, `python`, and
+  `supply-chain` jobs for that candidate on 2026-09-24. The run is available at
+  <https://github.com/eggstack/eggserve/actions/runs/36040748271>.
+- The follow-up evidence-record commit is documentation-only; its own hosted
+  CI result will be recorded here after that run completes.
+
 ## Remaining closure gates
 
-- Record the pushed candidate SHA and successful hosted CI run ID.
 - Publish `eggserve-server 0.2.3` manually, wait for registry visibility, then
   publish `eggserve-core 0.2.3` manually.
 - Record publication timestamps and crates.io checksums.

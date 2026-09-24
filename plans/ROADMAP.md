@@ -1015,8 +1015,8 @@ topology guards, and local staged-registry package checks are complete. Local
 full validation, including Rust feature lanes, Python wheel tests, examples,
 and staged package verification, passed. Plan 277's local release candidate
 and staged registry proof are recorded in
-`release/plan-277-direct-tower-adapter-publication-closure.md`; pushed SHA and
-hosted CI evidence will be appended there after push. Crates.io publication
+`release/plan-277-direct-tower-adapter-publication-closure.md`, including the
+pushed implementation SHA and successful hosted CI run. Crates.io publication
 and exact published-registry consumer checks remain pending.
 Plans 274–275 remain complete historical corrective/publication evidence and
 are not reopened by this packaging optimization.
