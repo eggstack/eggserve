@@ -1091,7 +1091,7 @@ new program touches the same H1 config/request/runtime boundary and must not
 race or mutate those release candidates.
 
 Current planning baseline:
-`76bbcb9a85cded398d41799d5c60cf0d9ff74e7f`.
+`4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922`.
 
 ```text
 279  forward-proxy seam published/closed
