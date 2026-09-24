@@ -139,6 +139,95 @@ def main() -> int:
     if "eggserve-primitives" not in server:
         print("eggserve-server must depend on eggserve-primitives", file=sys.stderr)
         return 1
+
+    # Plan 276: the direct Tower profile must stay below the compatibility/static
+    # umbrella, and the default server must not activate Tower traits. Inspect
+    # resolved feature graphs rather than only manifest declarations.
+    def resolved_names(*args: str) -> set[str]:
+        output = subprocess.check_output(
+            ["cargo", "tree", "-e", "no-dev", "--prefix", "none", "-f", "{p}", *args],
+            text=True,
+        )
+        return {line.strip().split()[0] for line in output.splitlines() if line.strip()}
+
+    direct_tower = resolved_names(
+        "-p", "eggserve-server", "--no-default-features", "--features", "tower"
+    )
+    static_free = {
+        "eggserve-core", "eggserve-static", "phf", "phf_generator",
+        "phf_macros", "phf_shared", "siphasher",
+    }
+    if direct_tower & static_free:
+        print(
+            "eggserve-server tower profile reaches compatibility/static/PHF packages: "
+            f"{sorted(direct_tower & static_free)} (Plan 276)",
+            file=sys.stderr,
+        )
+        return 1
+    default_server = resolved_names("-p", "eggserve-server")
+    if default_server & {"tower-service", "tower-layer"}:
+        print(
+            "eggserve-server default graph enables Tower traits/layers (Plan 276)",
+            file=sys.stderr,
+        )
+        return 1
+    core_manifest = json.loads(json.dumps(packages.get("eggserve-core", {})))
+    repo = Path(__file__).resolve().parent.parent
+    server_src = repo / "crates" / "eggserve-server" / "src"
+    core_src = repo / "crates" / "eggserve-core" / "src"
+    for relative, marker in (("interop.rs", "pub struct HttpRequestBody"), ("tower.rs", "pub struct TowerToEggserve")):
+        if marker not in (server_src / relative).read_text():
+            print(f"eggserve-server/{relative} is missing its Plan-276 authority {marker}", file=sys.stderr)
+            return 1
+    for relative in ("primitives/interop.rs", "server/tower.rs"):
+        contents = (core_src / relative).read_text().strip()
+        if not contents.startswith("//! Compatibility re-exports") or "pub use eggserve_server::" not in contents:
+            print(f"eggserve-core/{relative} is not a facade-only Plan-276 re-export", file=sys.stderr)
+            return 1
+    if core_manifest:
+        production_core = {
+            dep["name"] for dep in core_manifest.get("dependencies", [])
+            if dep["kind"] is None
+        }
+        leaked_adapter_deps = production_core & {"http", "tower-service", "tower-layer"}
+        if leaked_adapter_deps:
+            print(
+                "eggserve-core retains direct production adapter dependencies instead of "
+                f"forwarding server ownership: {sorted(leaked_adapter_deps)} (Plan 276)",
+                file=sys.stderr,
+            )
+            return 1
+        server_package = packages["eggserve-server"]
+        core_features = core_manifest.get("features", {})
+        server_features = server_package.get("features", {})
+        if not {"http-interop", "tower"}.issubset(server_features):
+            print("eggserve-server must publish opt-in http-interop/tower features (Plan 276)", file=sys.stderr)
+            return 1
+        if "eggserve-server/http-interop" not in core_features.get("http-interop", []) or "eggserve-server/tower" not in core_features.get("tower", []):
+            print("eggserve-core adapter features must forward to eggserve-server (Plan 276)", file=sys.stderr)
+            return 1
+        server_req = next(
+            (dep["req"] for dep in core_manifest.get("dependencies", []) if dep["name"] == "eggserve-server" and dep["kind"] is None),
+            None,
+        )
+        if server_req != "^0.2.3":
+            print(
+                "eggserve-core must require the first server release with the forwarded Tower feature "
+                f"(expected ^0.2.3, found {server_req!r})",
+                file=sys.stderr,
+            )
+            return 1
+        optional_adapter_deps = {
+            dep["name"] for dep in server_package.get("dependencies", [])
+            if dep["kind"] is None and dep["optional"] and dep["name"] in {"tower-service", "tower-layer"}
+        }
+        if optional_adapter_deps != {"tower-service", "tower-layer"}:
+            print(
+                "eggserve-server must keep Tower traits/layers optional: "
+                f"found {sorted(optional_adapter_deps)} (Plan 276)",
+                file=sys.stderr,
+            )
+            return 1
     server_h3 = production("eggserve-server") & {"h3", "h3-quinn", "quinn"}
     if check_forbidden_deps(
         "eggserve-server", server_h3, {"h3", "h3-quinn", "quinn"}, "no direct H3/QUIC stack"
@@ -700,6 +789,8 @@ def check_plan215_parity() -> int:
         "connection/driver.rs": ["async fn drive_connection", "fn hyper_builder"],
         "connection/pipeline.rs": ["fn make_canonical_hyper_service", "async fn invoke_service"],
         "adapters.rs": ["pub fn to_hyper_response"],
+        "interop.rs": ["pub struct HttpRequestBody"],
+        "tower.rs": ["pub struct TowerToEggserve"],
     }
     for rel, markers in owned.items():
         text = read(server_src / rel)
@@ -1772,12 +1863,11 @@ def check_plan225_facade() -> int:
         return 1
 
     # 4. Facade discipline: every `primitives/*.rs` compatibility file must
-    #    re-export the direct authority (`pub use eggserve_...`). The only
-    #    documented exceptions are the Plan 200 `http-interop` adapters
-    #    (`interop.rs`, loss-aware conversions over canonical types, never
-    #    in default builds) — `mod.rs` only declares modules and re-exports.
+    #    re-export the direct authority (`pub use eggserve_...`). The Plan 276
+    #    `interop.rs` path is also a facade now; `mod.rs` only declares
+    #    modules and re-exports.
     for path in sorted((core_src / "primitives").glob("*.rs")):
-        if path.name in {"interop.rs", "mod.rs"}:
+        if path.name == "mod.rs":
             continue
         if "pub use eggserve_" not in path.read_text():
             print(
@@ -1977,7 +2067,7 @@ def run_self_tests() -> int:
         core_src = root / "crates/eggserve-core/src"
         for rel in PLAN225_CORE_MODULE_INVENTORY:
             content = ""
-            if rel.startswith("primitives/") and rel not in {"primitives/interop.rs", "primitives/mod.rs"}:
+            if rel.startswith("primitives/") and rel != "primitives/mod.rs":
                 content = "pub use eggserve_x::Y;\n"
             if rel == "primitives/mod.rs":
                 content = "pub mod authority;\n"

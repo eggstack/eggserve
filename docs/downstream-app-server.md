@@ -355,8 +355,9 @@ implements generic tunnels (`Service::call_with_tunnel`/`accept`/`TunnelIo`; H1 
 downstream (see `tunnel_upgrade.rs`). Raw Hyper/h2/h3/Quinn bypass remains
 unsupported. No Tower `Service`,
 `poll_ready`, routing, middleware, or worker semantics enter the native
-contract (Plan 197 Track E); those belong in the optional `tower` adapters
-(`server::tower`, Plan 200 implemented; see [http-interop.md](http-interop.md)).
+contract (Plan 197 Track E); those belong in the optional `eggserve-server/tower` adapter
+(`eggserve_server::tower`, Plan 276; core retains a compatibility path; see
+[http-interop.md](http-interop.md)).
 Python
 FFI/asyncio architecture belongs in the downstream project's repository.
 Downstream gateways build on the canonical `Service` boundary instead

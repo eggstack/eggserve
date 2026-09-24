@@ -1008,6 +1008,15 @@ and a durable release evidence record.
 Implementation plan:
 `plans/277-direct-tower-adapter-publication-closure.md`.
 
-Status: **276 READY FOR IMPLEMENTATION; 277 BLOCKED ON 276.**
+Status: **276 IMPLEMENTED; 277 LOCAL QUALIFICATION COMPLETE, PUBLICATION PENDING.**
+
+Plan 276's implementation, compatibility facades, direct/core Axum fixtures,
+topology guards, and local staged-registry package checks are complete. Local
+full validation, including Rust feature lanes, Python wheel tests, examples,
+and staged package verification, passed. Plan 277's local release candidate
+and staged registry proof are recorded in
+`release/plan-277-direct-tower-adapter-publication-closure.md`; pushed SHA and
+hosted CI evidence will be appended there after push. Crates.io publication
+and exact published-registry consumer checks remain pending.
 Plans 274–275 remain complete historical corrective/publication evidence and
 are not reopened by this packaging optimization.

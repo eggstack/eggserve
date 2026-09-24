@@ -126,8 +126,10 @@ Initial headers, trailers, interim responses, and final responses are distinct:
 
 ### Ecosystem interoperability (Plan 200, implemented)
 
-Optional `http` / `http-body` / Tower adapters live behind `http-interop`
-and `tower` features (never in default builds). See
+Optional `http` / `http-body` / Tower adapters are owned by
+`eggserve_server::interop` (`http-interop`) and `eggserve_server::tower`
+(`tower`) (never in default builds). Core keeps its historical paths as
+compatibility re-exports. See
 [http-interop.md](http-interop.md): loss-aware metadata conversions with
 `RawTargetExt` / `ConnectionInfoExt` / `AuthorityExt` / `LifecycleExt`,
 `HttpRequestBody` wraps canonical `RequestBody` as `http_body::Body` (data +

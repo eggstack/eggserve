@@ -119,7 +119,7 @@ pub trait Service: Send + Sync + 'static {
 - `request_body_policy()` declares the service's body policy per request head; default is `Reject` (safe static default). The runtime enforces the hard `max_request_body_bytes` ceiling — services may lower it, never raise it
 - Receives canonical `Request` envelope (RequestHead + RequestBody + `RequestContext`)
 - Returns canonical `Response` or `ServiceError` — Plan 197 Track C keeps this shape (no `ServiceOutcome`); Plan 198 implements trailers in the message-body abstraction (`ResponseStream::with_trailers`) and interim via the request-scoped `InterimSender`, tunnel deferred to Plan 199
-- Must be `Send + Sync` for sharing across connections; no `poll_ready` — Tower readiness belongs in the `tower` adapters (`TowerToEggserve` per-request clones, `EggserveToTower` adapter-local ready; Plan 200 implemented), native admission stays runtime-owned and deterministic (Plan 197 Track E)
+- Must be `Send + Sync` for sharing across connections; no `poll_ready` — Tower readiness belongs in `eggserve-server::tower` (`TowerToEggserve` per-request clones, `EggserveToTower` adapter-local ready; Plans 200/276), native admission stays runtime-owned and deterministic (Plan 197 Track E)
 - Panics caught at tokio task boundary
 
 ### RequestContext (Plans 197–198)

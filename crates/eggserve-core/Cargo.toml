@@ -29,8 +29,8 @@ default = []
 http2 = ["hyper/http2", "hyper-util/http2", "eggnet-tls?/http2"]
 tls = ["dep:eggnet-tls", "dep:rustls", "dep:tokio-rustls"]
 http3 = ["tls", "dep:eggserve-h3"]
-http-interop = ["dep:http", "eggserve-primitives/http-interop"]
-tower = ["http-interop", "dep:tower-service", "dep:tower-layer"]
+http-interop = ["eggserve-server/http-interop"]
+tower = ["http-interop", "eggserve-server/tower"]
 # Plan 219: the `ResolvedFile` capability bridge (`from_parts`/`into_parts`/
 # `into_std_file`) is owned by the static authority. This feature forwards to
 # `eggserve-static/python-bindings-internal` so the Python bindings keep a
@@ -41,14 +41,11 @@ windows-adversarial-qualification = []
 [dependencies]
 eggnet-tls = { path = "../eggnet-tls", version = "0.2.0", optional = true, default-features = false }
 eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }
-eggserve-server = { path = "../eggserve-server", version = "0.2.0" }
+eggserve-server = { path = "../eggserve-server", version = "0.2.3" }
 eggserve-static = { path = "../eggserve-static", version = "0.2.0" }
 eggserve-h3 = { path = "../eggserve-h3", version = "0.2.0", optional = true }
 bytes = "1"
 futures-util = "0.3"
-http = { version = "1", optional = true }
-tower-service = { version = "0.3", optional = true }
-tower-layer = { version = "0.3", optional = true }
 # Direct use: TrackedBody implements http_body::Body to observe response-body
 # completion for the write-no-progress timeout (Plan 164). Already in the
 # tree via hyper; pinned directly so the impl does not rely on transitive
@@ -88,4 +85,5 @@ tokio-rustls = "0.26"
 # tunnel handoff is sufficient for a downstream codec. Production core has no
 # WebSocket framing/dependency; this stays in tests only.
 tokio-tungstenite = "0.26"
-axum = { version = "0.8", default-features = false }
+http = "1"
+tower-service = "0.3"

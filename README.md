@@ -79,7 +79,12 @@ intentional `http.server` deviations.
 
 ### Rust
 
-Add the smallest crate you need (`eggserve-core` for the composed server):
+Choose the crate profile that matches the server you are building. Use
+`eggserve-server` for a direct H1 application service, optionally with Tower;
+use `eggserve-core` for compatibility, static, or multiprotocol composition.
+Core intentionally retains the static-serving dependency closure.
+
+For a composed/static server:
 
 ```toml
 [dependencies]
@@ -87,8 +92,19 @@ eggserve-core = "0.2"
 tokio = { version = "1", features = ["full"] }
 ```
 
-For a generic supervised H1 daemon, depend on the direct leaf crates
-`eggserve-server`, `eggserve-primitives`, and Tokio. The direct handle can be
+For a generic supervised H1 daemon using native services, depend on
+`eggserve-server`, `eggserve-primitives`, and Tokio. The direct `tower` feature
+is part of the 0.2.3 release candidate and becomes available to registry
+consumers after publication; it adapts Tower/Axum without depending on
+`eggserve-core` or `eggserve-static`:
+
+```toml
+[dependencies]
+eggserve-server = { version = "0.2", default-features = false, features = ["tower"] }
+tokio = { version = "1", features = ["full"] }
+```
+
+The direct handle can be
 split into independent shutdown control and typed completion; setting
 `connection_total_timeout(Duration::ZERO)` opts out of only the 60-second
 total-lifetime ceiling. Other request, idle, write, admission, and shutdown

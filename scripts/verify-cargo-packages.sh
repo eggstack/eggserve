@@ -16,6 +16,7 @@ set -euo pipefail
 
 MODE="all"
 PYTHON="${PYTHON:-python3}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode)
@@ -170,30 +171,75 @@ print(json.dumps(entry, separators=(",", ":")))
     core)
       package_layered eggnet-tls Cargo.toml Cargo.lock README.md LICENSE src/lib.rs tests/neutral_tls.rs
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
-      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/interop.rs src/tower.rs tests/interop_http_tower.rs tests/axum_tower_qualification.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-h3 Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
-      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/primitives/interop.rs src/server/tower.rs tests/tower_compatibility.rs
       ;;
     bin)
       package_layered eggnet-tls Cargo.toml Cargo.lock README.md LICENSE src/lib.rs tests/neutral_tls.rs
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
-      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/interop.rs src/tower.rs tests/interop_http_tower.rs tests/axum_tower_qualification.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-h3 Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
-      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/primitives/interop.rs src/server/tower.rs tests/tower_compatibility.rs
       package_layered eggserve-bin Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/main.rs
       ;;
     all)
       package_layered eggnet-tls Cargo.toml Cargo.lock README.md LICENSE src/lib.rs tests/neutral_tls.rs
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
-      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/interop.rs src/tower.rs tests/interop_http_tower.rs tests/axum_tower_qualification.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-h3 Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
-      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/primitives/interop.rs src/server/tower.rs tests/tower_compatibility.rs
       package_layered eggserve-bin Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/main.rs
       ;;
   esac
+  if [ "$MODE" = "core" ] || [ "$MODE" = "all" ]; then
+    verify_tower_registry_consumers() {
+      local profile fixture manifest tree forbidden packages nodes lock_count binary_bytes
+      for profile in direct core; do
+        fixture="$layered_tmp_dir/consumer-$profile"
+        cp -R "$REPO_ROOT/release/fixtures/plan-276-$profile-axum-consumer" "$fixture"
+        manifest="$fixture/Cargo.toml"
+        if [ "$profile" = "direct" ]; then
+          sed -i.bak "s#path = \"../../../crates/eggserve-server\", version = \"${PACKAGE_VERSION}\", #version = \"=${PACKAGE_VERSION}\", registry = \"local\", #" "$manifest"
+        else
+          sed -i.bak "s#path = \"../../../crates/eggserve-core\", version = \"${PACKAGE_VERSION}\", #version = \"=${PACKAGE_VERSION}\", registry = \"local\", #" "$manifest"
+          sed -i.bak "s#path = \"../../../crates/eggserve-server\", version = \"${PACKAGE_VERSION}\", #version = \"=${PACKAGE_VERSION}\", registry = \"local\", #" "$manifest"
+        fi
+        rm -f "$manifest.bak"
+        if grep -Fq 'path = "../../../crates/' "$manifest"; then
+          echo "$profile consumer still has a workspace path dependency" >&2
+          exit 1
+        fi
+        mkdir -p "$fixture/.cargo"
+        printf '[registries.local]\nindex = "file://%s"\n' "$layered_index" > "$fixture/.cargo/config.toml"
+        (cd "$fixture" && cargo generate-lockfile && cargo test --locked)
+        tree="$(cd "$fixture" && cargo tree --locked -e no-dev --prefix none -f '{p}')"
+        packages="$(awk '{print $1}' <<<"$tree" | sort -u)"
+        lock_count="$(grep -c '^\[\[package\]\]' "$fixture/Cargo.lock")"
+        nodes="$(wc -l <<<"$tree" | tr -d ' ' )"
+        if [ "$profile" = "direct" ]; then
+          for forbidden in eggserve-core eggserve-static phf phf_generator phf_macros phf_shared siphasher; do
+            if grep -Eq "^${forbidden}([[:space:]]|$)" <<<"$packages"; then
+              echo "direct registry consumer unexpectedly resolves $forbidden" >&2
+              exit 1
+            fi
+          done
+        else
+          if ! grep -Eq '^eggserve-static([[:space:]]|$)' <<<"$packages" || ! grep -Eq '^phf([[:space:]]|$)' <<<"$packages"; then
+            echo "core registry consumer lost its intended static/PHF closure" >&2
+            exit 1
+          fi
+        fi
+        (cd "$fixture" && cargo build --release --locked)
+        binary_bytes="$(stat -c '%s' "$fixture/target/release/plan-276-$profile-axum-consumer")"
+        printf 'Plan 276 %s registry consumer: lock packages=%s, no-dev nodes=%s, release bytes=%s\n' "$profile" "$lock_count" "$nodes" "$binary_bytes"
+      done
+    }
+    verify_tower_registry_consumers
+  fi
   echo "Layered crates passed local-registry package verification."
   exit 0
 fi

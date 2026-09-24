@@ -1,0 +1,20 @@
+[package]
+name = "plan-276-core-axum-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[features]
+default = ["tower"]
+tower = []
+
+[workspace]
+
+[dependencies]
+eggserve-core = { path = "../../../crates/eggserve-core", version = "0.2.3", default-features = false, features = ["tower"] }
+eggserve-server = { path = "../../../crates/eggserve-server", version = "0.2.3", default-features = false }
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1"] }
+http = "1"
+bytes = "1"
+futures-util = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time"] }

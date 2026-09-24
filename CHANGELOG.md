@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.3 — release candidate; crates.io publication pending
+
+- Moved the optional HTTP interop and Tower adapter implementation to
+  `eggserve-server`, where direct H1 consumers can enable `http-interop` or
+  `tower` without depending on `eggserve-core`, `eggserve-static`, or PHF.
+- Kept the historical core adapter paths as compatibility re-exports and
+  forwarded core's adapter features to the server. Core remains the
+  compatibility/static umbrella and keeps its static-serving dependencies.
+- No static-serving, H1 transport, lifecycle, H2/H3, TLS, or Python runtime
+  behavior changed. The adapters remain experimental at their existing tier.
+- Workspace and Python source metadata are synchronized at 0.2.3; no Python
+  wheel release is included.
+
 ## 0.2.2 — published
 
 - Repaired the optional `http-interop`/`tower` feature path with a core-owned

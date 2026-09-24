@@ -5,18 +5,33 @@ Rust HTTP ecosystem without replacing it. Native `Service` remains the
 authoritative, maximum-fidelity path; these adapters are explicit edges for
 middleware and application stacks.
 
-Enable with Cargo features (never in default builds):
+Use the direct profile for H1 application services, or the compatibility
+profile when composing static serving or the multiprotocol runtime. Both
+adapter features remain opt-in:
+
+The direct-server feature is introduced in the 0.2.3 release candidate and is
+publication-pending. Registry consumers must use the currently published
+core compatibility path until the direct server package is visible; the
+candidate source and staged-package validation use these direct imports.
 
 ```toml
-eggserve-core = { version = "0.2", features = ["http-interop"] }  # http + http-body adapters
-eggserve-core = { version = "0.2", features = ["tower"] }         # + Tower adapters
+eggserve-server = { version = "0.2", default-features = false, features = ["http-interop"] }
+eggserve-server = { version = "0.2", default-features = false, features = ["tower"] }
+# Compatibility/static/multiprotocol composition:
+eggserve-core = { version = "0.2", features = ["tower"] }
 ```
 
-- `http-interop` adds a direct `http` dependency and the
-  `primitives::interop` module.
-- `tower` adds `http-interop` plus `tower-service` / `tower-layer` and the
-  `server::tower` module. Full `tower` is never required; layers compose via
-  `tower-layer` only.
+`eggserve-server` owns the interop and Tower implementations. The historical
+`eggserve_core::primitives::interop` and `eggserve_core::server::tower` paths
+remain compatibility re-exports. Core continues to depend on
+`eggserve-static` by design; direct H1 + Tower consumers do not need core.
+
+- `eggserve-server/http-interop` adds the direct `http` dependency and the
+  `eggserve_server::interop` module.
+- `eggserve-server/tower` adds `http-interop` plus `tower-service` /
+  `tower-layer` and `eggserve_server::tower`. Full `tower` is never required;
+  layers compose via `tower-layer` only.
+- Core's same-named features forward to the direct server features.
 
 ## When to use what
 
@@ -24,11 +39,11 @@ eggserve-core = { version = "0.2", features = ["tower"] }         # + Tower adap
    raw target bytes, one-shot interim/tunnel capabilities, and the normative
    7-stage commitment contract in
    [downstream-app-server.md](downstream-app-server.md).
-2. **`http` / `http-body` adapters** (`primitives::interop`) for ecosystem
+2. **`http` / `http-body` adapters** (`eggserve_server::interop`) for ecosystem
    message/body compatibility: convert heads, stream request bodies as
    `http_body::Body`, and accept `http_body` response bodies into the
    canonical pipeline.
-3. **Tower adapters** (`server::tower`) for middleware/application stacks:
+3. **Tower adapters** (`eggserve_server::tower`) for middleware/application stacks:
    run a Tower service on EggServe (`TowerToEggserve`) or expose a native
    service as Tower (`EggserveToTower`).
 
@@ -65,7 +80,7 @@ stays an outer hard ceiling; Tower readiness only further gates app work.
 
 ## Bodies
 
-- `RequestBody` converts to `HttpRequestBody`, the explicit core-owned
+- `RequestBody` converts to `HttpRequestBody`, the explicit server-owned
   `http_body::Body` adapter. It yields `Frame::data` then one optional
   `Frame::trailers` after content completion. One-shot ownership, truthful
   `size_hint` (remaining declared bytes, not a post-failure guarantee),
@@ -83,7 +98,7 @@ stays an outer hard ceiling; Tower readiness only further gates app work.
 Adapters are transport-independent: the same Tower application runs on H1
 today and on H2/H3 through the same canonical kernel where those features
 are enabled. Qualification fixtures prove H1 over TCP
-(`tests/interop_http_tower.rs`); H2/H3 reuse the existing runtime
+(`crates/eggserve-server/tests/interop_http_tower.rs`); H2/H3 reuse the existing runtime
 qualification plus the shared body/timeout accounting. Plan 207 records this
 mapping in `conformance/app_server_conformance.toml` and proves H1 + H2/Tower-gated parity in `tests/cross_protocol_conformance.rs` (see `release/plan-207-cross-protocol-conformance.md`).
 

@@ -53,8 +53,12 @@ cmd_fast() {
   run python3 "$REPO_ROOT/scripts/verify-conformance-matrix.py"
   run python3 "$REPO_ROOT/scripts/check-crate-topology.py"
   run python3 "$REPO_ROOT/scripts/check-python-release-metadata.py"
+  run cargo +1.89 check -p eggserve-server --all-targets --no-default-features --features http-interop
+  run cargo +1.89 check -p eggserve-server --all-targets --no-default-features --features tower
   run cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features http-interop
   run cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features tower
+  run cargo clippy -p eggserve-server --no-default-features --features tower --lib --tests -- -D warnings
+  run cargo test -p eggserve-server --no-default-features --features tower
   run cargo clippy -p eggserve-core --no-default-features --features tower --lib --tests -- -D warnings
   run cargo test -p eggserve-core --no-default-features --features tower
   run cargo test -p eggserve-core --no-default-features --features http-interop --lib

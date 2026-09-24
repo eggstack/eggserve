@@ -10,18 +10,18 @@
 #![cfg(feature = "tower")]
 
 use bytes::Bytes;
-use eggserve_core::primitives::interop::HttpRequestBody;
-use eggserve_core::primitives::interop::{
+use eggserve_primitives::{
+    ConnectionInfo, HeaderBlock, Method, RequestBody, RequestContext, RequestHead, RequestTarget,
+    ResponseBody, Scheme, StatusCode, Trailers,
+};
+use eggserve_primitives::{HttpVersion, Request};
+use eggserve_server::interop::HttpRequestBody;
+use eggserve_server::interop::{
     header_block_to_map, header_map_to_block, method_from_http, method_to_http,
     request_head_to_http, response_from_http_body, status_from_http, status_to_http,
     version_from_http, version_to_http, ConnectionInfoExt, LifecycleExt, RawTargetExt,
 };
-use eggserve_core::primitives::{
-    ConnectionInfo, HeaderBlock, Method, RequestBody, RequestContext, RequestHead, RequestTarget,
-    ResponseBody, Scheme, StatusCode, Trailers,
-};
-use eggserve_core::primitives::{HttpVersion, Request};
-use eggserve_core::server::{service_fn, Service, TowerToEggserve};
+use eggserve_server::{service_fn, Service, TowerToEggserve};
 use http_body_util::{BodyExt as _, Full, StreamBody};
 use std::future::Future;
 use std::pin::Pin;
@@ -299,12 +299,11 @@ fn make_request(path: &str, body: RequestBody) -> Request {
     Request::new(head, body, test_connection())
 }
 
-async fn collect_canonical_stream(response: eggserve_core::primitives::Response) -> Vec<u8> {
-    use eggserve_core::primitives::canonical::{normalize_response, NormalizeRequest};
+async fn collect_canonical_stream(response: eggserve_primitives::Response) -> Vec<u8> {
+    use eggserve_primitives::canonical::{normalize_response, NormalizeRequest};
     let normalized =
         normalize_response(response, &NormalizeRequest::new(false)).expect("normalize");
-    let hyper_resp =
-        eggserve_core::primitives::canonical::to_hyper_response(normalized).expect("convert");
+    let hyper_resp = eggserve_server::adapters::to_hyper_response(normalized).expect("convert");
     let body = hyper_resp.into_body();
     let collected = body.collect().await.expect("collect").to_bytes();
     collected.to_vec()
@@ -361,7 +360,7 @@ fn exact_target_and_connection_in_extensions() {
         RequestTarget::parse("/a/b?x=1").unwrap(),
         HttpVersion::Http11,
         headers,
-        Some(eggserve_core::primitives::Authority::parse("example.test").unwrap()),
+        Some(eggserve_primitives::Authority::parse("example.test").unwrap()),
     );
     let body = RequestBody::empty();
     let lifecycle = body.lifecycle();
@@ -508,9 +507,9 @@ async fn tower_framing_headers_are_not_trusted() {
         .body(Full::new(Bytes::from("x")))
         .unwrap();
     let canonical2 = response_from_http_body(http_resp2).expect("convert");
-    let normalized = eggserve_core::primitives::canonical::normalize_response(
+    let normalized = eggserve_primitives::canonical::normalize_response(
         canonical2,
-        &eggserve_core::primitives::canonical::NormalizeRequest::new(false),
+        &eggserve_primitives::canonical::NormalizeRequest::new(false),
     )
     .expect("normalize");
     assert!(!normalized.headers().contains("connection"));
@@ -590,13 +589,12 @@ async fn tower_head_never_polls_body() {
         .unwrap();
     let canonical = response_from_http_body(http_resp).expect("convert");
     // Simulate HEAD: normalization must drop the stream without polling.
-    let normalized = eggserve_core::primitives::canonical::normalize_response(
+    let normalized = eggserve_primitives::canonical::normalize_response(
         canonical,
-        &eggserve_core::primitives::canonical::NormalizeRequest::new(true),
+        &eggserve_primitives::canonical::NormalizeRequest::new(true),
     )
     .expect("normalize");
-    let hyper_resp =
-        eggserve_core::primitives::canonical::to_hyper_response(normalized).expect("convert");
+    let hyper_resp = eggserve_server::adapters::to_hyper_response(normalized).expect("convert");
     let collected = hyper_resp.into_body().collect().await.unwrap().to_bytes();
     assert!(collected.is_empty());
     assert!(!polled.load(Ordering::SeqCst));
@@ -604,7 +602,7 @@ async fn tower_head_never_polls_body() {
 
 #[tokio::test]
 async fn tower_h1_transport_parity() {
-    use eggserve_core::server::{RuntimeConfig, Server};
+    use eggserve_server::{RuntimeConfig, Server};
     use std::time::Duration;
 
     let svc = TowerToEggserve::new(FullHello);
@@ -618,14 +616,14 @@ async fn tower_h1_transport_parity() {
         .build()
         .unwrap();
     let handle = server.start_with_service(svc).await.unwrap();
-    handle.ready().await.unwrap();
     let addr = handle.local_addr();
 
     let client = reqwest_like_get(addr, "/").await;
     assert!(client.contains("hello tower"));
 
-    handle.shutdown();
-    tokio::time::timeout(Duration::from_secs(10), handle.wait())
+    let (control, mut completion) = handle.into_parts();
+    control.shutdown();
+    tokio::time::timeout(Duration::from_secs(10), completion.wait())
         .await
         .expect("drain")
         .expect("clean");
@@ -651,16 +649,13 @@ impl Service for NativeHello {
     ) -> Pin<
         Box<
             dyn Future<
-                    Output = Result<
-                        eggserve_core::primitives::Response,
-                        eggserve_core::server::ServiceError,
-                    >,
+                    Output = Result<eggserve_primitives::Response, eggserve_server::ServiceError>,
                 > + Send
                 + '_,
         >,
     > {
         Box::pin(async {
-            Ok(eggserve_core::primitives::Response::builder()
+            Ok(eggserve_primitives::Response::builder()
                 .status(StatusCode::OK)
                 .body(ResponseBody::Bytes(b"native hello".to_vec()))
                 .unwrap())
@@ -673,7 +668,7 @@ async fn eggserve_to_tower_round_trip() {
     use tower_service::Service as _;
     // Native service exposed as Tower: composition/testing path.
     let native = NativeHello;
-    let mut tower_svc = eggserve_core::server::EggserveToTower::new(native);
+    let mut tower_svc = eggserve_server::EggserveToTower::new(native);
     // Readiness is adapter-local (always ready), never transport admission.
     futures_util::future::poll_fn(|cx| tower_svc.poll_ready(cx))
         .await
@@ -700,7 +695,7 @@ fn native_consumers_do_not_require_tower() {
     // without mentioning Tower types in this function signature.
     fn assert_native<S: Service>(_: &S) {}
     let svc = service_fn(|_req: Request| async {
-        Ok(eggserve_core::primitives::Response::builder()
+        Ok(eggserve_primitives::Response::builder()
             .status(StatusCode::OK)
             .body(ResponseBody::Empty)
             .unwrap())

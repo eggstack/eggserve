@@ -1,6 +1,7 @@
 /target
 /dist
 /fuzz/target
+release/fixtures/**/target/
 crates/eggserve-python/target
 crates/eggserve-python/dist
 crates/eggserve-python/python/eggserve/_native

@@ -286,6 +286,14 @@ pathname-based topology fixture is absent. It is a dependency/source-ownership
 boundary, not a line-count rule; remaining core compatibility glue must not
 become a new implementation of the direct contracts.
 
+Plan 276 adds a resolved-graph check for the optional direct-server Tower
+profile: `eggserve-server --features tower` must not resolve core, static,
+PHF, or the PHF support crates, and the default server profile must not enable
+Tower traits/layers. The sole interop and Tower implementations live in
+`eggserve-server`; core's historical `primitives::interop` and
+`server::tower` source paths are checked as re-export-only facades. Core keeps
+its unconditional static dependency by design.
+
 The Plan 243–247 rules additionally require durable direct-server shutdown and
 runtime-owned task draining, direct delegation at compatibility H1 entry points,
 direct static-service ownership with no core renderer, wheel typing artifacts

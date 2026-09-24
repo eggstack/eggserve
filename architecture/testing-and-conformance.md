@@ -7,7 +7,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Layer | Location | Scope | Count |
 |-------|----------|-------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic | current suite |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 52 files |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs`, `crates/eggserve-server/tests/*.rs` | Cross-module, live TCP, TLS, direct Tower/Axum adapter | current suite |
 | Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 4 files |
 | Python native primitives | `crates/eggserve-python/tests/test_primitives.py` | PyO3 bindings and canonical types | current suite |
 | Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py`, `test_http_server_compat.py`, `test_simple_http_handler_compat.py` | HTTP server compatibility, TLS, and policy behavior | current suite |
@@ -79,7 +79,7 @@ shutdown; the process harness uses only Python's standard library.
 | `windows_feasibility.rs` | `windows-adversarial-qualification` | Windows feasibility spike |
 | `windows_plan084.rs` | `windows-adversarial-qualification` | Windows handle-relative directory retention |
 | `windows_plan086.rs` | `windows-adversarial-qualification` | Windows adversarial filesystem qualification |
-`interop_http_tower.rs` | `tower` | Plan 200: `http`/`http-body`/Tower adapters — streaming, trailers, middleware, H1 parity |
+`crates/eggserve-server/tests/interop_http_tower.rs` | `tower` | Plans 200/276: server-owned `http`/`http-body`/Tower adapters — streaming, trailers, middleware, H1 parity |
 `trailers_interim.rs` | — | Plan 198: canonical trailers + bounded interim 1xx |
 `tunnel_upgrade.rs` | — (+`http2`/`http3` for Extended CONNECT, dev `tokio-tungstenite` for WS interop) | Plan 199: generic tunnel/upgrade/Extended CONNECT + denial + duplex |
 `trusted_proxy.rs` | — | Plan 202: PROXY protocol + Forwarded provenance, fail-closed |
@@ -92,6 +92,13 @@ shutdown; the process harness uses only Python's standard library.
 - `static_authority_conformance.rs` — Plan 245: `eggserve-static::StaticService` owns static request planning/rendering, core keeps a wrapper.
 - Overlap guard (Plan 253) — `scripts/check-crate-topology.py` classifies every core/server connection overlap; parallels stay crate-private, H2-gated, and topology-guarded.
 - Typing/async fixtures — `typing_smoke.py` (Plans 246/252 stub fidelity: strict installed-wheel fixture plus runtime shape tests); `test_async_bridge.py`, `test_async_lifecycle.py`, `test_async_suppressed_lifetime.py` (Plans 254/257–258 async lifecycle/streaming/suppressed-body permit parity).
+
+Plan 276 moves the HTTP/Tower behavioral suites beside their server-owned
+implementation in `crates/eggserve-server/tests/`. The standalone direct and
+core-shaped Axum consumers under `release/fixtures/plan-276-*-axum-consumer/`
+run the same streaming and lifecycle proof against local or staged registry
+packages; the local-registry package verifier records graph and binary-size
+comparisons without a size threshold.
 
 ## Conformance Corpora
 

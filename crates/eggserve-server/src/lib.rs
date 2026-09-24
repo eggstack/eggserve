@@ -30,6 +30,9 @@ pub mod config;
 pub mod connection;
 /// Single-authority runtime error taxonomy.
 pub mod errors;
+/// Optional standard `http` body and message interop.
+#[cfg(feature = "http-interop")]
+pub mod interop;
 /// Single-authority per-runtime observability.
 pub mod ops;
 /// Runtime-owned Hyper error responses (implementation detail).
@@ -42,6 +45,9 @@ pub mod runtime;
 pub mod runtime_limits;
 /// Transport-independent service abstraction (single authority).
 pub mod service;
+/// Optional Tower adapters for direct H1 service composition.
+#[cfg(feature = "tower")]
+pub mod tower;
 /// Generic tunnel / upgrade execution (direct H1 authority, Plan 216).
 pub mod tunnel;
 
@@ -61,6 +67,9 @@ pub use service::{
 /// compatibility facade so `service_fn` closures resolve without importing
 /// the primitives crate directly).
 pub use eggserve_primitives::Request;
+pub use eggserve_primitives::RequestBodyPolicy;
+#[cfg(feature = "tower")]
+pub use tower::{EggserveToTower, TowerAdapterError, TowerToEggserve};
 
 /// Builder for [`Server`].
 pub struct ServerBuilder {

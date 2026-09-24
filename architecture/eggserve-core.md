@@ -42,6 +42,13 @@ its opt-in HTTP/3 adapter consumes the direct QUIC dependencies through
 `eggserve-h3`; see [eggnet-tls.md](eggnet-tls.md) and
 [eggserve-h3.md](eggserve-h3.md).
 
+Plans 276–277 move the sole `http-interop` and Tower adapter implementation to
+`eggserve-server`, where it adapts the direct `Service` authority. Core's
+`primitives::interop` and `server::tower` modules remain compatibility
+re-exports and its same-named Cargo features forward to the server. Core
+continues to include static serving unconditionally; direct H1 + Tower
+consumers can depend on `eggserve-server` alone.
+
 External Rust consumers should start with `eggserve_core::primitives` for the
 semver-considered canonical HTTP/security facade. The `eggserve_core::server` module is an
 experimental, transport-owning HTTP runtime exposing `Server`,

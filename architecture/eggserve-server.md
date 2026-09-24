@@ -26,6 +26,14 @@ the total connection lifetime ceiling; 60 seconds remains the default. It depend
 `http-body`, `http-body-util`, `httpdate`, `hyper` http1/server,
 `hyper-util`, `tokio`).
 
+Plans 276–277 place the opt-in HTTP and Tower ecosystem adapters here as
+`interop` (`http-interop`) and `tower` (`tower`). The default server graph
+does not include Tower traits/layers; the enabled direct profile remains free
+of `eggserve-core`, `eggserve-static`, and PHF. `RequestBodyPolicy` is
+re-exported beside `Request` for direct Tower composition. The compatibility
+core forwards the features and keeps its established import paths as thin
+re-exports.
+
 It has no dependency on `eggserve-core` or `eggserve-static`, so a downstream
 application server can select the runtime without inheriting static-file
 confinement or MIME implementation code. The crate is strict HTTP/1: H2

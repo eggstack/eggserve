@@ -14,18 +14,20 @@ remain supported during migration; Plan 225 proves the crate is a
 compatibility facade (facades, adapters, documented orchestration) with no
 second security/protocol authority and a topology-gated module inventory; see
 [`architecture/crate-topology.md`](../architecture/crate-topology.md).
+For direct H1 + Tower composition, depend on `eggserve-server` and enable its
+`tower` feature. Core's static dependency remains unconditional by design.
 
 ## Public modules
 
 | Module | Visibility | Stability | Purpose |
 |--------|------------|-----------|---------|
 | `primitives` | `pub` | Stable (semver-considered) | Core types for embedding: path validation, policy enforcement, rejection taxonomy |
-| `primitives::interop` | `pub` | Stable (semver-considered, `http-interop` feature) | Loss-aware `http`/`http-body` adapters; native remains authoritative |
+| `primitives::interop` | `pub` | Stable (semver-considered, `http-interop` feature) | Compatibility re-export of `eggserve_server::interop`; native remains authoritative |
 | `config` | `pub` | Stable-ish | `ServeConfig`, `ServeState`, `StartupSummary` |
 | `limits` | `pub` | Stable-ish | `Limits` (connections, streams, timeouts) |
 | `policy` | `pub` | Stable-ish | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `StaticMetadataPolicy`, `ErrorRepresentationPolicy` |
 | `server::service` | `pub` | Experimental | Explicit-context `handle_request` adapter; use `server::Server` for new integrations |
-| `server::tower` | `pub` | Experimental (`tower` feature) | `TowerToEggserve` / `EggserveToTower` adapters; per-request clones, no shared mutex |
+| `server::tower` | `pub` | Experimental (`tower` feature) | Compatibility re-export of server-owned `TowerToEggserve` / `EggserveToTower` adapters |
 
 ## Plan 214 direct crates
 
@@ -123,15 +125,16 @@ type. The runtime's semaphore-aware conversion helper is internal. Hyper is
 otherwise an implementation dependency of the runtime, not a requirement for
 canonical consumers or `Service` implementations.
 
-Plan 200 adds optional ecosystem adapters without leaking Hyper (see
+Plan 276 moves optional ecosystem adapter ownership to `eggserve-server`
+without leaking Hyper (see
 [http-interop.md](http-interop.md)):
 
-- `primitives::interop` (`http-interop` feature) — loss-aware `http` metadata
+- `eggserve_server::interop` (`eggserve-server/http-interop`) — loss-aware `http` metadata
   conversions, `HttpRequestBody` wrapping canonical `RequestBody` with
   trailers, and
   `response_from_http_body` into the canonical pipeline (EggServe stays the
   framing authority);
-- `server::tower` (`tower` feature) — `TowerToEggserve` (per-request Tower
+- `eggserve_server::tower` (`eggserve-server/tower`) — `TowerToEggserve` (per-request Tower
   clones, no shared mutex) and `EggserveToTower` (adapter-local readiness).
 
 The downstream application-server contract is qualified externally by

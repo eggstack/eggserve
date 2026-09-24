@@ -63,10 +63,14 @@ cargo +1.89 check --workspace --all-targets --features http2,tls
 cargo +1.89 check --workspace --all-targets --features http3,tls
 cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features http-interop
 cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features tower
+cargo +1.89 check -p eggserve-server --all-targets --no-default-features --features http-interop
+cargo +1.89 check -p eggserve-server --all-targets --no-default-features --features tower
 cargo clippy --workspace --lib --bins --tests -- -D warnings
 cargo test --workspace
 cargo clippy -p eggserve-core --no-default-features --features tower --lib --tests -- -D warnings
 cargo test -p eggserve-core --no-default-features --features tower
+cargo clippy -p eggserve-server --no-default-features --features tower --lib --tests -- -D warnings
+cargo test -p eggserve-server --no-default-features --features tower
 cargo test -p eggserve-core --no-default-features --features http-interop --lib
 cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked
 cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
@@ -139,8 +143,8 @@ no push/tag/merge ever publishes.
 - **Inverted ranges are ignored (full 200), never 416** (RFC 9110 § 14.1.2).
 - **Python specifics:** `#[pyclass(frozen)]` / `frozen=True` dataclasses; `#[allow(dead_code)]` on public API types is for external Python bindings, not dead code; stock `SimpleHTTPRequestHandler` fast path requires the exact bare class (or `functools.partial` with `.keywords ⊆ {directory, extra_response_headers}`) — subclasses take the Python callback path; `Response.stream` bridge is 16 chunks, sync iterables only; `telemetry.rs` does not exist, `tracing` was never added — don't create them.
 - **H3 stays experimental** (upstream `hyperium/h3#338` + `#262` remainder unresolved; independent-client/adversarial evidence missing). Don't promote tiers; a promotion needs a new scoped plan.
-- `0.2.0` is the historical initial pre-1.0 release; `0.2.1` added the direct-server API and `0.2.2` repaired and registry-qualified the experimental HTTP/Tower adapter (Plans 270–275; evidence: `release/plan-272-downstream-embedding-qualification-closure.md` and `release/plan-275-http-tower-adapter-patch-publication-closure.md`). Never publish this API line as `0.1.x`. Every performance/release claim names a profile (`docs/deployment.md`) + evidence.
-- Plans 276–277 are the active packaging-separation handoff for direct H1 application-server consumers: move optional `http-interop`/Tower adapter authority to `eggserve-server`, keep the existing `eggserve-core` paths as compatibility re-exports, and prove a registry-only `eggserve-server --features tower` consumer does not resolve `eggserve-static`/PHF. Do not make static optional inside core and do not add a new adapter micro-crate without concrete blocker evidence. Plan 277 owns publication/registry closure.
+- `0.2.0` is the historical initial pre-1.0 release; `0.2.1` added the direct-server API and `0.2.2` repaired and registry-qualified the experimental HTTP/Tower adapter (Plans 270–275; evidence: `release/plan-272-downstream-embedding-qualification-closure.md` and `release/plan-275-http-tower-adapter-patch-publication-closure.md`). The 0.2.3 candidate extracts adapter ownership to `eggserve-server`; publication remains pending until Plan 277 registry evidence closes. Never publish this API line as `0.1.x`. Every performance/release claim names a profile (`docs/deployment.md`) + evidence.
+- Plans 276–277 separate direct H1 application-server consumption from the compatibility/static umbrella: optional `http-interop`/Tower adapter authority lives in `eggserve-server`, and existing `eggserve-core` paths are compatibility re-exports. Preserve resolved graph guards proving the direct Tower profile excludes `eggserve-static`/PHF and keep adapter checks for both direct authority and core compatibility forwarding. Do not make static optional inside core or add an adapter micro-crate without concrete blocker evidence. Plan 277 owns publication and registry-only closure.
 - Direct `eggserve-server` supervisors use `ServerHandle::into_parts()` and retain cloneable `ServerControl` while selecting on the cancellation-safe typed `ServerCompletion::wait()`; legacy `ServerHandle::wait(self) -> ()` remains source-compatible and discards terminal detail. `RuntimeConfig.connection_total_timeout == Duration::ZERO` opts out of only the hard total lifetime; the default stays 60s and independent timeout/admission/shutdown limits remain.
 
 ## Reference docs
