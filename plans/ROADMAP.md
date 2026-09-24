@@ -873,3 +873,62 @@ program only after crates.io publication, clean registry-only consumer proof,
 and the durable Plan-272 closure record exist. Both crates are now published,
 the registry-only consumer proof passes, and the closure evidence is recorded
 in `release/plan-272-downstream-embedding-qualification-closure.md`.
+
+
+## HTTP/Tower downstream adapter corrective — Plans 274–275
+
+Plans 274–275 are the post-0.2.1 corrective for the optional ecosystem adapter
+surface used by downstream Rust application servers.
+
+The direct server substrate itself is already unblocked by Plans 270–273.
+The remaining framework-composition defect is isolated to `eggserve-core`:
+after `RequestBody` moved to `eggserve-primitives`, core retained
+`impl http_body::Body for RequestBody`. Core owns neither the external trait
+nor the external-to-core canonical type, so the `http-interop` / `tower`
+feature path violates Rust's orphan rule. Existing Tower tests are feature
+gated, while routine CI currently does not enable either adapter feature, which
+allowed the advertised surface to ship without ordinary compile coverage.
+
+The corrective preserves the current authority split:
+
+```text
+eggserve-primitives::RequestBody
+  -> core-owned HTTP body newtype
+  -> TowerToEggserve
+  -> generic Tower/Axum application
+
+direct listener/runtime/supervision remains eggserve-server-owned
+```
+
+### Plan 274 — HTTP/Tower body ownership and Axum qualification
+
+Plan 274 replaces the illegal trait impl with a small core-owned HTTP body
+adapter around the canonical `RequestBody`, rewires both Tower adapter
+directions, preserves incremental data/trailer/lifecycle semantics, and adds a
+real Axum 0.8 fixture over the direct `eggserve-server` runtime. It also makes
+`http-interop` and `tower` explicit routine MSRV/Clippy/test gates in CI and
+`scripts/verify.sh fast` so the optional surface cannot silently regress.
+
+Implementation plan:
+`plans/274-http-tower-request-body-ownership-and-axum-qualification.md`.
+
+### Plan 275 — patch publication and registry-only closure
+
+Plan 275 is the release/evidence gate. After Plan 274 is green it selects the
+next unused compatible 0.2.x patch (expected 0.2.2 only if still available),
+derives the minimal changed Rust publish set (expected `eggserve-core` only),
+runs full package/security qualification, publishes manually to crates.io, and
+requires a fresh registry-only consumer to compose the corrected core adapter
+with the published direct server and Axum 0.8. Downstream unblock is claimed
+only after that registry consumer proves incremental streaming and typed
+control/completion shutdown.
+
+Implementation plan:
+`plans/275-http-tower-adapter-patch-publication-and-registry-closure.md`.
+
+Status: **274 READY; 275 BLOCKED ON 274 IMPLEMENTATION.** Planning baseline is
+`091cddc` with `eggserve-core 0.2.1` / `eggserve-server 0.2.1` published.
+This program does not reopen direct-server runtime ownership, static serving,
+H2/H3 tiers, or Python behavior; it repairs and permanently qualifies the
+generic optional HTTP/Tower composition edge needed by downstream application
+servers.
