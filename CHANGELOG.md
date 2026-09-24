@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2 — release candidate
+
+- Repaired the optional `http-interop`/`tower` feature path with a core-owned
+  `HttpRequestBody` adapter after the canonical `RequestBody` moved to the
+  primitives crate and made the former external-trait/foreign-type
+  implementation illegal.
+- Preserved canonical `RequestBody` and direct H1 runtime contracts. Adapter
+  and server APIs remain experimental; routine CI now covers the advertised
+  adapter feature profiles and Axum 0.8 composition.
+- Python runtime behavior is unchanged. This synchronized source version does
+  not constitute a Python wheel release.
+
 ## 0.2.1 — published
 
 - Added `eggserve-server::ServerHandle::into_parts()` with cloneable

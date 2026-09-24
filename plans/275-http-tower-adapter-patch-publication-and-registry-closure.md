@@ -271,13 +271,13 @@ why the corrective exists.
 
 ## Acceptance criteria
 
-- [ ] The next unused compatible 0.2.x patch is selected from live crates.io
+- [x] The next unused compatible 0.2.x patch is selected from live crates.io
       state rather than guessed.
-- [ ] Plan 274 is implemented and all focused adapter feature gates pass.
-- [ ] Routine local/security/package qualification passes on the exact
+- [x] Plan 274 is implemented and all focused adapter feature gates pass.
+- [x] Routine local/security/package qualification passes on the exact
       release candidate.
 - [ ] Routine CI passes on the exact release candidate SHA.
-- [ ] The actual changed Rust publish set is derived and recorded.
+- [x] The actual changed Rust publish set is derived and recorded.
 - [ ] `eggserve-core` package dry-run succeeds with the corrected feature
       surface.
 - [ ] The corrected core patch is published and registry-resolvable before
@@ -309,3 +309,29 @@ why the corrective exists.
 Plan 275 closes when the corrected registry artifact and clean Axum consumer
 proof both exist. Until then, downstream consumers should continue to stop
 rather than implement a private replacement for EggServe's generic adapter.
+
+## Execution status
+
+**Release candidate prepared — publication pending.** crates.io was queried
+through Cargo's live registry index on 2026-09-24 immediately before version
+selection: `eggserve-core 0.2.1` was latest, `eggserve-core 0.2.2` was absent,
+and `eggserve-server 0.2.1` was published. Workspace and Python package source
+metadata are synchronized to 0.2.2; Python runtime behavior is unchanged.
+
+The Plan-274 implementation diff changes only `eggserve-core` production
+source/manifest among registry crates. The other diffs are routine CI, docs,
+tests, and synchronized release metadata. Therefore the derived registry
+publish set is `eggserve-core` only; no unchanged server or primitives crate
+will be republished. `scripts/verify-cargo-packages.sh --mode all` passed its
+staged local-registry checks for all workspace packages, including the
+corrected `eggserve-core` package. The candidate also passed focused Rust 1.89
+interop/Tower checks, Tower Clippy/tests (1,109 passed, 2 ignored), standalone
+interop tests, workspace tests/Clippy, H2/TLS and H3/TLS suites, topology,
+conformance, format, Python metadata and locked crate checks, and the dual
+lockfile supply-chain audit. The first `verify.sh fast` invocation stopped at
+the excluded Python check because its separate lockfile still had version
+0.2.1; that lockfile was synchronized and its required `--locked` check passed.
+
+The candidate's clean-commit crates.io dry run and hosted CI are pending. No
+crate has been published, and downstream status remains `PUBLICATION PENDING`
+until publication plus the fresh registry-only Axum consumer proof succeed.

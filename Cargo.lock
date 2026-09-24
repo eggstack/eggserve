@@ -230,7 +230,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "eggnet-tls"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rcgen",
  "rustls",
@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-bin"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "eggnet-tls",
  "eggserve-core",
@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "axum",
  "bytes",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-h3"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytes",
  "eggnet-tls",
@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-primitives"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytes",
  "futures-util",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-server"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytes",
  "eggserve-primitives",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-static"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "eggserve-primitives",
  "eggserve-server",
