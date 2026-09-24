@@ -74,8 +74,17 @@ general binary-size or performance claim.
 - GitHub Actions CI run `36040748271` passed all `rust`, `python`, and
   `supply-chain` jobs for that candidate on 2026-09-24. The run is available at
   <https://github.com/eggstack/eggserve/actions/runs/36040748271>.
-- The follow-up evidence-record commit is documentation-only; its own hosted
-  CI result will be recorded here after that run completes.
+- A subsequent documentation-only evidence commit exposed a race in the
+  existing Python tunnel-shutdown test: the client closed its upgraded socket
+  immediately after echo, so the driver could observe EOF and finish before
+  `AsyncServer.shutdown()` exercised tracked-task cancellation. The test now
+  holds the client open through shutdown. The full local Python wheel suite
+  passed (845 tests), and CI run `36046204821` passed all jobs on
+  `0054ed10241931889ad3926b9f09ba49bb7466ec`, which includes that correction.
+  Run: <https://github.com/eggstack/eggserve/actions/runs/36046204821>.
+- Later plans-only commits were fast-forwarded from `main`; the successful run
+  above validates the then-current branch head, including the Plan 276/277
+  source and evidence commits.
 
 ## Remaining closure gates
 
