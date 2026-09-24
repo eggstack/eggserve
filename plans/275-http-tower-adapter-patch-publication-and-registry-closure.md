@@ -280,19 +280,19 @@ why the corrective exists.
 - [x] The actual changed Rust publish set is derived and recorded.
 - [x] `eggserve-core` package dry-run succeeds with the corrected feature
       surface.
-- [ ] The corrected core patch is published and registry-resolvable before
+- [x] The corrected core patch is published and registry-resolvable before
       downstream unblock is claimed.
-- [ ] A fresh registry-only consumer resolves the corrected core patch with no
+- [x] A fresh registry-only consumer resolves the corrected core patch with no
       git/path/patch override.
-- [ ] The registry consumer composes `eggserve-server`,
+- [x] The registry consumer composes `eggserve-server`,
       `TowerToEggserve`, and Axum 0.8 using only public APIs.
-- [ ] Request/response streaming remains incremental in the registry consumer.
-- [ ] Direct control/completion supervision closes cleanly around the Axum
+- [x] Request/response streaming remains incremental in the registry consumer.
+- [x] Direct control/completion supervision closes cleanly around the Axum
       adapter.
-- [ ] Exact versions/checksums and execution evidence are retained.
-- [ ] No unrelated crate is republished merely for version symmetry.
-- [ ] No PyPI publication is required or falsely claimed.
-- [ ] Roadmap/current-authority docs are reconciled only after the registry
+- [x] Exact versions/checksums and execution evidence are retained.
+- [x] No unrelated crate is republished merely for version symmetry.
+- [x] No PyPI publication is required or falsely claimed.
+- [x] Roadmap/current-authority docs are reconciled only after the registry
       artifact is proven.
 
 ## Non-goals
@@ -307,12 +307,12 @@ why the corrective exists.
 - No broad dependency addition beyond test-only Axum qualification.
 
 Plan 275 closes when the corrected registry artifact and clean Axum consumer
-proof both exist. Until then, downstream consumers should continue to stop
-rather than implement a private replacement for EggServe's generic adapter.
+proof both exist. With both now recorded, downstream framework embedders can
+consume the generic adapter from crates.io without a private replacement.
 
 ## Execution status
 
-**Release candidate prepared — publication pending.** crates.io was queried
+**Complete — downstream unblocked (2026-09-24).** crates.io was queried
 through Cargo's live registry index on 2026-09-24 immediately before version
 selection: `eggserve-core 0.2.1` was latest, `eggserve-core 0.2.2` was absent,
 and `eggserve-server 0.2.1` was published. Workspace and Python package source
@@ -337,7 +337,7 @@ candidate `5105a63d1d1569c4646c05c8d6fd96e83efe71ea`; it packaged and verified
 `eggserve-core 0.2.2` and resolved the already-published
 `eggserve-server 0.2.1`. Hosted CI run
 [`35959464673`](https://github.com/eggstack/eggserve/actions/runs/35959464673)
-passed on that exact SHA (Rust, Python, and supply-chain jobs). No crate has
-been published. The remaining step is the manual, immutable crates.io upload;
-downstream status remains `PUBLICATION PENDING` until publication plus the
-fresh registry-only Axum consumer proof succeed.
+passed on that exact SHA (Rust, Python, and supply-chain jobs). The published
+artifact and fresh registry-only Axum consumer proof, including resolved
+versions/checksums, are retained in
+`release/plan-275-http-tower-adapter-patch-publication-closure.md`.

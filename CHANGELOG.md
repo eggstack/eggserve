@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.2 — release candidate
+## 0.2.2 — published
 
 - Repaired the optional `http-interop`/`tower` feature path with a core-owned
   `HttpRequestBody` adapter after the canonical `RequestBody` moved to the

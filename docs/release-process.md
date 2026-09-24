@@ -88,10 +88,12 @@ lifetime. Python defaults and wheel behavior stay the same; the existing
 Python server timeout parameter honors the shared zero sentinel. The
 registry-only downstream qualification is recorded in
 `release/plan-272-downstream-embedding-qualification-closure.md`.
-The `0.2.2` release candidate repairs the experimental HTTP/Tower adapter
-ownership boundary; its implementation and qualification are recorded in
-Plans 274–275. Its workspace/Python source metadata is synchronized, while
-Python runtime behavior and wheel publication remain unchanged.
+The published `0.2.2` patch repairs the experimental HTTP/Tower adapter
+ownership boundary. Plans 274–275 and
+`release/plan-275-http-tower-adapter-patch-publication-closure.md` record the
+implementation, package, and registry-only Axum qualification. Workspace and
+Python source metadata are synchronized; Python runtime behavior and wheel
+publication remain unchanged.
 The release metadata remains synchronized. Rust crates are published in
 dependency order only after routine CI and the local layered package gate pass.
 Crates.io publication is a manual maintainer action and must be confirmed

@@ -111,6 +111,10 @@ Crates.io publication remains a manual release action; report publication as
 complete only after registry visibility and a clean registry-only consumer
 proof. Plan 273 records the 0.2.1 publication and downstream smoke evidence in
 `release/plan-272-downstream-embedding-qualification-closure.md`.
+Plans 274–275 repair the optional HTTP/Tower request-body ownership boundary,
+qualify Axum 0.8 with direct `eggserve-server` composition, and publish the
+core-only 0.2.2 patch. The registry-only consumer proof and checksum are
+recorded in `release/plan-275-http-tower-adapter-patch-publication-closure.md`.
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
