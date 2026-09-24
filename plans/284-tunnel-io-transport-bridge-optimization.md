@@ -7,7 +7,7 @@
 This plan is evidence-gated and may close **NO-GO** with the existing bridge
 retained.
 
-Planning baseline: `76bbcb9a85cded398d41799d5c60cf0d9ff74e7f`.
+Planning baseline: `4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922`.
 
 ## Purpose
 
