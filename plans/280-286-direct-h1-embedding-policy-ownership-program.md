@@ -9,7 +9,7 @@ registered Plans 278–279. This program begins only after Plan 279 has publishe
 and closed the forward-proxy request-target seam.
 
 Planning baseline: `main` at
-`76bbcb9a85cded398d41799d5c60cf0d9ff74e7f` (2026-09-24).
+`4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922` (2026-09-24).
 
 ## Purpose
 
