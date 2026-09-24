@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED; BLOCKED on Plan 279 closure.**
+**IMPLEMENTED; local direct-server qualification passed. Registry-artifact qualification is consolidated into Plan 286.**
 
 Planning baseline: `4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922`.
 

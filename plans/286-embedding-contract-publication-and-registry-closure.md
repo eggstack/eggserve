@@ -2,9 +2,11 @@
 
 ## Status
 
-**PLANNED; BLOCKED on Plan 285 qualification + hosted CI.**
+**SOURCE PACKAGE SET DERIVED; registry publication waits for Plan 285 hosted CI.**
 
-Plan 279 must already be published/closed.
+Plan 279 is source-closed. Per maintainer direction, its registry-only closure
+and the pending Plan 277 candidate are consolidated here; they are not
+intermediate blockers to source qualification.
 
 ## Purpose
 
@@ -30,7 +32,32 @@ Rules:
 - never assume a version number from this planning document;
 - never overwrite or mutate a previously qualified/published candidate.
 
-Record the exact pre-release registry baseline.
+Pre-release crates.io baseline queried 2026-09-24:
+
+| Package | Latest published |
+| --- | --- |
+| `eggserve-server` | 0.2.1 |
+| `eggserve-primitives` | 0.2.0 |
+| `eggserve-core` | 0.2.2 |
+| `eggserve-static` | 0.2.0 |
+| `eggserve-h3` | 0.2.0 |
+| `eggserve-bin` | 0.2.0 |
+| `eggnet-tls` | 0.2.0 |
+
+Selected candidate graph after Plan 285's 0.3.0 direct-server decision:
+
+| Package | Candidate | Reason |
+| --- | --- | --- |
+| `eggserve-primitives` | 0.2.1 | Additive absolute-form target vocabulary required by server source |
+| `eggserve-server` | 0.3.0 | Incompatible public `RuntimeConfig` and admission-accessor changes |
+| `eggserve-static` | 0.3.0 | Must use the same server `Service` and primitives authorities |
+| `eggserve-h3` | 0.3.0 | Must use the same server `Service` and primitives authorities |
+| `eggserve-core` | 0.3.0 | Compatibility composition over the new server/static/H3 authorities |
+| `eggserve-bin` | 0.2.1 | Candidate CLI graph now depends on the new core/server line; CLI API is not major-bumped |
+
+`eggnet-tls` and Python's distribution version are not part of the Cargo
+publish set. Python's excluded Rust manifest and lockfile are updated so the
+local wheel build resolves the new crate graph.
 
 ## Track A — Derive the minimal publish set
 
@@ -38,19 +65,29 @@ Derive the changed packages from actual source/API/dependency changes.
 
 Expected likely authorities:
 
+- `eggserve-primitives` — request-target form and absolute metadata;
 - `eggserve-server` — ownership/config/rejection/tunnel runtime work;
-- `eggserve-primitives` only if Plan 283 or another retained API added
-  primitive-owned public vocabulary;
-- `eggserve-core` only if compatibility forwarding/re-export/dependency
-  metadata changed and requires a new artifact.
+- `eggserve-static` and `eggserve-h3` — dependency identity follows server 0.3;
+- `eggserve-core` — compatibility composition and tightened internal bounds;
+- `eggserve-bin` — published CLI dependency graph follows core/server 0.3.
 
-Do not republish unrelated static/H3/TLS/Python packages merely for workspace
-version aesthetics.
+Do not republish `eggnet-tls` or the Python distribution merely for workspace
+version aesthetics. Static/H3 are included because their public integration
+types depend on the changed direct-server authority.
 
 For every changed package, tighten dependency lower bounds enough that the
 published source cannot resolve against an older sibling missing required API.
 
-Derive dependency-order publication from the final graph.
+Publish in this dependency order, derived from the candidate manifests:
+
+```text
+eggserve-primitives 0.2.1
+  -> eggserve-server 0.3.0
+      -> eggserve-static 0.3.0
+      -> eggserve-h3 0.3.0
+          -> eggserve-core 0.3.0
+              -> eggserve-bin 0.2.1
+```
 
 ## Track B — Package and supply-chain qualification
 

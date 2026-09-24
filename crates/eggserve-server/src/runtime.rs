@@ -1,6 +1,6 @@
 //! Server runtime state (Plan 215: moved from compatibility core).
 //!
-//! Owns [`RuntimeState`] (shared admission semaphores, ops context).
+//! Owns [`RuntimeState`] (shared optional admission pools, ops context).
 //! Single owner for runtime permits; `Server`/`ServerBuilder` orchestrate
 //! startup in the parent facade.
 //!
@@ -36,8 +36,8 @@ use crate::errors::ServerError;
 #[derive(Debug, Clone)]
 pub struct RuntimeState {
     pub(crate) file_stream_semaphore: Arc<tokio::sync::Semaphore>,
-    pub(crate) service_semaphore: Arc<tokio::sync::Semaphore>,
-    pub(crate) tunnel_semaphore: Arc<tokio::sync::Semaphore>,
+    pub(crate) service_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+    pub(crate) tunnel_semaphore: Option<Arc<tokio::sync::Semaphore>>,
     ops: crate::ops::OpsContext,
 }
 
@@ -57,8 +57,8 @@ impl RuntimeState {
     ) -> Self {
         Self {
             file_stream_semaphore,
-            service_semaphore,
-            tunnel_semaphore,
+            service_semaphore: Some(service_semaphore),
+            tunnel_semaphore: Some(tunnel_semaphore),
             ops,
         }
     }
@@ -103,8 +103,12 @@ impl RuntimeState {
         config.validate()?;
         Ok(Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
-            service_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_in_flight_requests)),
-            tunnel_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_active_tunnels)),
+            service_semaphore: (config.admission_ownership.service_calls
+                == crate::config::AdmissionOwner::EggServe)
+                .then(|| Arc::new(tokio::sync::Semaphore::new(config.max_in_flight_requests))),
+            tunnel_semaphore: (config.admission_ownership.tunnels
+                == crate::config::AdmissionOwner::EggServe)
+                .then(|| Arc::new(tokio::sync::Semaphore::new(config.max_active_tunnels))),
             ops,
         })
     }
@@ -129,20 +133,41 @@ impl RuntimeState {
         &self.file_stream_semaphore
     }
 
-    /// Return the server-wide in-flight service admission pool.
+    /// Return the server-wide in-flight service admission pool when EggServe
+    /// owns service admission. `None` means callers selected external ownership.
     ///
     /// Bounds concurrent `Service::call()` executions independently of idle
     /// keep-alive connections.
-    pub fn service_semaphore(&self) -> &Arc<tokio::sync::Semaphore> {
-        &self.service_semaphore
+    pub fn service_semaphore(&self) -> Option<&Arc<tokio::sync::Semaphore>> {
+        self.service_semaphore.as_ref()
     }
 
-    /// Return the server-wide active-tunnel admission pool.
+    /// Return the server-wide active-tunnel admission pool when EggServe owns
+    /// tunnel admission. `None` means callers selected external ownership.
     ///
     /// Bounds concurrent accepted tunnels (Plan 216 direct H1 authority).
     /// Exhaustion fails new handshakes with 503 without affecting
     /// ordinary HTTP.
-    pub fn tunnel_semaphore(&self) -> &Arc<tokio::sync::Semaphore> {
-        &self.tunnel_semaphore
+    pub fn tunnel_semaphore(&self) -> Option<&Arc<tokio::sync::Semaphore>> {
+        self.tunnel_semaphore.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_admission_allocates_no_eggserve_gate() {
+        let config = RuntimeConfig::builder()
+            .admission_ownership(crate::config::AdmissionOwnership {
+                service_calls: crate::config::AdmissionOwner::External,
+                tunnels: crate::config::AdmissionOwner::External,
+            })
+            .build()
+            .unwrap();
+        let state = RuntimeState::try_new(&config).unwrap();
+        assert!(state.service_semaphore().is_none());
+        assert!(state.tunnel_semaphore().is_none());
     }
 }

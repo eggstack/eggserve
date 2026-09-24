@@ -449,7 +449,15 @@ pub(crate) fn classify_tunnel(
 /// default, explicit split via `tokio::io::split`. Bounded backpressure; no
 /// payload bytes logged; no Hyper/h2/h3/Quinn types named.
 pub struct TunnelIo {
-    inner: tokio::io::DuplexStream,
+    inner: TunnelIoInner,
+}
+
+trait TunnelTransport: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> TunnelTransport for T {}
+
+enum TunnelIoInner {
+    Pair(tokio::io::DuplexStream),
+    Direct(Pin<Box<dyn TunnelTransport>>),
 }
 
 impl fmt::Debug for TunnelIo {
@@ -463,7 +471,22 @@ impl TunnelIo {
     /// instances come from the runtime). Bounded (`TUNNEL_IO_BUFFER_BYTES`).
     pub fn pair() -> (Self, Self) {
         let (a, b) = tokio::io::duplex(TUNNEL_IO_BUFFER_BYTES);
-        (Self { inner: a }, Self { inner: b })
+        (
+            Self {
+                inner: TunnelIoInner::Pair(a),
+            },
+            Self {
+                inner: TunnelIoInner::Pair(b),
+            },
+        )
+    }
+
+    fn from_transport<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static>(
+        transport: T,
+    ) -> Self {
+        Self {
+            inner: TunnelIoInner::Direct(Box::pin(transport)),
+        }
     }
 
     /// Unwrap for runtime bridging (runtime-internal).
@@ -473,7 +496,12 @@ impl TunnelIo {
     /// async IO directly).
     #[doc(hidden)]
     pub fn into_duplex(self) -> tokio::io::DuplexStream {
-        self.inner
+        match self.inner {
+            TunnelIoInner::Pair(stream) => stream,
+            TunnelIoInner::Direct(_) => {
+                panic!("direct tunnel transport cannot be unwrapped as a duplex")
+            }
+        }
     }
 }
 
@@ -483,7 +511,10 @@ impl tokio::io::AsyncRead for TunnelIo {
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
+        match &mut self.inner {
+            TunnelIoInner::Pair(stream) => Pin::new(stream).poll_read(cx, buf),
+            TunnelIoInner::Direct(stream) => stream.as_mut().poll_read(cx, buf),
+        }
     }
 }
 
@@ -493,21 +524,30 @@ impl tokio::io::AsyncWrite for TunnelIo {
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
+        match &mut self.inner {
+            TunnelIoInner::Pair(stream) => Pin::new(stream).poll_write(cx, buf),
+            TunnelIoInner::Direct(stream) => stream.as_mut().poll_write(cx, buf),
+        }
     }
 
     fn poll_flush(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
+        match &mut self.inner {
+            TunnelIoInner::Pair(stream) => Pin::new(stream).poll_flush(cx),
+            TunnelIoInner::Direct(stream) => stream.as_mut().poll_flush(cx),
+        }
     }
 
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
+        match &mut self.inner {
+            TunnelIoInner::Pair(stream) => Pin::new(stream).poll_shutdown(cx),
+            TunnelIoInner::Direct(stream) => stream.as_mut().poll_shutdown(cx),
+        }
     }
 
     fn poll_write_vectored(
@@ -515,11 +555,17 @@ impl tokio::io::AsyncWrite for TunnelIo {
         cx: &mut std::task::Context<'_>,
         bufs: &[std::io::IoSlice<'_>],
     ) -> std::task::Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
+        match &mut self.inner {
+            TunnelIoInner::Pair(stream) => Pin::new(stream).poll_write_vectored(cx, bufs),
+            TunnelIoInner::Direct(stream) => stream.as_mut().poll_write_vectored(cx, bufs),
+        }
     }
 
     fn is_write_vectored(&self) -> bool {
-        self.inner.is_write_vectored()
+        match &self.inner {
+            TunnelIoInner::Pair(stream) => stream.is_write_vectored(),
+            TunnelIoInner::Direct(stream) => stream.is_write_vectored(),
+        }
     }
 }
 
@@ -538,28 +584,31 @@ impl tokio::io::AsyncWrite for TunnelIo {
 /// exhaustion (caller must send 503 instead).
 pub(crate) async fn admit_and_spawn(
     activity: &Arc<crate::connection::activity::ConnectionActivity>,
-    tunnel_semaphore: &Arc<tokio::sync::Semaphore>,
+    tunnel_semaphore: Option<&Arc<tokio::sync::Semaphore>>,
     ops: &crate::ops::OpsContext,
     conn_id: u64,
     lifecycle: RequestLifecycle,
     acceptance: TunnelAcceptance,
 ) -> bool {
-    let permit = match tunnel_semaphore.clone().try_acquire_owned() {
-        Ok(p) => p,
-        Err(_) => {
-            ops.counters()
-                .tunnels_rejected
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            ops.emit(
-                crate::ops::Event::new(
-                    crate::ops::Severity::Warn,
-                    crate::ops::EventKind::TunnelRejected,
-                    "tunnel saturated: active tunnel limit",
-                )
-                .connection_id(conn_id),
-            );
-            return false;
-        }
+    let permit = match tunnel_semaphore {
+        None => None,
+        Some(semaphore) => match semaphore.clone().try_acquire_owned() {
+            Ok(p) => Some(p),
+            Err(_) => {
+                ops.counters()
+                    .tunnels_rejected
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::TunnelRejected,
+                        "tunnel saturated: active tunnel limit",
+                    )
+                    .connection_id(conn_id),
+                );
+                return false;
+            }
+        },
     };
     let kind = acceptance.kind;
     let cancel = async move { lifecycle.cancelled().await };
@@ -593,7 +642,7 @@ pub(crate) async fn admit_and_spawn(
 /// return.
 #[doc(hidden)]
 pub async fn run_tunnel(
-    _permit: tokio::sync::OwnedSemaphorePermit,
+    _permit: Option<tokio::sync::OwnedSemaphorePermit>,
     ops: crate::ops::OpsContext,
     conn_id: u64,
     cancel: impl Future<Output = ()> + Send + 'static,
@@ -658,31 +707,19 @@ pub async fn run_tunnel(
     );
     let _active_guard = ActiveTunnelGuard { ops: ops.clone() };
 
-    // Bounded duplex: one end for the downstream codec, one for the bridge.
-    // H1 read-ahead bytes are already inside `Upgraded` (`read_buf`);
-    // wrapping via `TokioIo` preserves them without loss.
-    let (io_for_handler, io_for_bridge) = TunnelIo::pair();
-    let handler_join = tokio::spawn(async move {
-        handler(io_for_handler).await;
-    });
-
-    let mut transport = hyper_util::rt::TokioIo::new(upgraded);
-    let mut bridge_end = io_for_bridge.into_duplex();
-    let bridge_result = tokio::select! {
-        result = tokio::io::copy_bidirectional(&mut bridge_end, &mut transport) => {
-            Some(result)
-        }
+    // The opaque TunnelIo owns the upgraded transport directly. Hyper's
+    // Upgraded retains any bytes read beyond the HTTP boundary. The handler
+    // remains in this tracked task, so shutdown can abort it and dropping its
+    // TunnelIo closes the underlying transport.
+    let transport = hyper_util::rt::TokioIo::new(upgraded);
+    let mut handler_join =
+        tokio::spawn(async move { handler(TunnelIo::from_transport(transport)).await });
+    tokio::select! {
+        _ = &mut handler_join => {}
         _ = cancel => {
-            None
+            handler_join.abort();
+            let _ = handler_join.await;
         }
-    };
-    // Bridge ended (peer close / transport failure / cancellation): ensure
-    // the handler cannot linger without transport. Abort is safe: the
-    // handler owns only TunnelIo, no raw transport.
-    handler_join.abort();
-    let _ = handler_join.await;
-    if let Some(Err(_)) = bridge_result {
-        // Transport copy failure is already terminal; no payload logged.
     }
     ops.emit(
         crate::ops::Event::new(
@@ -711,6 +748,78 @@ impl Drop for ActiveTunnelGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Manual same-host A/B qualification harness. It models the old
+    /// `duplex + copy_bidirectional` bridge and the direct opaque transport
+    /// using identical deterministic Tokio duplex transports. Not a CI gate.
+    #[tokio::test]
+    #[ignore = "manual tunnel bridge A/B qualification"]
+    async fn tunnel_transport_ab_qualification() {
+        use std::time::Instant;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        async fn trial(direct: bool, payload_bytes: usize, iterations: usize) -> Vec<u128> {
+            let (mut client, transport) = tokio::io::duplex(4 * 1024 * 1024);
+            let (handler_io, bridge_join) = if direct {
+                (TunnelIo::from_transport(transport), None)
+            } else {
+                let (handler, bridge_end) = TunnelIo::pair();
+                let mut bridge_end = bridge_end.into_duplex();
+                let mut transport = transport;
+                let bridge = tokio::spawn(async move {
+                    let _ = tokio::io::copy_bidirectional(&mut bridge_end, &mut transport).await;
+                });
+                (handler, Some(bridge))
+            };
+            let mut handler_io = handler_io;
+            let handler = tokio::spawn(async move {
+                let mut buffer = vec![0; 64 * 1024];
+                loop {
+                    let n = match handler_io.read(&mut buffer).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => n,
+                    };
+                    if handler_io.write_all(&buffer[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            let payload = vec![0x5a; payload_bytes];
+            let mut times = Vec::with_capacity(iterations);
+            for _ in 0..iterations {
+                let start = Instant::now();
+                client.write_all(&payload).await.unwrap();
+                let mut echoed = vec![0; payload_bytes];
+                client.read_exact(&mut echoed).await.unwrap();
+                assert_eq!(echoed, payload);
+                times.push(start.elapsed().as_nanos());
+            }
+            drop(client);
+            handler.abort();
+            let _ = handler.await;
+            if let Some(bridge) = bridge_join {
+                let _ = bridge.await;
+            }
+            times
+        }
+
+        fn percentile(samples: &[u128], p: usize) -> u128 {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[(sorted.len() - 1) * p / 100]
+        }
+        for repeat in 1..=3 {
+            for bytes in [1024, 64 * 1024, 1024 * 1024] {
+                for direct in [false, true] {
+                    let samples = trial(direct, bytes, 100).await;
+                    let elapsed: u128 = samples.iter().sum();
+                    let payload = bytes as u128 * samples.len() as u128;
+                    let mib_s = payload as f64 / (elapsed as f64 / 1e9) / (1024.0 * 1024.0);
+                    eprintln!("repeat={} mode={} payload_bytes={} iterations={} p50_ns={} p95_ns={} p99_ns={} aggregate_mib_s={:.3} harness_spawned_tasks={} bridge_buffer_bytes={}", repeat, if direct {"direct"} else {"bridge"}, bytes, samples.len(), percentile(&samples,50), percentile(&samples,95), percentile(&samples,99), mib_s, if direct {1} else {2}, if direct {0} else {TUNNEL_IO_BUFFER_BYTES});
+                }
+            }
+        }
+    }
     use eggserve_primitives::header_block::HeaderBlock;
     use eggserve_primitives::version::HttpVersion;
 

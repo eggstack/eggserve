@@ -210,10 +210,11 @@ def main() -> int:
             (dep["req"] for dep in core_manifest.get("dependencies", []) if dep["name"] == "eggserve-server" and dep["kind"] is None),
             None,
         )
-        if server_req != "^0.2.3":
+        expected_server_req = f"^{server_package['version']}"
+        if server_req != expected_server_req:
             print(
-                "eggserve-core must require the first server release with the forwarded Tower feature "
-                f"(expected ^0.2.3, found {server_req!r})",
+                "eggserve-core must require its matching published server authority "
+                f"(expected {expected_server_req}, found {server_req!r})",
                 file=sys.stderr,
             )
             return 1

@@ -27,7 +27,7 @@ use hyper::server::conn::http1;
 use hyper::{Request, Response};
 use hyper_util::rt::{TokioIo, TokioTimer};
 
-use crate::config::RuntimeConfig;
+use crate::config::H1ConnectionPolicy;
 use crate::response::BoxBodyInner;
 use eggserve_primitives::request_lifecycle::RequestCancellationReason;
 
@@ -81,7 +81,7 @@ where
 /// slots after their lifetime budget has already expired.
 const MAX_POST_SHUTDOWN_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 
-fn post_shutdown_drain_budget(config: &RuntimeConfig) -> std::time::Duration {
+fn post_shutdown_drain_budget(config: &H1ConnectionPolicy) -> std::time::Duration {
     config
         .graceful_shutdown_timeout
         .min(MAX_POST_SHUTDOWN_DRAIN)
@@ -102,18 +102,17 @@ fn post_shutdown_drain_budget(config: &RuntimeConfig) -> std::time::Duration {
 /// authority (system clock by default, caller-supplied provider or explicit
 /// suppression for privacy profiles). Tests prove exactly zero or one `Date`
 /// according to policy.
-fn hyper_builder(config: &RuntimeConfig) -> http1::Builder {
-    let http1_config = config.http1_config();
+fn hyper_builder(config: &H1ConnectionPolicy) -> http1::Builder {
     let mut builder = http1::Builder::new();
     builder
         .timer(TokioTimer::new())
         .header_read_timeout(config.header_read_timeout)
         .max_buf_size(
-            http1_config
+            config
                 .max_buf_size
                 .max(crate::runtime_limits::MIN_MAX_BUF_SIZE),
         )
-        .max_headers(http1_config.max_headers)
+        .max_headers(config.max_headers)
         .auto_date_header(false);
     builder
 }
@@ -137,7 +136,7 @@ fn min_deadline(
 /// instead of letting stalled clients pin pool slots.
 async fn graceful_close<C>(
     mut conn: std::pin::Pin<&mut C>,
-    config: &RuntimeConfig,
+    config: &H1ConnectionPolicy,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
 ) where
@@ -252,7 +251,7 @@ fn finish_conn_result(
 /// first, the request dies mid-flight regardless of the other budgets.
 async fn drive_connection<C, F>(
     mut conn: std::pin::Pin<&mut C>,
-    config: &RuntimeConfig,
+    config: &H1ConnectionPolicy,
     activity: &Arc<ConnectionActivity>,
     requests: &Arc<ConnectionRequests>,
     conn_id: u64,
@@ -308,7 +307,12 @@ where
         // tunnel tasks are live.
         let tunnels_active = activity.tunnel_count().await > 0;
         let idle = in_flight == 0 && outstanding == 0 && deferred == 0 && !tunnels_active;
-        if idle && now.duration_since(state.last_activity) >= config.keep_alive_idle_timeout {
+        let idle_deadline_owned = config.policy_ownership.keep_alive_idle_deadline
+            == crate::config::PolicyOwner::EggServe;
+        if idle
+            && idle_deadline_owned
+            && now.duration_since(state.last_activity) >= config.keep_alive_idle_timeout
+        {
             ops.counters()
                 .keepalive_idle_timeouts
                 .fetch_add(1, Ordering::Relaxed);
@@ -326,7 +330,10 @@ where
                 .await;
             return ConnectionOutcome::IdleTimeout;
         }
-        let write_stalled = outstanding > 0
+        let write_deadline_owned = config.policy_ownership.response_write_progress_deadline
+            == crate::config::PolicyOwner::EggServe;
+        let write_stalled = write_deadline_owned
+            && outstanding > 0
             && now.duration_since(state.last_write) >= config.response_write_timeout;
         if write_stalled {
             ops.counters()
@@ -348,7 +355,7 @@ where
             return ConnectionOutcome::WriteTimeout;
         }
         let mut wake = total_deadline;
-        if idle {
+        if idle && idle_deadline_owned {
             wake = min_deadline(
                 wake,
                 state
@@ -356,7 +363,7 @@ where
                     .checked_add(config.keep_alive_idle_timeout),
             );
         }
-        if outstanding > 0 {
+        if outstanding > 0 && write_deadline_owned {
             wake = min_deadline(
                 wake,
                 state.last_write.checked_add(config.response_write_timeout),
@@ -445,7 +452,7 @@ where
 pub(crate) async fn serve_hyper_with_token<I, S>(
     io: TokioIo<I>,
     service: S,
-    config: &RuntimeConfig,
+    config: &H1ConnectionPolicy,
     activity: &Arc<ConnectionActivity>,
     requests: &Arc<ConnectionRequests>,
     shutdown: &ConnectionShutdown,

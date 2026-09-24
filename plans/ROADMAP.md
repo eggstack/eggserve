@@ -1075,26 +1075,26 @@ blocked until that exact published-artifact proof is complete.
 Implementation plan:
 `plans/279-forward-proxy-seam-publication-and-downstream-closure.md`.
 
-Status: **278 BLOCKED ON 277 PUBLICATION; 279 BLOCKED ON 278.**
+Status: **278 implementation and 279 source qualification complete; exact published-artifact closure is Plan 286.** Plan 277's unpublished candidate is carried into that release per maintainer direction; Plan 277 itself is not changed or treated as a prerequisite to this source sequence.
 
 
 ## Direct H1 embedding policy-ownership program — Plans 280–286
 
-Plans 280–286 are a post-279 direct-runtime embedding program. They make
+Plans 280–286 are a combined direct-runtime embedding and publication program. They make
 selected application policy ownership explicit for sophisticated embedders
 without weakening EggServe's hardened standalone defaults or turning EggServe
 into a downstream-specific adapter.
 
-The program is deliberately **blocked on Plan 279 closure**. Plans 278–279
-already own the next direct-server request-target change and publication. The
-new program touches the same H1 config/request/runtime boundary and must not
-race or mutate those release candidates.
+The source sequence follows Plan 279 qualification. Plans 278–279 own the
+forward-proxy request-target seam; their registry release and Plan 277's
+pending candidate are consolidated with Plans 280–286 into the next release
+per maintainer direction.
 
 Current planning baseline:
 `4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922`.
 
 ```text
-279  forward-proxy seam published/closed
+279  forward-proxy seam source-closed; registry-only closure in Plan 286
  |
 280  external ownership for selected H1 deadlines + semantic ceilings
  |\
@@ -1227,6 +1227,4 @@ residuals are retained in a release evidence record.
 Implementation plan:
 `plans/286-embedding-contract-publication-and-registry-closure.md`.
 
-Status: **280–286 PLANNED; BLOCKED ON 279.** Plan 284 may independently close
-KEEP or NO-GO after the gate opens. Plan 286 is the only publication/downstream
-unblock authority for this program.
+Status: **Plans 280–284 locally implemented/qualified; Plan 285 awaits hosted CI; Plan 286 owns the combined publication and registry-only closure.** Plan 285 selects 0.3.0 due source-incompatible public changes.

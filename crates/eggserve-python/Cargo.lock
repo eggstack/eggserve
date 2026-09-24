@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-bin"
-version = "0.2.3"
+version = "0.2.1"
 dependencies = [
  "eggnet-tls",
  "eggserve-core",
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-core"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "eggnet-tls",
@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-primitives"
-version = "0.2.3"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "futures-util",
@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-server"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "eggserve-primitives",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-static"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "eggserve-primitives",
  "eggserve-server",

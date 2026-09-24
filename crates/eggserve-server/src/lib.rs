@@ -35,6 +35,8 @@ pub mod errors;
 pub mod interop;
 /// Single-authority per-runtime observability.
 pub mod ops;
+/// Typed runtime rejection presentation contract.
+pub mod rejection;
 /// Runtime-owned Hyper error responses (implementation detail).
 mod response;
 /// Single-authority response privacy policy.
@@ -51,12 +53,19 @@ pub mod tower;
 /// Generic tunnel / upgrade execution (direct H1 authority, Plan 216).
 pub mod tunnel;
 
-pub use config::{RuntimeConfig, RuntimeConfigBuilder};
+pub use config::{
+    AdmissionOwner, AdmissionOwnership, H1ConnectionPolicy, H1PolicyOwnership,
+    Http1RequestTargetMode, PolicyOwner, RuntimeConfig, RuntimeConfigBuilder,
+};
 pub use connection::{
-    serve_http1_connection, serve_http1_connection_with_id, ConnectionContext, ConnectionOutcome,
-    ConnectionShutdown,
+    serve_http1_connection, serve_http1_connection_with_id, serve_http1_connection_with_policy,
+    ConnectionContext, ConnectionOutcome, ConnectionShutdown,
 };
 pub use errors::{ServerError, ShutdownResult};
+pub use rejection::{
+    RuntimeErrorPresentation, RuntimeRejection, RuntimeRejectionKind, RuntimeRejectionPresenter,
+    MAX_RUNTIME_REJECTION_BODY_BYTES,
+};
 pub use runtime::RuntimeState;
 pub use service::{
     service_fn, service_fn_head, service_fn_with_policy, service_fn_with_tunnel, Service,
@@ -269,6 +278,7 @@ impl Server {
         let shutdown = ServerShutdown::new();
         let permits = Arc::new(Semaphore::new(self.config.max_connections));
         let service = SharedService(Arc::new(service));
+        let connection_policy = Arc::new(self.config.h1_connection_policy()?);
         let config = Arc::new(self.config);
         let runtime_state = Arc::new(RuntimeState::with_ops(&config, self.ops.clone())?);
         let ops = self.ops.clone();
@@ -311,15 +321,15 @@ impl Server {
                                 let token = ConnectionShutdown::new();
                                 let relay_shutdown = task_shutdown.clone();
                                 let service = service.clone();
-                                let config = config.clone();
+                                let connection_policy = connection_policy.clone();
                                 let state = runtime_state.clone();
                                 let conn_id = state.ops().next_connection_id();
                                 tasks.spawn(async move {
                                     let _permit = permit;
-                                    let serve = serve_http1_connection_with_id(
+                                    let serve = connection::serve_http1_connection_with_effective_policy(
                                         stream,
                                         service,
-                                        config,
+                                        connection_policy,
                                         context,
                                         state,
                                         &token,

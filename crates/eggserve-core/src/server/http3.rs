@@ -65,6 +65,9 @@ pub(crate) async fn accept_loop<S: Service>(
 /// the core builder, so this projection is infallible field copies.
 fn project_to_server_config(config: &RuntimeConfig) -> eggserve_server::config::RuntimeConfig {
     eggserve_server::config::RuntimeConfig {
+        http1_request_target_mode: eggserve_server::Http1RequestTargetMode::OriginOnly,
+        policy_ownership: eggserve_server::H1PolicyOwnership::default(),
+        admission_ownership: eggserve_server::AdmissionOwnership::default(),
         bind: config.bind,
         max_connections: config.max_connections,
         max_file_streams: config.max_file_streams,
@@ -76,6 +79,7 @@ fn project_to_server_config(config: &RuntimeConfig) -> eggserve_server::config::
         body_read_timeout: config.body_read_timeout,
         graceful_shutdown_timeout: config.graceful_shutdown_timeout,
         response_policy: config.response_policy.clone(),
+        runtime_rejection_presenter: None,
         max_request_body_bytes: config.max_request_body_bytes,
         max_buf_size: config.max_buf_size,
         max_headers: config.max_headers,

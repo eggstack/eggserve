@@ -14,7 +14,7 @@ use std::sync::Arc;
 use hyper::body::Incoming;
 use hyper::Request;
 
-use crate::config::RuntimeConfig;
+use crate::config::H1ConnectionPolicy;
 use crate::response::BoxBodyInner;
 use crate::service::{Service, ServiceError};
 use eggserve_primitives::request_body_policy::RequestBodyPolicy;
@@ -25,8 +25,7 @@ use super::deferred_body::{spawn_body_timeout_watchdog, spawn_deferred_tracker};
 use super::lifecycle::ConnectionRequests;
 use super::lifecycle::LifecycleDisposition;
 use super::request::{
-    convert_request_head, select_body_policy, validate_body_framing,
-    wrap_incoming_body_with_trailers,
+    convert_request_head, validate_body_framing, wrap_incoming_body_with_trailers,
 };
 use super::response::{
     apply_http1_disposition, body_error_disposition, body_error_to_response, contain_service_panic,
@@ -36,7 +35,7 @@ use super::response::{
 fn finish_response(
     guard: InFlightGuard,
     response: hyper::Response<BoxBodyInner>,
-    config: &RuntimeConfig,
+    config: &H1ConnectionPolicy,
     conn_id: u64,
     disposition: LifecycleDisposition,
 ) -> hyper::Response<BoxBodyInner> {
@@ -55,7 +54,7 @@ fn finish_response(
 fn apply_forwarded_policy(
     base: eggserve_primitives::connection_info::ConnectionInfo,
     head: &eggserve_primitives::request_head::RequestHead,
-    config: &RuntimeConfig,
+    config: &H1ConnectionPolicy,
     context: &ConnectionContext,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
@@ -259,22 +258,27 @@ async fn invoke_service<S>(
     service: &S,
     request: eggserve_primitives::request::Request,
     is_head: bool,
-    timeout: std::time::Duration,
+    timeout: Option<std::time::Duration>,
     stream_body: Option<Arc<eggserve_primitives::request_lifecycle::RequestShared>>,
-    service_semaphore: &Arc<tokio::sync::Semaphore>,
+    body_deadline_owned: bool,
+    service_semaphore: Option<&Arc<tokio::sync::Semaphore>>,
     file_stream_semaphore: &Arc<tokio::sync::Semaphore>,
     stream_chunk_size: usize,
     error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
+    rejection_policy: &H1ConnectionPolicy,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
     activity: &Arc<ConnectionActivity>,
-    tunnel_semaphore: &Arc<tokio::sync::Semaphore>,
+    tunnel_semaphore: Option<&Arc<tokio::sync::Semaphore>>,
     tunnel: Option<TunnelInvocation>,
 ) -> hyper::Response<BoxBodyInner>
 where
     S: Service + 'static,
 {
-    if let Some(unavailable) = guard.admit(service_semaphore, conn_id, error_policy) {
+    if guard
+        .admit(service_semaphore, conn_id, error_policy)
+        .is_some()
+    {
         // Admission rejection commits implicitly: no service ran, but mark
         // interim + tunnel committed so late sends/accepts cannot follow 503.
         if let Some(interim) = request.context().interim() {
@@ -283,7 +287,12 @@ where
         if let Some(ref invocation) = tunnel {
             invocation.shared.mark_committed();
         }
-        return unavailable;
+        return super::response::present_runtime_rejection(
+            hyper::StatusCode::SERVICE_UNAVAILABLE,
+            crate::rejection::RuntimeRejectionKind::ServiceAdmissionSaturated,
+            is_head,
+            rejection_policy,
+        );
     }
 
     // Capture trailer policy + interim + tunnel commitment/lifecycle before the
@@ -294,11 +303,11 @@ where
     let tunnel_sidecar = tunnel.as_ref().map(|inv| inv.sidecar.clone());
     let tunnel_lifecycle = tunnel.as_ref().map(|inv| inv.lifecycle.clone());
     let capability = tunnel.map(|inv| inv.capability);
-    let result = tokio::time::timeout(
-        timeout,
-        contain_service_panic(service.call_with_tunnel(request, capability)),
-    )
-    .await;
+    let future = contain_service_panic(service.call_with_tunnel(request, capability));
+    let result = match timeout {
+        Some(timeout) => tokio::time::timeout(timeout, future).await,
+        None => Ok(future.await),
+    };
     // Final commitment: no interim/tunnel after this point regardless of outcome.
     if let Some(ref sender) = interim {
         sender.mark_committed();
@@ -339,8 +348,11 @@ where
                             )
                             .await;
                             if !admitted {
-                                return crate::response::service_unavailable_with_policy(
-                                    error_policy,
+                                return super::response::present_runtime_rejection(
+                                    hyper::StatusCode::SERVICE_UNAVAILABLE,
+                                    crate::rejection::RuntimeRejectionKind::TunnelAdmissionSaturated,
+                                    is_head,
+                                    rejection_policy,
                                 );
                             }
                             return convert_handshake_without_normalization(
@@ -383,13 +395,13 @@ where
                 )
                 .connection_id(conn_id),
             );
-            super::response::service_error_to_response(&service_err, is_head, error_policy)
+            super::response::service_error_to_response(&service_err, is_head, rejection_policy)
         }
         Err(_elapsed) => {
             let body_pending = stream_body
                 .as_ref()
                 .is_some_and(|shared| shared.is_body_active());
-            if body_pending {
+            if body_pending && body_deadline_owned {
                 ops.counters()
                     .body_read_timeouts
                     .fetch_add(1, Ordering::Relaxed);
@@ -401,7 +413,7 @@ where
                 super::response::service_error_to_response(
                     &ServiceError::timeout("body read timeout".to_string()),
                     is_head,
-                    error_policy,
+                    rejection_policy,
                 )
             } else {
                 ops.emit(crate::ops::Event::new(
@@ -412,7 +424,7 @@ where
                 super::response::service_error_to_response(
                     &ServiceError::timeout("handler timed out".to_string()),
                     is_head,
-                    error_policy,
+                    rejection_policy,
                 )
             }
         }
@@ -558,16 +570,16 @@ where
 /// Request-local body/lifecycle state remains owned by the request pipeline.
 struct PipelineState<S> {
     service: Arc<S>,
-    config: Arc<RuntimeConfig>,
+    config: Arc<H1ConnectionPolicy>,
     file_stream_semaphore: Arc<tokio::sync::Semaphore>,
-    service_semaphore: Arc<tokio::sync::Semaphore>,
-    tunnel_semaphore: Arc<tokio::sync::Semaphore>,
+    service_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+    tunnel_semaphore: Option<Arc<tokio::sync::Semaphore>>,
     activity: Arc<ConnectionActivity>,
     requests: Arc<ConnectionRequests>,
     stream_chunk_size: usize,
-    handler_timeout: std::time::Duration,
-    body_read_timeout: std::time::Duration,
-    max_body_bytes: u64,
+    handler_timeout: Option<std::time::Duration>,
+    body_read_timeout: Option<std::time::Duration>,
+    max_body_bytes: Option<u64>,
     context: ConnectionContext,
     conn_id: u64,
     ops: crate::ops::OpsContext,
@@ -590,16 +602,16 @@ struct PipelineState<S> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn make_canonical_hyper_service<S>(
     service: Arc<S>,
-    config: Arc<RuntimeConfig>,
+    config: Arc<H1ConnectionPolicy>,
     file_stream_semaphore: Arc<tokio::sync::Semaphore>,
-    service_semaphore: Arc<tokio::sync::Semaphore>,
-    tunnel_semaphore: Arc<tokio::sync::Semaphore>,
+    service_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+    tunnel_semaphore: Option<Arc<tokio::sync::Semaphore>>,
     activity: Arc<ConnectionActivity>,
     requests: Arc<ConnectionRequests>,
     stream_chunk_size: usize,
-    handler_timeout: std::time::Duration,
-    body_read_timeout: std::time::Duration,
-    max_body_bytes: u64,
+    handler_timeout: Option<std::time::Duration>,
+    body_read_timeout: Option<std::time::Duration>,
+    max_body_bytes: Option<u64>,
     context: ConnectionContext,
     conn_id: u64,
     ops: crate::ops::OpsContext,
@@ -634,8 +646,14 @@ where
             let service = &state.service;
             let config = &state.config;
             let file_stream_semaphore = &state.file_stream_semaphore;
-            let service_semaphore = &state.service_semaphore;
-            let tunnel_semaphore = &state.tunnel_semaphore;
+            let service_semaphore = (config.admission_ownership.service_calls
+                == crate::config::AdmissionOwner::EggServe)
+                .then_some(state.service_semaphore.as_ref())
+                .flatten();
+            let tunnel_semaphore = (config.admission_ownership.tunnels
+                == crate::config::AdmissionOwner::EggServe)
+                .then_some(state.tunnel_semaphore.as_ref())
+                .flatten();
             let activity = &state.activity;
             let requests = &state.requests;
             let context = &state.context;
@@ -651,7 +669,10 @@ where
             // before any service work.
             let head = match convert_request_head(
                 &req,
-                config.max_request_target_bytes,
+                (config.policy_ownership.request_target_ceiling
+                    == crate::config::PolicyOwner::EggServe)
+                    .then_some(config.max_request_target_bytes),
+                config.http1_request_target_mode,
                 config.max_header_bytes,
                 context.scheme,
                 conn_id,
@@ -661,11 +682,7 @@ where
                 Err(e) => {
                     return Ok::<_, Infallible>(finish_response(
                         guard,
-                        super::response::service_error_to_response(
-                            &e,
-                            false,
-                            config.response_policy.error_policy,
-                        ),
+                        super::response::service_error_to_response(&e, false, config),
                         config,
                         conn_id,
                         LifecycleDisposition::KEEP_ALIVE,
@@ -714,7 +731,8 @@ where
 
             // Select effective body policy.
             let service_policy = service.request_body_policy(&head);
-            let effective_policy = select_body_policy(service_policy, max_body_bytes);
+            let effective_policy =
+                super::request::select_body_policy_with_ceiling(service_policy, max_body_bytes);
 
             // Extract body from Hyper request.
             //
@@ -744,11 +762,7 @@ where
                     let is_head = head.method().is_head();
                     return Ok::<_, Infallible>(finish_response(
                         guard,
-                        super::response::service_error_to_response(
-                            &e,
-                            is_head,
-                            config.response_policy.error_policy,
-                        ),
+                        super::response::service_error_to_response(&e, is_head, config),
                         config,
                         conn_id,
                         LifecycleDisposition::KEEP_ALIVE,
@@ -786,7 +800,7 @@ where
                         let disposition = body_error_disposition(&err);
                         return Ok::<_, Infallible>(finish_response(
                             guard,
-                            body_error_to_response(err, &head, config.response_policy.error_policy),
+                            body_error_to_response(err, &head, config),
                             config,
                             conn_id,
                             disposition,
@@ -840,9 +854,11 @@ where
                         )
                         .connection_id(conn_id),
                     );
-                    let response = crate::response::payload_too_large_with_policy(
+                    let response = super::response::present_runtime_rejection(
+                        hyper::StatusCode::PAYLOAD_TOO_LARGE,
+                        crate::rejection::RuntimeRejectionKind::RequestBodyRejected,
                         is_head,
-                        config.response_policy.error_policy,
+                        config,
                     );
                     return Ok::<_, Infallible>(finish_response(
                         guard,
@@ -883,9 +899,11 @@ where
                     )
                     .connection_id(conn_id),
                 );
-                let response = crate::response::payload_too_large_with_policy(
+                let response = super::response::present_runtime_rejection(
+                    hyper::StatusCode::PAYLOAD_TOO_LARGE,
+                    crate::rejection::RuntimeRejectionKind::RequestBodyRejected,
                     is_head,
-                    config.response_policy.error_policy,
+                    config,
                 );
                 // Do not drain the body — drop it and close the connection to
                 // prevent unread bytes from being interpreted as a subsequent
@@ -961,10 +979,12 @@ where
                         is_head,
                         handler_timeout,
                         None,
+                        body_read_timeout.is_some(),
                         service_semaphore,
                         file_stream_semaphore,
                         stream_chunk_size,
                         config.response_policy.error_policy,
+                        config,
                         conn_id,
                         ops,
                         activity,
@@ -988,12 +1008,12 @@ where
                         RequestBodyPolicy::Buffer { max_bytes } => max_bytes,
                         _ => unreachable!("buffer branch requires a buffer policy"),
                     };
-                    let request_body = match tokio::time::timeout(
-                        body_read_timeout,
-                        request_body.read_all_with_trailers(),
-                    )
-                    .await
-                    {
+                    let read = request_body.read_all_with_trailers();
+                    let read = match body_read_timeout {
+                        Some(timeout) => tokio::time::timeout(timeout, read).await,
+                        None => Ok(read.await),
+                    };
+                    let request_body = match read {
                         Ok(Ok((bytes, trailers))) => {
                             match trailers {
                                 Some(t) => eggserve_primitives::request_body::RequestBody::from_bytes_with_trailers(
@@ -1011,7 +1031,7 @@ where
                                 body_error_to_response(
                                     err,
                                     &head,
-                                    config.response_policy.error_policy,
+                                    config,
                                 ),
                                 config,
                                 conn_id,
@@ -1033,7 +1053,7 @@ where
                                 body_error_to_response(
                                     err,
                                     &head,
-                                    config.response_policy.error_policy,
+                                    config,
                                 ),
                                 config,
                                 conn_id,
@@ -1056,10 +1076,12 @@ where
                         is_head,
                         handler_timeout,
                         None,
+                        body_read_timeout.is_some(),
                         service_semaphore,
                         file_stream_semaphore,
                         stream_chunk_size,
                         config.response_policy.error_policy,
+                        config,
                         conn_id,
                         ops,
                         activity,
@@ -1085,10 +1107,16 @@ where
                     // deferred body, `body_read_timeout` continues as a total
                     // deadline via the watchdog below while `handler_timeout`
                     // no longer applies to the downstream task.
-                    let effective_timeout = body_read_timeout.min(handler_timeout);
+                    let effective_timeout = match (body_read_timeout, handler_timeout) {
+                        (Some(body), Some(handler)) => Some(body.min(handler)),
+                        (Some(body), None) => Some(body),
+                        (None, Some(handler)) => Some(handler),
+                        (None, None) => None,
+                    };
                     // Total body deadline from ingestion start for the
                     // post-return watchdog.
-                    let body_deadline = tokio::time::Instant::now() + body_read_timeout;
+                    let body_deadline =
+                        body_read_timeout.map(|timeout| tokio::time::Instant::now() + timeout);
                     let connection = connection_template.clone();
                     // Shared lifecycle observer retained by the runtime while
                     // the service owns/moves the actual body (Track A/B1).
@@ -1108,10 +1136,12 @@ where
                         is_head,
                         effective_timeout,
                         Some(body_shared.clone()),
+                        body_read_timeout.is_some(),
                         service_semaphore,
                         file_stream_semaphore,
                         stream_chunk_size,
                         config.response_policy.error_policy,
+                        config,
                         conn_id,
                         ops,
                         activity,
@@ -1164,7 +1194,7 @@ where
                             // Arm the remaining body deadline for deferred
                             // consumption. If already past deadline, the
                             // watchdog fires immediately.
-                            {
+                            if let Some(body_deadline) = body_deadline {
                                 let now = tokio::time::Instant::now();
                                 let deadline = if body_deadline > now {
                                     body_deadline

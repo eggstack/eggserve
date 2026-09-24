@@ -2,9 +2,11 @@
 
 ## Status
 
-**PLANNED; BLOCKED on Plans 280–283 and the final Plan-284 KEEP/NO-GO decision.**
+**LOCAL QUALIFICATION COMPLETE; hosted CI and final artifact closure pending. Version decision: 0.3.0 for incompatible public API changes.**
 
-Plan 279 must already be published/closed.
+Plan 279 source qualification is complete. Per maintainer direction, its
+registry-only closure is consolidated into Plan 286 with the pending Plan 277
+publication.
 
 ## Purpose
 

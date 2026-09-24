@@ -487,7 +487,7 @@ where
                             let cancel = async move { lifecycle.cancelled().await };
                             activity
                                 .spawn_tunnel(eggserve_server::tunnel::run_tunnel(
-                                    permit,
+                                    Some(permit),
                                     ops.clone(),
                                     conn_id,
                                     cancel,

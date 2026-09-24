@@ -20,7 +20,9 @@ use eggserve_primitives::canonical::{Response, ResponseBody, StatusCode};
 use eggserve_primitives::header_block::HeaderBlock;
 use eggserve_primitives::TunnelKind;
 use eggserve_server::tunnel::{TunnelError, TunnelIo};
-use eggserve_server::{service_fn_with_tunnel, Request, RuntimeConfig, Server};
+use eggserve_server::{
+    service_fn_with_tunnel, AdmissionOwner, AdmissionOwnership, Request, RuntimeConfig, Server,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn echo_service() -> impl eggserve_server::Service {
@@ -324,6 +326,43 @@ async fn tunnel_admission_exhaustion_is_503() {
         "exhaustion must be 503, got: {text}"
     );
 
+    handle.shutdown();
+    handle.wait().await;
+}
+
+#[tokio::test]
+async fn external_tunnel_admission_bypasses_only_eggserve_capacity() {
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_active_tunnels(1)
+        .admission_ownership(AdmissionOwnership {
+            tunnels: AdmissionOwner::External,
+            ..AdmissionOwnership::default()
+        })
+        .build()
+        .unwrap();
+    let (addr, handle) = start_echo_server(config).await;
+    let mut first = tokio::net::TcpStream::connect(addr).await.unwrap();
+    first
+        .write_all(
+            b"GET /a HTTP/1.1\r\nHost: x\r\nConnection: upgrade\r\nUpgrade: eggserve-test\r\n\r\n",
+        )
+        .await
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&read_handshake_head(&mut first).await).starts_with("HTTP/1.1 101")
+    );
+    let mut second = tokio::net::TcpStream::connect(addr).await.unwrap();
+    second
+        .write_all(
+            b"GET /b HTTP/1.1\r\nHost: x\r\nConnection: upgrade\r\nUpgrade: eggserve-test\r\n\r\n",
+        )
+        .await
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&read_handshake_head(&mut second).await)
+            .starts_with("HTTP/1.1 101")
+    );
     handle.shutdown();
     handle.wait().await;
 }

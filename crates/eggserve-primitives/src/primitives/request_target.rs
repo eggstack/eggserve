@@ -52,8 +52,19 @@ impl std::error::Error for RequestTargetError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestTarget {
     raw: String,
+    form: RequestTargetForm,
+    scheme: Option<String>,
+    authority: Option<crate::primitives::authority::Authority>,
+    path_start: usize,
     path_end: usize,
     query_start: Option<usize>,
+}
+
+/// The accepted request-target syntax at the HTTP boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestTargetForm {
+    Origin,
+    Absolute,
 }
 
 impl RequestTarget {
@@ -104,9 +115,70 @@ impl RequestTarget {
 
         Ok(Self {
             raw,
+            form: RequestTargetForm::Origin,
+            scheme: None,
+            authority: None,
+            path_start: 0,
             path_end,
             query_start,
         })
+    }
+
+    /// Construct an absolute-form target from URI components already parsed by the transport adapter.
+    pub fn from_absolute_components(
+        scheme: impl Into<String>,
+        authority: crate::primitives::authority::Authority,
+        path_and_query: impl AsRef<str>,
+    ) -> Result<Self, RequestTargetError> {
+        let scheme = scheme.into();
+        let pq = path_and_query.as_ref();
+        if scheme.is_empty()
+            || !scheme.bytes().enumerate().all(|(i, b)| {
+                b.is_ascii_alphabetic()
+                    || (i > 0 && (b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.')))
+            })
+            || !scheme.as_bytes()[0].is_ascii_alphabetic()
+            || pq.starts_with("//")
+        {
+            return Err(RequestTargetError::AbsoluteUri);
+        }
+        if pq
+            .bytes()
+            .any(|b| b.is_ascii_control() || b.is_ascii_whitespace())
+        {
+            return Err(RequestTargetError::ContainsWhitespace);
+        }
+        let path = if pq.is_empty() { "/" } else { pq };
+        if !path.starts_with('/') {
+            return Err(RequestTargetError::NotOriginForm);
+        }
+        let raw = format!("{scheme}://{}{path}", authority.as_str());
+        let path_start = scheme.len() + 3 + authority.as_str().len();
+        let path_end = path_start + path.find('?').unwrap_or(path.len());
+        let query_start =
+            (path_end < raw.len() && path_end + 1 < raw.len()).then_some(path_end + 1);
+        Ok(Self {
+            raw,
+            form: RequestTargetForm::Absolute,
+            scheme: Some(scheme),
+            authority: Some(authority),
+            path_start,
+            path_end,
+            query_start,
+        })
+    }
+
+    /// Returns whether the target is origin-form or absolute-form.
+    pub fn form(&self) -> RequestTargetForm {
+        self.form
+    }
+    /// Returns the URI scheme for absolute-form targets.
+    pub fn scheme(&self) -> Option<&str> {
+        self.scheme.as_deref()
+    }
+    /// Returns the URI authority for absolute-form targets.
+    pub fn uri_authority(&self) -> Option<&crate::primitives::authority::Authority> {
+        self.authority.as_ref()
     }
 
     /// Returns the raw request target string.
@@ -116,7 +188,7 @@ impl RequestTarget {
 
     /// Returns the path component (before the `?`).
     pub fn path(&self) -> &str {
-        &self.raw[..self.path_end]
+        &self.raw[self.path_start..self.path_end]
     }
 
     /// Returns the query component (after the `?`), if present.
@@ -131,7 +203,7 @@ impl RequestTarget {
 
     /// Returns the full target including query, if present.
     pub fn path_and_query(&self) -> &str {
-        &self.raw
+        &self.raw[self.path_start..]
     }
 
     /// Returns the raw target octets.
@@ -149,7 +221,7 @@ impl RequestTarget {
 
     /// Returns the path-component octets.
     pub fn path_bytes(&self) -> &[u8] {
-        &self.raw.as_bytes()[..self.path_end]
+        &self.raw.as_bytes()[self.path_start..self.path_end]
     }
 
     /// Returns the query-component octets, if present.
@@ -174,6 +246,27 @@ mod tests {
         assert_eq!(t.raw(), "/");
         assert_eq!(t.path(), "/");
         assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn absolute_components_preserve_full_target_and_expose_path() {
+        let authority =
+            crate::primitives::authority::Authority::parse("example.test:8080").unwrap();
+        let target = RequestTarget::from_absolute_components("http", authority, "/a?b=1").unwrap();
+        assert_eq!(target.form(), RequestTargetForm::Absolute);
+        assert_eq!(target.raw(), "http://example.test:8080/a?b=1");
+        assert_eq!(target.scheme(), Some("http"));
+        assert_eq!(
+            target.uri_authority().unwrap().as_str(),
+            "example.test:8080"
+        );
+        assert_eq!(target.path(), "/a");
+        assert_eq!(target.query(), Some("b=1"));
+        assert_eq!(target.path_and_query(), "/a?b=1");
+        assert!(matches!(
+            RequestTarget::parse(target.raw()),
+            Err(RequestTargetError::AbsoluteUri)
+        ));
     }
 
     #[test]

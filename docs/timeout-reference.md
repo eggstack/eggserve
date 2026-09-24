@@ -118,6 +118,17 @@ application-task admission is downstream-owned.
 
 **Migration**: `connection_total_timeout` keeps its name and type (`Duration`); the default remains 60 seconds. Setting it to zero explicitly removes the total-age ceiling while keeping `keep_alive_idle_timeout`, `response_write_timeout`, request/body/header/handler limits, admission, request-count limits, and shutdown bounds active. The direct and compatibility Rust builders and the Python `Server` parameter share this sentinel. The CLI/Python defaults remain unchanged (see the per-profile defaults in `deployment.md`).
 
+Advanced direct H1 embedders may assign selected deadlines and semantic
+ceilings to `External` with `RuntimeConfig::builder().policy_ownership(...)`.
+Every field defaults to `EggServe`. This disables only the named runtime
+deadline or ceiling; mandatory Hyper parser buffer/header-count limits,
+framing, authority validation, lifecycle cancellation, connection-total
+timeout, and shutdown remain active. External body ownership still leaves the
+service's selected `RequestBodyPolicy` as the per-request decoded-byte limit.
+External target ownership does not remove Hyper's bounded request-line/parser
+buffer. This mode transfers policy responsibility and does not promise
+unbounded-input safety.
+
 ### 7. Graceful shutdown timeout
 
 - **Clock starts**: `shutdown_rx` broadcast received (shutdown requested).

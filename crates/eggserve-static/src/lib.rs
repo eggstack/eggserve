@@ -135,6 +135,14 @@ impl StaticService {
     async fn respond(&self, request: Request) -> Result<Response, ServiceError> {
         let head = request.head();
         let is_head = head.is_head();
+        if head.target().form() == eggserve_primitives::RequestTargetForm::Absolute {
+            return self.error_response(
+                StatusCode::BAD_REQUEST,
+                "400 Bad Request\n",
+                is_head,
+                false,
+            );
+        }
         if !head.permits_static_resolution() {
             return self.error_response(
                 StatusCode::METHOD_NOT_ALLOWED,

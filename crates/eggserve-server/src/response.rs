@@ -175,18 +175,6 @@ pub fn payload_too_large(is_head: bool) -> Response<BoxBodyInner> {
     )
 }
 
-pub fn payload_too_large_with_policy(
-    is_head: bool,
-    policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
-) -> Response<BoxBodyInner> {
-    canonical_error_with_policy(
-        StatusCode::PAYLOAD_TOO_LARGE,
-        "413 Payload Too Large\n",
-        is_head,
-        policy,
-    )
-}
-
 #[allow(dead_code)]
 pub fn internal_error() -> Response<BoxBodyInner> {
     canonical_error(
@@ -244,8 +232,14 @@ pub fn not_found(is_head: bool) -> Response<BoxBodyInner> {
     canonical_error(StatusCode::NOT_FOUND, "404 Not Found\n", is_head)
 }
 
-fn full_body(s: &str) -> BoxBodyInner {
+pub(crate) fn full_body(s: &str) -> BoxBodyInner {
     Full::new(Bytes::copy_from_slice(s.as_bytes()))
+        .map_err(|never| match never {})
+        .boxed_unsync()
+}
+
+pub(crate) fn full_body_bytes(bytes: Vec<u8>) -> BoxBodyInner {
+    Full::new(Bytes::from(bytes))
         .map_err(|never| match never {})
         .boxed_unsync()
 }

@@ -14,7 +14,7 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use http_body::{Body, Frame};
 
-use crate::config::RuntimeConfig;
+use crate::config::H1ConnectionPolicy;
 use crate::response::BoxBodyInner;
 
 use super::lifecycle::LifecycleDisposition;
@@ -328,10 +328,11 @@ impl InFlightGuard {
     /// cancellation, panic, disconnect, and shutdown paths all recover it.
     pub(crate) fn admit(
         &mut self,
-        semaphore: &Arc<tokio::sync::Semaphore>,
+        semaphore: Option<&Arc<tokio::sync::Semaphore>>,
         conn_id: u64,
         error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
     ) -> Option<hyper::Response<BoxBodyInner>> {
+        let semaphore = semaphore?;
         match semaphore.clone().try_acquire_owned() {
             Ok(permit) => {
                 self.service_permit = Some(permit);
@@ -368,7 +369,7 @@ impl InFlightGuard {
     pub(crate) fn finish(
         mut self,
         response: hyper::Response<BoxBodyInner>,
-        config: &RuntimeConfig,
+        config: &H1ConnectionPolicy,
         conn_id: u64,
         mut disposition: LifecycleDisposition,
     ) -> (hyper::Response<BoxBodyInner>, LifecycleDisposition) {

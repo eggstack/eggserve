@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED; BLOCKED on Plan 279 closure.**
+**KEEP; direct transport retained after local A/B and tunnel correctness qualification. Hosted cross-platform CI remains under Plan 285.**
 
 This plan is evidence-gated and may close **NO-GO** with the existing bridge
 retained.

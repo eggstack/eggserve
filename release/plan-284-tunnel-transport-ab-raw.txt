@@ -1,0 +1,27 @@
+   Compiling eggserve-server v0.2.3 (/home/sugarwookie/projects/eggserve/crates/eggserve-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.13s
+     Running unittests src/lib.rs (target/debug/deps/eggserve_server-fcf180d8e14e3bb3)
+
+running 1 test
+repeat=1 mode=bridge payload_bytes=1024 iterations=100 p50_ns=8717 p95_ns=8953 p99_ns=11222 aggregate_mib_s=100.212 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=1 mode=direct payload_bytes=1024 iterations=100 p50_ns=4573 p95_ns=4717 p99_ns=5647 aggregate_mib_s=209.288 harness_spawned_tasks=1 bridge_buffer_bytes=0
+repeat=1 mode=bridge payload_bytes=65536 iterations=100 p50_ns=34199 p95_ns=36729 p99_ns=45657 aggregate_mib_s=1745.420 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=1 mode=direct payload_bytes=65536 iterations=100 p50_ns=15086 p95_ns=15466 p99_ns=21601 aggregate_mib_s=3981.363 harness_spawned_tasks=1 bridge_buffer_bytes=0
+repeat=1 mode=bridge payload_bytes=1048576 iterations=100 p50_ns=467700 p95_ns=503393 p99_ns=810158 aggregate_mib_s=2040.512 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=1 mode=direct payload_bytes=1048576 iterations=100 p50_ns=176307 p95_ns=226885 p99_ns=265266 aggregate_mib_s=5245.691 harness_spawned_tasks=1 bridge_buffer_bytes=0
+repeat=2 mode=bridge payload_bytes=1024 iterations=100 p50_ns=8711 p95_ns=18643 p99_ns=27415 aggregate_mib_s=91.631 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=2 mode=direct payload_bytes=1024 iterations=100 p50_ns=4590 p95_ns=12363 p99_ns=15556 aggregate_mib_s=161.612 harness_spawned_tasks=1 bridge_buffer_bytes=0
+repeat=2 mode=bridge payload_bytes=65536 iterations=100 p50_ns=34912 p95_ns=36067 p99_ns=44209 aggregate_mib_s=1765.627 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=2 mode=direct payload_bytes=65536 iterations=100 p50_ns=15575 p95_ns=16076 p99_ns=22613 aggregate_mib_s=3949.936 harness_spawned_tasks=1 bridge_buffer_bytes=0
+repeat=2 mode=bridge payload_bytes=1048576 iterations=100 p50_ns=466990 p95_ns=681875 p99_ns=782274 aggregate_mib_s=2029.521 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=2 mode=direct payload_bytes=1048576 iterations=100 p50_ns=175716 p95_ns=182199 p99_ns=203207 aggregate_mib_s=5371.520 harness_spawned_tasks=1 bridge_buffer_bytes=0
+repeat=3 mode=bridge payload_bytes=1024 iterations=100 p50_ns=8630 p95_ns=8916 p99_ns=20083 aggregate_mib_s=109.667 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=3 mode=direct payload_bytes=1024 iterations=100 p50_ns=4570 p95_ns=4772 p99_ns=10444 aggregate_mib_s=207.206 harness_spawned_tasks=1 bridge_buffer_bytes=0
+repeat=3 mode=bridge payload_bytes=65536 iterations=100 p50_ns=34343 p95_ns=35494 p99_ns=43976 aggregate_mib_s=1792.924 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=3 mode=direct payload_bytes=65536 iterations=100 p50_ns=22233 p95_ns=27818 p99_ns=31535 aggregate_mib_s=2824.545 harness_spawned_tasks=1 bridge_buffer_bytes=0
+repeat=3 mode=bridge payload_bytes=1048576 iterations=100 p50_ns=468990 p95_ns=721505 p99_ns=851467 aggregate_mib_s=1969.605 harness_spawned_tasks=2 bridge_buffer_bytes=32768
+repeat=3 mode=direct payload_bytes=1048576 iterations=100 p50_ns=176674 p95_ns=229075 p99_ns=252066 aggregate_mib_s=5146.757 harness_spawned_tasks=1 bridge_buffer_bytes=0
+test tunnel::tests::tunnel_transport_ab_qualification ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 0.23s
+

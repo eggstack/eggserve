@@ -80,7 +80,7 @@ use std::sync::Arc;
 
 use hyper_util::rt::TokioIo;
 
-use crate::config::RuntimeConfig;
+use crate::config::{H1ConnectionPolicy, RuntimeConfig};
 use crate::runtime::RuntimeState;
 use crate::service::Service;
 
@@ -202,11 +202,71 @@ where
         );
         return ConnectionOutcome::Internal;
     }
+    let policy = match config.h1_connection_policy() {
+        Ok(policy) => Arc::new(policy),
+        Err(_) => return ConnectionOutcome::Internal,
+    };
+    serve_http1_connection_with_effective_policy(
+        io,
+        service,
+        policy,
+        context,
+        runtime_state,
+        shutdown,
+        conn_id,
+    )
+    .await
+}
+
+/// Serve a caller-owned H1 stream with an already validated effective policy.
+///
+/// Construct the policy once through [`RuntimeConfig::h1_connection_policy`]
+/// and share it across connections to keep listener/TLS settings outside the
+/// connection driver.
+pub async fn serve_http1_connection_with_policy<I, S>(
+    io: I,
+    service: S,
+    policy: Arc<H1ConnectionPolicy>,
+    context: ConnectionContext,
+    runtime_state: Arc<RuntimeState>,
+    shutdown: &ConnectionShutdown,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
+    let conn_id = runtime_state.ops().next_connection_id();
+    serve_http1_connection_with_effective_policy(
+        io,
+        service,
+        policy,
+        context,
+        runtime_state,
+        shutdown,
+        conn_id,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn serve_http1_connection_with_effective_policy<I, S>(
+    io: I,
+    service: S,
+    config: Arc<H1ConnectionPolicy>,
+    context: ConnectionContext,
+    runtime_state: Arc<RuntimeState>,
+    shutdown: &ConnectionShutdown,
+    conn_id: u64,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
     let io = TokioIo::new(io);
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
-    let service_semaphore = runtime_state.service_semaphore().clone();
-    let tunnel_semaphore = runtime_state.tunnel_semaphore().clone();
+    let service_semaphore = runtime_state.service_semaphore().cloned();
+    let tunnel_semaphore = runtime_state.tunnel_semaphore().cloned();
     let ops = runtime_state.ops().clone();
     let activity = Arc::new(ConnectionActivity::new(ops.clone()));
     let requests = Arc::new(ConnectionRequests::new());
@@ -219,9 +279,13 @@ where
         activity.clone(),
         requests.clone(),
         config.stream_chunk_size,
-        config.handler_timeout,
-        config.body_read_timeout,
-        config.max_request_body_bytes,
+        (config.policy_ownership.handler_deadline == crate::config::PolicyOwner::EggServe)
+            .then_some(config.handler_timeout),
+        (config.policy_ownership.request_body_deadline == crate::config::PolicyOwner::EggServe)
+            .then_some(config.body_read_timeout),
+        (config.policy_ownership.global_request_body_ceiling
+            == crate::config::PolicyOwner::EggServe)
+            .then_some(config.max_request_body_bytes),
         context,
         conn_id,
         ops,

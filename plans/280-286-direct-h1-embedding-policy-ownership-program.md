@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED; BLOCKED on Plan 279 closure.**
+**SOURCE SEQUENCE UNBLOCKED; Plan 279 registry closure consolidated into Plan 286.**
 
 Do not modify the publication-pending 0.2.3 candidate or race the already
 registered Plans 278–279. This program begins only after Plan 279 has published
@@ -64,7 +64,7 @@ invalid H1 parser or raw Hyper transport.
 ## Program sequence
 
 ```text
-279  forward-proxy seam published/closed
+279  forward-proxy seam source-closed; registry proof with Plan 286
  |
 280  explicit external ownership for selected deadlines and semantic ceilings
  |\

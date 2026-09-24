@@ -282,6 +282,13 @@ runtime-owned and deterministic (`max_in_flight_requests` held across
   application-coroutine deadline. Full semantics are in
   [timeout-reference.md](timeout-reference.md).
 
+Direct H1 embedders can explicitly transfer ownership of selected handler,
+body, idle, write-progress, body-size, and semantic-target policies through
+`H1PolicyOwnership`. The default remains EggServe-owned. Parser limits,
+framing/authority checks, response normalization, connection-total timeout,
+and shutdown remain EggServe-owned; hosts must replace every transferred
+policy with their own bounded policy.
+
 ## Error taxonomy at the boundary (Plan 197 Track F, normative)
 
 - Client-facing errors stay sanitized: fixed `<status> <reason>` or empty
@@ -308,6 +315,12 @@ response-start. A downstream server whose application task outlives
 Saturation maps deterministically in the downstream service (for example a
 fixture 503) without changing core policy. Cancellation returns both
 classes of permit. Neither queue may be unbounded.
+
+An advanced direct H1 host may set `AdmissionOwnership::service_calls` or
+`::tunnels` to `External` to remove that EggServe admission decision. EggServe
+then does not acquire that gate or synthesize its saturation 503; the host
+must provide its own bound. File-stream and accepted TCP connection admission
+remain EggServe-owned.
 
 ## Bounded-channel requirement
 
@@ -367,3 +380,12 @@ Downstream gateways build on the canonical `Service` boundary instead
 The minimal native application-service demonstration is
 `crates/eggserve-core/examples/application_service.rs` (buffered echo,
 bounded streamed pipe, lifecycle long-poll, no static filesystem).
+# Runtime rejection presentation
+
+Direct H1 embedders may install a `RuntimeRejectionPresenter` to customize the
+bounded body and application headers for runtime-selected failures. The
+presenter receives only a typed category and status; it cannot select status,
+framing, privacy headers, or connection disposition. Presenter panics and
+invalid or oversized output fall back to EggServe's configured generic error
+representation. Hyper parser failures raised before request conversion are
+outside this hook.

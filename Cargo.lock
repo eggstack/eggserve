@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-core"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "eggnet-tls",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-h3"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "eggnet-tls",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-primitives"
-version = "0.2.3"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "futures-util",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-server"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "axum",
  "bytes",
@@ -333,14 +333,17 @@ dependencies = [
  "httpdate",
  "hyper",
  "hyper-util",
+ "rcgen",
+ "rustls",
  "tokio",
+ "tokio-rustls",
  "tower-layer",
  "tower-service",
 ]
 
 [[package]]
 name = "eggserve-static"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "eggserve-primitives",
  "eggserve-server",

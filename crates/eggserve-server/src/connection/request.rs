@@ -49,6 +49,17 @@ pub fn select_body_policy(
     }
 }
 
+/// Select a service body policy with an optional EggServe global ceiling.
+pub(crate) fn select_body_policy_with_ceiling(
+    service_policy: RequestBodyPolicy,
+    max_body_bytes: Option<u64>,
+) -> RequestBodyPolicy {
+    match max_body_bytes {
+        Some(limit) => select_body_policy(service_policy, limit),
+        None => service_policy,
+    }
+}
+
 /// Validate body framing for ALL methods.
 ///
 /// Rejects requests with duplicate Content-Length fields and TE+CL
@@ -259,7 +270,8 @@ fn hyper_to_header_block(
 /// logged; only lengths are recorded as fields.
 pub(crate) fn convert_request_head(
     req: &Request<Incoming>,
-    max_target_bytes: usize,
+    max_target_bytes: Option<usize>,
+    target_mode: crate::config::Http1RequestTargetMode,
     max_header_bytes: usize,
     expected_scheme: eggserve_primitives::connection_info::Scheme,
     conn_id: u64,
@@ -296,13 +308,19 @@ pub(crate) fn convert_request_head(
         }
     };
 
-    let raw_target = req
-        .uri()
-        .path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
+    let absolute_form = req.uri().scheme_str().is_some();
+    let raw_target = if absolute_form {
+        req.uri().to_string()
+    } else {
+        req.uri()
+            .path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or("/")
+            .to_owned()
+    };
 
-    if raw_target.len() > max_target_bytes {
+    if max_target_bytes.is_some_and(|limit| raw_target.len() > limit) {
+        let max_target_bytes = max_target_bytes.expect("checked above");
         ops.counters()
             .request_target_rejected
             .fetch_add(1, Ordering::Relaxed);
@@ -329,7 +347,8 @@ pub(crate) fn convert_request_head(
     // authority, not in `path_and_query` (which falls back to `/`). Bound it
     // with the same target ceiling before allocation/service dispatch.
     if let Some(authority) = req.uri().authority() {
-        if authority.as_str().len() > max_target_bytes {
+        if max_target_bytes.is_some_and(|limit| authority.as_str().len() > limit) {
+            let max_target_bytes = max_target_bytes.expect("checked above");
             ops.counters()
                 .request_target_rejected
                 .fetch_add(1, Ordering::Relaxed);
@@ -358,7 +377,7 @@ pub(crate) fn convert_request_head(
     // HTTP/1 absolute-form is intentionally not accepted. HTTP/2 carries
     // scheme and authority as pseudo-fields, which Hyper represents on the
     // URI; validate the scheme against the transport context instead.
-    if !is_h2 && req.uri().scheme_str().is_some() {
+    if !is_h2 && absolute_form && target_mode == crate::config::Http1RequestTargetMode::OriginOnly {
         return Err(ServiceError::rejected(
             400,
             "absolute-form request target not allowed",
@@ -392,7 +411,7 @@ pub(crate) fn convert_request_head(
     // follows the branch below.
     let connect_authority_form =
         !is_h2 && req.uri().authority().is_some() && method.as_str() == "CONNECT";
-    if !is_h2 && req.uri().authority().is_some() && !connect_authority_form {
+    if !is_h2 && req.uri().authority().is_some() && !connect_authority_form && !absolute_form {
         return Err(ServiceError::rejected(
             405,
             format!("method not allowed: {}", method.as_str()),
@@ -405,8 +424,26 @@ pub(crate) fn convert_request_head(
         // is validated below from the URI authority (+ Host consistency).
         RequestTarget::parse("/")
             .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {e}")))?
+    } else if absolute_form && !is_h2 {
+        let scheme = req
+            .uri()
+            .scheme_str()
+            .ok_or_else(|| ServiceError::rejected(400, "invalid absolute request target"))?;
+        let authority = req
+            .uri()
+            .authority()
+            .ok_or_else(|| ServiceError::rejected(400, "invalid absolute request target"))?;
+        let canonical_authority = Authority::parse(authority.as_str())
+            .map_err(|_| ServiceError::rejected(400, "invalid absolute request target"))?;
+        let pq = req
+            .uri()
+            .path_and_query()
+            .map(|p| p.as_str())
+            .unwrap_or("/");
+        RequestTarget::from_absolute_components(scheme, canonical_authority, pq)
+            .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {e}")))?
     } else {
-        RequestTarget::parse(raw_target)
+        RequestTarget::parse(&raw_target)
             .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {e}")))?
     };
 

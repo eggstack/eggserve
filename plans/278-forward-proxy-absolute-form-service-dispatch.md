@@ -2,12 +2,11 @@
 
 ## Status
 
-**BLOCKED on Plan 277 publication closure.**
+**IMPLEMENTED; Plan 277 publication is consolidated into the later release.**
 
-Do not modify the qualified 0.2.3 release candidate while Plan 277 is still
-publication-pending. Plan 278 may begin only after the exact Plan-277
-`eggserve-server 0.2.3` / `eggserve-core 0.2.3` publication and registry-only
-closure evidence are complete.
+Plan 277's 0.2.3 publication remains pending and is intentionally carried
+forward into the next release, per maintainer direction. This implementation
+is based on the current source candidate; no registry artifact is claimed.
 
 ## Purpose
 
@@ -376,7 +375,9 @@ marked implemented/closed locally.
 
 ## Acceptance criteria
 
-- [ ] Plan 277 is fully published/closed before production source changes.
+- [x] Maintainer direction defers Plan 277 publication and its registry
+      blockers into the combined Plan 286 release; source work proceeds against
+      the qualified workspace candidate.
 - [ ] origin-form remains the default direct H1 policy.
 - [ ] existing default absolute-form rejection remains covered.
 - [ ] direct H1 can explicitly opt into absolute-form dispatch.

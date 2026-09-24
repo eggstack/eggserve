@@ -1,6 +1,6 @@
 [package]
 name = "eggserve-server"
-version.workspace = true
+version = "0.3.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -24,7 +24,7 @@ http-interop = ["dep:http", "eggserve-primitives/http-interop"]
 tower = ["http-interop", "dep:tower-service", "dep:tower-layer"]
 
 [dependencies]
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.1" }
 bytes = "1"
 futures-util = "0.3"
 http-body = "1"
@@ -40,3 +40,6 @@ tokio = { version = "1", features = ["macros", "net", "time", "io-util", "fs", "
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }
 axum = { version = "0.8", default-features = false }
+rustls = { version = "0.23.45", default-features = false, features = ["std", "ring"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+rcgen = "0.13"

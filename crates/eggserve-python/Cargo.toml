@@ -34,11 +34,11 @@ strip = "symbols"
 # ServeConfig/static orchestration, static listing budgets) and the
 # extension-backed CLI (`eggserve-bin::run_cli`, confirmed used) until
 # Plan 225 closes the facade.
-eggserve-core = { path = "../eggserve-core", version = "0.2.0", features = ["tls", "python-bindings-internal"] }
+eggserve-core = { path = "../eggserve-core", version = "0.3.0", features = ["tls", "python-bindings-internal"] }
 eggserve-bin = { path = "../eggserve-bin", version = "0.2.0", features = ["tls"] }
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }
-eggserve-server = { path = "../eggserve-server", version = "0.2.0" }
-eggserve-static = { path = "../eggserve-static", version = "0.2.0", features = ["python-bindings-internal"] }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.1" }
+eggserve-server = { path = "../eggserve-server", version = "0.3.0" }
+eggserve-static = { path = "../eggserve-static", version = "0.3.0", features = ["python-bindings-internal"] }
 eggnet-tls = { path = "../eggnet-tls", version = "0.2.0" }
 pyo3 = { version = "0.29.2", features = ["extension-module", "abi3-py311", "generate-import-lib"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }

@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED; BLOCKED on Plan 282 implementation.**
+**IMPLEMENTED; local presenter and integration qualification passed. Hosted CI closure remains under Plan 285.**
 
 Plan 279 must already be closed.
 

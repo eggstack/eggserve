@@ -12,6 +12,7 @@
 //! module never duplicates constant values.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use eggserve_primitives::proxy::{IpPrefix, TrustedProxyConfig};
@@ -20,13 +21,70 @@ use crate::errors::ServerError;
 use crate::response_policy::{DatePolicy, ResponsePolicy};
 use crate::runtime_limits as rl;
 
-/// HTTP/1-only parser and framing settings projected from [`RuntimeConfig`].
-///
-/// No second defaults table: values project from the shared authority.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Http1Config {
-    pub(crate) max_buf_size: usize,
-    pub(crate) max_headers: usize,
+/// Allowed HTTP/1 request-target forms. Defaults preserve origin-form-only dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Http1RequestTargetMode {
+    #[default]
+    OriginOnly,
+    OriginOrAbsolute,
+}
+
+/// Owner of one configurable H1 runtime policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PolicyOwner {
+    #[default]
+    EggServe,
+    External,
+}
+
+/// Explicit ownership for application-facing H1 deadlines and semantic ceilings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct H1PolicyOwnership {
+    pub handler_deadline: PolicyOwner,
+    pub request_body_deadline: PolicyOwner,
+    pub keep_alive_idle_deadline: PolicyOwner,
+    pub response_write_progress_deadline: PolicyOwner,
+    pub global_request_body_ceiling: PolicyOwner,
+    pub request_target_ceiling: PolicyOwner,
+}
+
+impl H1PolicyOwnership {
+    /// Explicit all-EggServe ownership profile.
+    pub const fn eggserve_owned() -> Self {
+        Self {
+            handler_deadline: PolicyOwner::EggServe,
+            request_body_deadline: PolicyOwner::EggServe,
+            keep_alive_idle_deadline: PolicyOwner::EggServe,
+            response_write_progress_deadline: PolicyOwner::EggServe,
+            global_request_body_ceiling: PolicyOwner::EggServe,
+            request_target_ceiling: PolicyOwner::EggServe,
+        }
+    }
+}
+
+/// Owner of bounded service and tunnel admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AdmissionOwner {
+    #[default]
+    EggServe,
+    External,
+}
+
+/// Explicit owner for request-service and active-tunnel admission gates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AdmissionOwnership {
+    pub service_calls: AdmissionOwner,
+    pub tunnels: AdmissionOwner,
+}
+
+impl AdmissionOwnership {
+    /// Explicit all-EggServe admission profile.
+    pub const fn eggserve_owned() -> Self {
+        Self {
+            service_calls: AdmissionOwner::EggServe,
+            tunnels: AdmissionOwner::EggServe,
+        }
+    }
 }
 
 /// Transport-level runtime configuration (H1-generic subset).
@@ -38,6 +96,12 @@ pub(crate) struct Http1Config {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct RuntimeConfig {
+    /// Accepted HTTP/1 target forms. CONNECT remains handled separately.
+    pub http1_request_target_mode: Http1RequestTargetMode,
+    /// Ownership of optional H1 deadlines and semantic ceilings.
+    pub policy_ownership: H1PolicyOwnership,
+    /// Ownership of service-call and tunnel admission.
+    pub admission_ownership: AdmissionOwnership,
     /// Address to bind the listener to.
     pub bind: SocketAddr,
     /// Maximum concurrent connections. Default: 64.
@@ -69,6 +133,8 @@ pub struct RuntimeConfig {
     pub graceful_shutdown_timeout: Duration,
     /// Final-boundary response privacy policy.
     pub response_policy: ResponsePolicy,
+    /// Optional body/application-header presenter for runtime-generated rejections.
+    pub runtime_rejection_presenter: Option<Arc<dyn crate::rejection::RuntimeRejectionPresenter>>,
     /// Maximum allowed request body size in bytes. Hard ceiling no service
     /// can exceed. Default: 0 (bodies rejected).
     pub max_request_body_bytes: u64,
@@ -103,9 +169,41 @@ pub struct RuntimeConfig {
     pub trusted_proxy: TrustedProxyConfig,
 }
 
+/// Validated settings consumed by one direct HTTP/1 connection.
+///
+/// Listener, connection-pool, and TLS-handshake settings are intentionally
+/// absent. Construct through [`RuntimeConfig::h1_connection_policy`].
+#[derive(Debug, Clone)]
+pub struct H1ConnectionPolicy {
+    pub(crate) header_read_timeout: Duration,
+    pub(crate) connection_total_timeout: Duration,
+    pub(crate) handler_timeout: Duration,
+    pub(crate) body_read_timeout: Duration,
+    pub(crate) graceful_shutdown_timeout: Duration,
+    pub(crate) response_policy: ResponsePolicy,
+    pub(crate) max_request_body_bytes: u64,
+    pub(crate) max_buf_size: usize,
+    pub(crate) max_headers: usize,
+    pub(crate) max_header_bytes: usize,
+    pub(crate) max_request_target_bytes: usize,
+    pub(crate) http1_request_target_mode: Http1RequestTargetMode,
+    pub(crate) policy_ownership: H1PolicyOwnership,
+    pub(crate) admission_ownership: AdmissionOwnership,
+    pub(crate) keep_alive_idle_timeout: Duration,
+    pub(crate) max_requests_per_connection: Option<u64>,
+    pub(crate) response_write_timeout: Duration,
+    pub(crate) trusted_proxy: TrustedProxyConfig,
+    pub(crate) stream_chunk_size: usize,
+    pub(crate) runtime_rejection_presenter:
+        Option<Arc<dyn crate::rejection::RuntimeRejectionPresenter>>,
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
+            http1_request_target_mode: Http1RequestTargetMode::OriginOnly,
+            policy_ownership: H1PolicyOwnership::default(),
+            admission_ownership: AdmissionOwnership::default(),
             bind: "127.0.0.1:8000".parse().unwrap(),
             max_connections: rl::DEFAULT_MAX_CONNECTIONS,
             max_file_streams: rl::DEFAULT_MAX_FILE_STREAMS,
@@ -117,6 +215,7 @@ impl Default for RuntimeConfig {
             body_read_timeout: rl::DEFAULT_BODY_READ_TIMEOUT,
             graceful_shutdown_timeout: rl::DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             response_policy: ResponsePolicy::default(),
+            runtime_rejection_presenter: None,
             max_request_body_bytes: rl::DEFAULT_MAX_REQUEST_BODY_BYTES,
             max_buf_size: rl::DEFAULT_MAX_BUF_SIZE,
             max_headers: rl::DEFAULT_MAX_HEADERS,
@@ -133,14 +232,32 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// Project the H1 parser settings from the shared authority values.
-    pub(crate) fn http1_config(&self) -> Http1Config {
-        Http1Config {
+    /// Validate and project this operator configuration into the narrow direct-H1 policy.
+    pub fn h1_connection_policy(&self) -> Result<H1ConnectionPolicy, ServerError> {
+        self.validate()?;
+        Ok(H1ConnectionPolicy {
+            header_read_timeout: self.header_read_timeout,
+            connection_total_timeout: self.connection_total_timeout,
+            handler_timeout: self.handler_timeout,
+            body_read_timeout: self.body_read_timeout,
+            graceful_shutdown_timeout: self.graceful_shutdown_timeout,
+            response_policy: self.response_policy.clone(),
+            runtime_rejection_presenter: self.runtime_rejection_presenter.clone(),
+            max_request_body_bytes: self.max_request_body_bytes,
             max_buf_size: self.max_buf_size,
             max_headers: self.max_headers,
-        }
+            max_header_bytes: self.max_header_bytes,
+            max_request_target_bytes: self.max_request_target_bytes,
+            http1_request_target_mode: self.http1_request_target_mode,
+            policy_ownership: self.policy_ownership,
+            admission_ownership: self.admission_ownership,
+            keep_alive_idle_timeout: self.keep_alive_idle_timeout,
+            max_requests_per_connection: self.max_requests_per_connection,
+            response_write_timeout: self.response_write_timeout,
+            trusted_proxy: self.trusted_proxy.clone(),
+            stream_chunk_size: self.stream_chunk_size,
+        })
     }
-
     /// Create a new builder with default values.
     pub fn builder() -> RuntimeConfigBuilder {
         RuntimeConfigBuilder::default()
@@ -164,6 +281,8 @@ impl RuntimeConfig {
         let shared = rl::SharedRuntimeValues {
             max_connections: self.max_connections,
             max_file_streams: self.max_file_streams,
+            max_in_flight_requests: self.max_in_flight_requests,
+            max_active_tunnels: self.max_active_tunnels,
             max_request_body_bytes: self.max_request_body_bytes,
             header_read_timeout: self.header_read_timeout,
             tls_handshake_timeout: self.tls_handshake_timeout,
@@ -176,11 +295,9 @@ impl RuntimeConfig {
             max_headers: self.max_headers,
             max_header_bytes: self.max_header_bytes,
             max_request_target_bytes: self.max_request_target_bytes,
-            max_in_flight_requests: self.max_in_flight_requests,
             keep_alive_idle_timeout: self.keep_alive_idle_timeout,
             max_requests_per_connection: self.max_requests_per_connection,
             response_write_timeout: self.response_write_timeout,
-            max_active_tunnels: self.max_active_tunnels,
         };
         let violations = shared.validate();
         if !violations.is_empty() {
@@ -205,6 +322,9 @@ impl RuntimeConfig {
 #[derive(Debug, Default)]
 #[must_use]
 pub struct RuntimeConfigBuilder {
+    http1_request_target_mode: Option<Http1RequestTargetMode>,
+    policy_ownership: Option<H1PolicyOwnership>,
+    admission_ownership: Option<AdmissionOwnership>,
     bind: Option<SocketAddr>,
     max_connections: Option<usize>,
     max_file_streams: Option<usize>,
@@ -217,6 +337,7 @@ pub struct RuntimeConfigBuilder {
     graceful_shutdown_timeout: Option<Duration>,
     server_header: Option<String>,
     response_policy: Option<ResponsePolicy>,
+    runtime_rejection_presenter: Option<Arc<dyn crate::rejection::RuntimeRejectionPresenter>>,
     date_policy: Option<DatePolicy>,
     stripped_response_headers: Option<Vec<String>>,
     error_policy: Option<eggserve_primitives::policy::ErrorRepresentationPolicy>,
@@ -234,6 +355,23 @@ pub struct RuntimeConfigBuilder {
 }
 
 impl RuntimeConfigBuilder {
+    /// Select the HTTP/1 target forms delivered to the service.
+    pub fn http1_request_target_mode(mut self, mode: Http1RequestTargetMode) -> Self {
+        self.http1_request_target_mode = Some(mode);
+        self
+    }
+
+    /// Select explicit ownership for H1 deadlines and semantic ceilings.
+    pub fn policy_ownership(mut self, ownership: H1PolicyOwnership) -> Self {
+        self.policy_ownership = Some(ownership);
+        self
+    }
+
+    /// Select explicit ownership for H1 service-call and tunnel admission.
+    pub fn admission_ownership(mut self, ownership: AdmissionOwnership) -> Self {
+        self.admission_ownership = Some(ownership);
+        self
+    }
     /// Set the bind address.
     pub fn bind(mut self, addr: SocketAddr) -> Self {
         self.bind = Some(addr);
@@ -314,6 +452,15 @@ impl RuntimeConfigBuilder {
     /// Set the complete final-boundary response privacy policy.
     pub fn response_policy(mut self, policy: ResponsePolicy) -> Self {
         self.response_policy = Some(policy);
+        self
+    }
+
+    /// Install a synchronous, bounded presenter for runtime-generated rejections.
+    pub fn runtime_rejection_presenter(
+        mut self,
+        presenter: Arc<dyn crate::rejection::RuntimeRejectionPresenter>,
+    ) -> Self {
+        self.runtime_rejection_presenter = Some(presenter);
         self
     }
 
@@ -531,6 +678,9 @@ impl RuntimeConfigBuilder {
             .validate()
             .map_err(|e| ServerError::Config(format!("invalid trusted_proxy: {e}")))?;
         Ok(RuntimeConfig {
+            http1_request_target_mode: self.http1_request_target_mode.unwrap_or_default(),
+            policy_ownership: self.policy_ownership.unwrap_or_default(),
+            admission_ownership: self.admission_ownership.unwrap_or_default(),
             bind: self
                 .bind
                 .unwrap_or_else(|| "127.0.0.1:8000".parse().unwrap()),
@@ -544,6 +694,7 @@ impl RuntimeConfigBuilder {
             body_read_timeout: shared.body_read_timeout,
             graceful_shutdown_timeout: shared.graceful_shutdown_timeout,
             response_policy,
+            runtime_rejection_presenter: self.runtime_rejection_presenter,
             max_request_body_bytes: shared.max_request_body_bytes,
             max_buf_size: shared.max_buf_size,
             max_headers: shared.max_headers,

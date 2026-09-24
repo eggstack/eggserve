@@ -139,6 +139,13 @@ raw socket, Hyper, H2/H3, rustls-session, or executor handle is exposed.
 populate provenance-tagged effective fields only under an explicit Plan 202
 trusted-proxy policy (raw peer/local endpoints are always preserved).
 
+Direct H1 keeps origin-form request targets by default. A caller may opt into
+`Http1RequestTargetMode::OriginOrAbsolute` for generic proxy-shaped service
+dispatch; the canonical target preserves its semantic URI scheme/authority
+and exposes path/query separately. This does not add outbound forwarding,
+does not change CONNECT tunnel handling, and does not widen static path
+resolution (`RequestTarget::parse` and `ConfinedPath` remain origin-only).
+
 The fixed-cost campaign (Plans 234–240) preserves this boundary while keeping
 common request work compact: `RequestTarget` stores indices into its validated
 raw target, wire-trailer state is materialized only for consumers that need it,
@@ -546,6 +553,23 @@ The runnable caller-owned-stream demonstration is
 it drives one request through a `tokio::io::duplex` pair with a non-socket
 `ConnectionContext` and one shared `RuntimeState`, then exits without
 binding a socket.
+
+Advanced direct H1 hosts may project `RuntimeConfig` once into
+`H1ConnectionPolicy` and pass that effective policy to the caller-owned
+driver. `PolicyOwner` makes six selected application deadlines/semantic
+ceilings independently EggServe-owned or externally owned; parser, framing,
+header bounds, and optional hard total connection lifetime remain runtime
+authority. `AdmissionOwnership` independently represents service and tunnel
+gates; externally owned gates are absent from `RuntimeState` rather than
+approximated with a large semaphore. Both ownership objects default to
+EggServe, preserving the standalone server's bounded behavior.
+
+`RuntimeRejectionPresenter` is a synchronous direct-H1 response-presentation
+hook. Its input contains only a typed category and runtime-selected status.
+Its output is bounded and cannot choose status, framing, privacy headers, or
+connection disposition. Presenter panics and invalid/oversized output fall
+back to the configured generic representation. Hyper parser failures raised
+before canonical request conversion remain outside the hook.
 
 **Invariants retained:** Hyper HTTP/1.1 parsing, and the feature-gated Hyper
 HTTP/2 driver with explicit `Http2Config`, framing validation

@@ -35,14 +35,11 @@ case "$MODE" in
   *) echo "Invalid mode: $MODE (expected: core, bin, or all)" >&2; exit 1 ;;
 esac
 
-PACKAGE_VERSION="$(cargo metadata --format-version 1 --no-deps | "$PYTHON" -c '
+PACKAGE_VERSIONS="$(cargo metadata --format-version 1 --no-deps | "$PYTHON" -c '
 import json, sys
 packages = json.load(sys.stdin)["packages"]
 publish = {"eggnet-tls", "eggserve-primitives", "eggserve-server", "eggserve-static", "eggserve-h3", "eggserve-core", "eggserve-bin"}
-versions = {p["version"] for p in packages if p["name"] in publish}
-if len(versions) != 1:
-    raise SystemExit(f"workspace publish crates must share one version, got {sorted(versions)}")
-print(versions.pop())
+print(json.dumps({p["name"]: p["version"] for p in packages if p["name"] in publish}))
 ')"
 if grep -Eq '0\.[0-9]+\.[0-9]+' "$0"; then
   echo "verify-cargo-packages.sh must derive release versions from Cargo metadata" >&2
@@ -54,6 +51,9 @@ fi
 # check cannot validate the graph until the new crates have been published.
 # Stage the complete ordered graph in a temporary local registry instead.
 if [ -f crates/eggserve-primitives/Cargo.toml ]; then
+  package_version() {
+    PACKAGE_VERSIONS="$PACKAGE_VERSIONS" PACKAGE="$1" "$PYTHON" -c 'import json, os; print(json.loads(os.environ["PACKAGE_VERSIONS"])[os.environ["PACKAGE"]])'
+  }
   layered_tmp_dir="$(mktemp -d)"
   layered_registry="$layered_tmp_dir/registry"
   layered_index="$layered_tmp_dir/index"
@@ -70,25 +70,28 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
 
   write_layered_root() {
     local package="$1"
+    local package_version
+    package_version="$(package_version "$package")"
     rm -rf "$layered_stage"
     mkdir -p "$layered_stage/crates/$package" "$layered_stage/.cargo"
     cp Cargo.toml README.md LICENSE "$layered_stage/"
     cp -R "crates/$package/." "$layered_stage/crates/$package/"
     cp -R architecture docs examples "$layered_stage/"
-    printf '[workspace]\nmembers = ["crates/%s"]\nresolver = "2"\n\n[workspace.package]\nversion = "%s"\nedition = "2021"\nlicense = "MIT"\nrepository = "https://github.com/eggstack/eggserve"\nhomepage = "https://github.com/eggstack/eggserve"\nkeywords = ["http", "static-file-server", "security", "hardened", "http-server"]\ncategories = ["web-programming::http-server"]\nrust-version = "1.89"\n\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[profile.dist]\ninherits = "release"\nopt-level = "z"\nlto = "fat"\ncodegen-units = 1\nstrip = "symbols"\n' "$package" "$PACKAGE_VERSION" > "$layered_stage/Cargo.toml"
+    printf '[workspace]\nmembers = ["crates/%s"]\nresolver = "2"\n\n[workspace.package]\nversion = "%s"\nedition = "2021"\nlicense = "MIT"\nrepository = "https://github.com/eggstack/eggserve"\nhomepage = "https://github.com/eggstack/eggserve"\nkeywords = ["http", "static-file-server", "security", "hardened", "http-server"]\ncategories = ["web-programming::http-server"]\nrust-version = "1.89"\n\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[profile.dist]\ninherits = "release"\nopt-level = "z"\nlto = "fat"\ncodegen-units = 1\nstrip = "symbols"\n' "$package" "$package_version" > "$layered_stage/Cargo.toml"
     printf '[registries.local]\nindex = "file://%s"\n' "$layered_index" > "$layered_stage/.cargo/config.toml"
   }
 
   rewrite_layered_dependencies() {
     local package="$1"
     local manifest="$layered_stage/crates/$package/Cargo.toml"
-    PACKAGE="$package" VERSION="$PACKAGE_VERSION" "$PYTHON" - "$manifest" <<'PY'
-import os, re, sys
-package, version = os.environ["PACKAGE"], os.environ["VERSION"]
+    PACKAGE_VERSIONS="$PACKAGE_VERSIONS" "$PYTHON" - "$manifest" <<'PY'
+import json, os, re, sys
+versions = json.loads(os.environ["PACKAGE_VERSIONS"])
 text = open(sys.argv[1], encoding="utf-8").read()
 for dependency in ("eggnet-tls", "eggserve-primitives", "eggserve-server", "eggserve-static", "eggserve-h3", "eggserve-core"):
     pattern = rf'({dependency} = \{{ )path = "\.\./{dependency}", version = "[^"]+"'
-    text = re.sub(pattern, rf'\1version = "{version}", registry = "local"', text)
+    if dependency in versions:
+        text = re.sub(pattern, rf'\1version = "{versions[dependency]}", registry = "local"', text)
 open(sys.argv[1], "w", encoding="utf-8").write(text)
 PY
   }
@@ -146,7 +149,8 @@ print(json.dumps(entry, separators=(",", ":")))
   package_layered() {
     local package="$1"
     shift
-    local listing crate_file
+    local listing crate_file PACKAGE_VERSION
+    PACKAGE_VERSION="$(package_version "$package")"
     write_layered_root "$package"
     rewrite_layered_dependencies "$package"
     (cd "$layered_stage" && cargo generate-lockfile)
@@ -198,17 +202,27 @@ print(json.dumps(entry, separators=(",", ":")))
   if [ "$MODE" = "core" ] || [ "$MODE" = "all" ]; then
     verify_tower_registry_consumers() {
       local profile fixture manifest tree forbidden packages nodes lock_count binary_bytes
+      local server_version core_version
+      server_version="$(package_version eggserve-server)"
+      core_version="$(package_version eggserve-core)"
       for profile in direct core; do
         fixture="$layered_tmp_dir/consumer-$profile"
         cp -R "$REPO_ROOT/release/fixtures/plan-276-$profile-axum-consumer" "$fixture"
         manifest="$fixture/Cargo.toml"
-        if [ "$profile" = "direct" ]; then
-          sed -i.bak "s#path = \"../../../crates/eggserve-server\", version = \"${PACKAGE_VERSION}\", #version = \"=${PACKAGE_VERSION}\", registry = \"local\", #" "$manifest"
-        else
-          sed -i.bak "s#path = \"../../../crates/eggserve-core\", version = \"${PACKAGE_VERSION}\", #version = \"=${PACKAGE_VERSION}\", registry = \"local\", #" "$manifest"
-          sed -i.bak "s#path = \"../../../crates/eggserve-server\", version = \"${PACKAGE_VERSION}\", #version = \"=${PACKAGE_VERSION}\", registry = \"local\", #" "$manifest"
-        fi
-        rm -f "$manifest.bak"
+        PROFILE="$profile" SERVER_VERSION="$server_version" CORE_VERSION="$core_version" "$PYTHON" - "$manifest" <<'PY'
+import os, re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+def registry_dep(name, version):
+    global text
+    pattern = rf'({name} = \{{ )path = "../../../crates/{name}", version = "[^"]+", '
+    text, count = re.subn(pattern, rf'\1version = "={version}", registry = "local", ', text)
+    if count != 1:
+        raise SystemExit(f"could not rewrite {name} dependency for local registry")
+registry_dep("eggserve-server", os.environ["SERVER_VERSION"])
+if os.environ["PROFILE"] == "core":
+    registry_dep("eggserve-core", os.environ["CORE_VERSION"])
+open(sys.argv[1], "w", encoding="utf-8").write(text)
+PY
         if grep -Fq 'path = "../../../crates/' "$manifest"; then
           echo "$profile consumer still has a workspace path dependency" >&2
           exit 1

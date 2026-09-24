@@ -2,12 +2,13 @@
 
 ## Status
 
-**PLANNED; BLOCKED on Plan 279 closure.**
+**IMPLEMENTED; local direct-server qualification passed. Registry-artifact qualification is consolidated into Plan 286.**
 
 Planning baseline: `4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922`.
 
-Plan 279 must be published/closed before production source changes because it
-owns the immediately preceding direct-server request-target release.
+Original sequencing gate: Plan 279 publication preceded this source plan.
+Maintainer direction now consolidates Plan 279 and Plan 277 registry work into
+Plan 286; Plan 279 source behavior was qualified before this implementation.
 
 ## Purpose
 

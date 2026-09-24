@@ -7,11 +7,109 @@
 //! privacy boundary (denylist, `Server` subordination, sole `Date` authority,
 //! `Last-Modified <= Date`) at the one Hyper boundary.
 
-use crate::config::RuntimeConfig;
+use crate::config::{H1ConnectionPolicy, RuntimeConfig};
 use crate::response::BoxBodyInner;
 use crate::service::ServiceError;
 
 use super::lifecycle::LifecycleDisposition;
+
+/// Present an EggServe-selected rejection while retaining status, framing,
+/// and response privacy authority. Invalid output or presenter panics use the
+/// existing fixed runtime representation.
+pub(crate) fn present_runtime_rejection(
+    status: hyper::StatusCode,
+    kind: crate::rejection::RuntimeRejectionKind,
+    is_head: bool,
+    policy: &H1ConnectionPolicy,
+) -> hyper::Response<BoxBodyInner> {
+    let fallback = || {
+        crate::response::runtime_error_with_policy(
+            status,
+            is_head,
+            policy.response_policy.error_policy,
+        )
+    };
+    let Some(presenter) = &policy.runtime_rejection_presenter else {
+        return fallback();
+    };
+    let status_value = eggserve_primitives::StatusCode::new(status.as_u16())
+        .unwrap_or(eggserve_primitives::StatusCode::INTERNAL_SERVER_ERROR);
+    let rejection = crate::rejection::RuntimeRejection::new(kind, status_value);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        presenter.present(&rejection)
+    }));
+    let Ok(Some(presentation)) = result else {
+        return fallback();
+    };
+    if presentation.body.len() > crate::rejection::MAX_RUNTIME_REJECTION_BODY_BYTES {
+        return fallback();
+    }
+    let mut headers = hyper::HeaderMap::new();
+    let mut bytes = 0usize;
+    for field in presentation.headers.iter().take(65) {
+        let name = field.name.as_str();
+        let lower = name.to_ascii_lowercase();
+        if matches!(
+            lower.as_str(),
+            "content-length"
+                | "transfer-encoding"
+                | "connection"
+                | "keep-alive"
+                | "upgrade"
+                | "trailer"
+                | "date"
+                | "server"
+        ) {
+            continue;
+        }
+        let (Ok(name), Ok(value)) = (
+            hyper::header::HeaderName::from_bytes(name.as_bytes()),
+            hyper::header::HeaderValue::from_bytes(field.value.as_bytes()),
+        ) else {
+            return fallback();
+        };
+        bytes = bytes
+            .saturating_add(name.as_str().len())
+            .saturating_add(value.as_bytes().len());
+        if bytes > 16 * 1024 || headers.len() >= 64 {
+            return fallback();
+        }
+        headers.append(name, value);
+    }
+    let body_allowed = !is_head
+        && eggserve_primitives::StatusCode::new(status.as_u16())
+            .is_ok_and(|s| s.permits_payload_body());
+    let representation_len = presentation.body.len();
+    let body = if body_allowed {
+        presentation.body
+    } else {
+        Vec::new()
+    };
+    let mut response = hyper::Response::builder()
+        .status(status)
+        .body(crate::response::full_body_bytes(body))
+        .unwrap_or_else(|_| fallback());
+    *response.headers_mut() = headers;
+    // Recompute framing from the selected status and owned bytes. Body-forbidden
+    // and HEAD responses intentionally carry no payload.
+    response.headers_mut().remove(hyper::header::CONTENT_LENGTH);
+    if status != hyper::StatusCode::NO_CONTENT
+        && status != hyper::StatusCode::RESET_CONTENT
+        && (status != hyper::StatusCode::NOT_MODIFIED || representation_len > 0)
+    {
+        let length = if is_head || body_allowed {
+            representation_len
+        } else {
+            0
+        };
+        if let Ok(value) = hyper::header::HeaderValue::from_str(&length.to_string()) {
+            response
+                .headers_mut()
+                .insert(hyper::header::CONTENT_LENGTH, value);
+        }
+    }
+    response
+}
 
 /// Normalize a service response then convert to Hyper.
 ///
@@ -167,7 +265,7 @@ pub fn finalize_canonical_response(
 pub(crate) fn body_error_to_response(
     err: eggserve_primitives::request_body_error::RequestBodyError,
     _head: &eggserve_primitives::request_head::RequestHead,
-    error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
+    policy: &H1ConnectionPolicy,
 ) -> hyper::Response<BoxBodyInner> {
     let raw_status = err.to_status_code();
     // Cancelled/disconnected reads report the non-standard 499, which has
@@ -180,7 +278,14 @@ pub(crate) fn body_error_to_response(
     let status = hyper::StatusCode::from_u16(wire_status)
         .unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
     let is_head = _head.method().is_head();
-    crate::response::runtime_error_with_policy(status, is_head, error_policy)
+    let kind = if wire_status == 408 {
+        crate::rejection::RuntimeRejectionKind::RequestBodyTimeout
+    } else if wire_status == 413 {
+        crate::rejection::RuntimeRejectionKind::RequestBodyTooLarge
+    } else {
+        crate::rejection::RuntimeRejectionKind::RequestBodyRejected
+    };
+    present_runtime_rejection(status, kind, is_head, policy)
 }
 
 /// Return the protocol-neutral lifecycle consequence of a body failure.
@@ -204,12 +309,23 @@ pub(crate) fn body_error_disposition(
 pub(crate) fn service_error_to_response(
     err: &ServiceError,
     is_head: bool,
-    error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
+    policy: &H1ConnectionPolicy,
 ) -> hyper::Response<BoxBodyInner> {
     let code = err.status_code().as_u16();
     let status =
         hyper::StatusCode::from_u16(code).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
-    crate::response::runtime_error_with_policy(status, is_head, error_policy)
+    let kind = if code == 414 {
+        crate::rejection::RuntimeRejectionKind::RequestTargetTooLong
+    } else if code == 431 {
+        crate::rejection::RuntimeRejectionKind::RequestHeadersTooLarge
+    } else if err.is_timeout() {
+        crate::rejection::RuntimeRejectionKind::HandlerTimeout
+    } else if err.is_panic() {
+        crate::rejection::RuntimeRejectionKind::ServicePanic
+    } else {
+        crate::rejection::RuntimeRejectionKind::ServiceRejected
+    };
+    present_runtime_rejection(status, kind, is_head, policy)
 }
 
 /// HTTP/1 adapter for protocol-neutral lifecycle dispositions.
@@ -240,7 +356,7 @@ pub(crate) fn apply_http1_disposition(
 /// only fixed generic bodies here).
 pub(crate) fn finalize_runtime_response(
     mut response: hyper::Response<BoxBodyInner>,
-    config: &RuntimeConfig,
+    config: &H1ConnectionPolicy,
 ) -> hyper::Response<BoxBodyInner> {
     let policy = &config.response_policy;
     // 1. Denylist after service construction.
@@ -296,6 +412,76 @@ pub(crate) fn finalize_runtime_response(
 mod tests {
     use super::*;
 
+    #[derive(Debug)]
+    struct TestPresenter;
+    impl crate::rejection::RuntimeRejectionPresenter for TestPresenter {
+        fn present(
+            &self,
+            _: &crate::rejection::RuntimeRejection,
+        ) -> Option<crate::rejection::RuntimeErrorPresentation> {
+            let mut headers = eggserve_primitives::HeaderBlock::new();
+            headers.push_str("x-brand", "custom").unwrap();
+            headers.push_str("connection", "close").unwrap();
+            Some(crate::rejection::RuntimeErrorPresentation {
+                headers,
+                body: b"custom body".to_vec(),
+            })
+        }
+    }
+
+    #[test]
+    fn presenter_changes_only_bounded_presentation_and_runtime_framing() {
+        let config = RuntimeConfig::builder()
+            .runtime_rejection_presenter(std::sync::Arc::new(TestPresenter))
+            .build()
+            .unwrap();
+        let policy = config.h1_connection_policy().unwrap();
+        let response = present_runtime_rejection(
+            hyper::StatusCode::SERVICE_UNAVAILABLE,
+            crate::rejection::RuntimeRejectionKind::ServiceAdmissionSaturated,
+            false,
+            &policy,
+        );
+        assert_eq!(response.status(), hyper::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()["x-brand"], "custom");
+        assert!(response.headers().get(hyper::header::CONNECTION).is_none());
+        assert_eq!(response.headers()[hyper::header::CONTENT_LENGTH], "11");
+        let head = present_runtime_rejection(
+            hyper::StatusCode::REQUEST_TIMEOUT,
+            crate::rejection::RuntimeRejectionKind::HandlerTimeout,
+            true,
+            &policy,
+        );
+        assert_eq!(head.status(), hyper::StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(head.headers()[hyper::header::CONTENT_LENGTH], "11");
+    }
+
+    #[derive(Debug)]
+    struct PanickingPresenter;
+    impl crate::rejection::RuntimeRejectionPresenter for PanickingPresenter {
+        fn present(
+            &self,
+            _: &crate::rejection::RuntimeRejection,
+        ) -> Option<crate::rejection::RuntimeErrorPresentation> {
+            panic!("private")
+        }
+    }
+
+    #[test]
+    fn presenter_panic_uses_generic_fallback() {
+        let config = RuntimeConfig::builder()
+            .runtime_rejection_presenter(std::sync::Arc::new(PanickingPresenter))
+            .build()
+            .unwrap();
+        let response = present_runtime_rejection(
+            hyper::StatusCode::GATEWAY_TIMEOUT,
+            crate::rejection::RuntimeRejectionKind::HandlerTimeout,
+            false,
+            &config.h1_connection_policy().unwrap(),
+        );
+        assert_eq!(response.status(), hyper::StatusCode::GATEWAY_TIMEOUT);
+    }
+
     #[test]
     fn runtime_server_header_replaces_service_value() {
         let config = RuntimeConfig::builder()
@@ -307,7 +493,7 @@ mod tests {
             hyper::header::SERVER,
             hyper::header::HeaderValue::from_static("spoofed"),
         );
-        let response = finalize_runtime_response(response, &config);
+        let response = finalize_runtime_response(response, &config.h1_connection_policy().unwrap());
         assert_eq!(
             response.headers().get(hyper::header::SERVER).unwrap(),
             "eggserve-test"
@@ -332,13 +518,14 @@ mod tests {
                 eggserve_primitives::header_block::HeaderBlock::new(),
             )
         }
+        let policy = RuntimeConfig::default().h1_connection_policy().unwrap();
 
         // Transport failures (500) require a close disposition, but the
         // response itself remains free of HTTP/1-only headers.
         let transport = body_error_to_response(
             eggserve_primitives::request_body_error::RequestBodyError::Transport("io".into()),
             &head(),
-            eggserve_primitives::policy::ErrorRepresentationPolicy::Minimal,
+            &policy,
         );
         assert_eq!(transport.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
         assert!(transport.headers().get(hyper::header::CONNECTION).is_none());
@@ -351,7 +538,7 @@ mod tests {
         let consumed = body_error_to_response(
             eggserve_primitives::request_body_error::RequestBodyError::AlreadyConsumed,
             &head(),
-            eggserve_primitives::policy::ErrorRepresentationPolicy::Minimal,
+            &policy,
         );
         assert_eq!(consumed.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
         assert!(consumed.headers().get(hyper::header::CONNECTION).is_none());
@@ -360,7 +547,7 @@ mod tests {
         let disconnected = body_error_to_response(
             eggserve_primitives::request_body_error::RequestBodyError::Disconnected,
             &head(),
-            eggserve_primitives::policy::ErrorRepresentationPolicy::Minimal,
+            &policy,
         );
         assert!(disconnected
             .headers()

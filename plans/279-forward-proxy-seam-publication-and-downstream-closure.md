@@ -2,9 +2,14 @@
 
 ## Status
 
-**BLOCKED on Plan 278 implementation + hosted qualification.**
+**SOURCE QUALIFICATION COMPLETE; registry-only closure consolidated into Plan 286.**
 
-Plan 277 must already be fully published/closed before Plan 278 begins.
+Maintainer direction defers the pending Plan 277 publication and this seam's
+registry release into the combined next release. Plan 279 source behavior is
+qualified by the workspace direct-server tests. Plan 286 owns exact-artifact
+publication and registry-only closure. Plan 277 publication is not treated as
+a blocker to source work in this sequence, and no intermediate publication is
+performed.
 
 ## Purpose
 

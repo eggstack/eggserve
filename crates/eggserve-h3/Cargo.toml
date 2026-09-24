@@ -1,6 +1,6 @@
 [package]
 name = "eggserve-h3"
-version.workspace = true
+version = "0.3.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -28,8 +28,8 @@ quinn = { version = "0.11.11", default-features = false, features = ["runtime-to
 # Plan 220: the H3 adapter owns endpoint/connection/request/response/tunnel
 # mechanics over the canonical primitives/server layers. Downward-only:
 # primitives <- server <- h3; server never depends upward on H3.
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }
-eggserve-server = { path = "../eggserve-server", version = "0.2.0" }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.1" }
+eggserve-server = { path = "../eggserve-server", version = "0.3.0" }
 eggnet-tls = { path = "../eggnet-tls", version = "0.2.0", default-features = false }
 # Security floor (Plan 218, RUSTSEC-2026-0285): caret floor keeps Cargo from
 # resolving below the patched 0.23.45 line. QUIC TLS assembly is H3-owned
@@ -44,4 +44,3 @@ tokio = { version = "1", features = ["macros", "net", "time", "io-util", "sync",
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tempfile = "3"
 rcgen = "0.13"
-

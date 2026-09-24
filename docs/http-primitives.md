@@ -187,14 +187,14 @@ pub enum ReadOnlyMethod {
 
 ## Request target validation
 
-`RequestTarget::parse(target)` is the authoritative request-target classifier:
+`RequestTarget::parse(target)` is the authoritative origin-form target classifier:
 
 - Must start with `/`
 - Must not be empty
 - Must not contain whitespace
 - Rejects absolute-form (`http://...`), authority-form (`host:port`), and asterisk-form (`*`)
 
-Error: `RequestValidationError::InvalidRequestTarget` → HTTP 400 (via path parsing layer).
+Error: `RequestValidationError::InvalidRequestTarget` → HTTP 400 (via path parsing layer). Direct H1 embedders may explicitly opt into `Http1RequestTargetMode::OriginOrAbsolute`; the adapter constructs an absolute target from Hyper-parsed components. In that form `raw()` contains the semantic full URI, while `path()`, `query()`, and `path_and_query()` address only the URI path/query. `RequestTarget::parse` and `ConfinedPath` remain origin-form-only.
 
 `ConfinedPath::from_path_component()` then performs only path security
 validation (traversal, dotfiles, percent-encoding, and platform rules).

@@ -64,7 +64,7 @@ pub use request_head::RequestHead;
 pub use request_lifecycle::{
     BodyLifecycleState, RequestCancellationReason, RequestLifecycle, RequestShared,
 };
-pub use request_target::{RequestTarget, RequestTargetError};
+pub use request_target::{RequestTarget, RequestTargetError, RequestTargetForm};
 pub use response::{
     BodyPlan, ConditionalRequestOutcome, FileRange, HeaderMapPlan, RangeRequestOutcome,
     ResponseHeader, ResponseStatus, StaticResponsePlan,

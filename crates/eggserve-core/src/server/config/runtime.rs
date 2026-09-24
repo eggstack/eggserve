@@ -253,6 +253,9 @@ impl RuntimeConfig {
     /// connection implementation.
     pub(crate) fn direct_h1_config(&self) -> eggserve_server::RuntimeConfig {
         eggserve_server::RuntimeConfig {
+            http1_request_target_mode: eggserve_server::Http1RequestTargetMode::OriginOnly,
+            policy_ownership: eggserve_server::H1PolicyOwnership::default(),
+            admission_ownership: eggserve_server::AdmissionOwnership::default(),
             bind: self.bind,
             max_connections: self.max_connections,
             max_file_streams: self.max_file_streams,
@@ -264,6 +267,7 @@ impl RuntimeConfig {
             body_read_timeout: self.body_read_timeout,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             response_policy: self.response_policy.clone(),
+            runtime_rejection_presenter: None,
             max_request_body_bytes: self.max_request_body_bytes,
             max_buf_size: self.max_buf_size,
             max_headers: self.max_headers,
