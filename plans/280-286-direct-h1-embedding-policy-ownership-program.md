@@ -2,11 +2,11 @@
 
 ## Status
 
-**SOURCE SEQUENCE UNBLOCKED; Plan 279 registry closure consolidated into Plan 286.**
+**CLOSED — Plans 280–286 implemented, qualified, published, and proven with registry-only consumers.**
 
-Do not modify the publication-pending 0.2.3 candidate or race the already
-registered Plans 278–279. This program begins only after Plan 279 has published
-and closed the forward-proxy request-target seam.
+Per maintainer direction, Plan 277 publication and Plan 279 registry proof
+were consolidated into Plan 286. No standalone Plan 277 candidate was
+published. Evidence: `release/plan-286-embedding-contract-publication-closure.md`.
 
 Planning baseline: `main` at
 `4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922` (2026-09-24).

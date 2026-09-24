@@ -2,7 +2,7 @@
 
 ## Status
 
-**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry artifact qualification is Plan 286.**
+**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry-only artifact qualification passed under Plan 286.**
 
 Hosted CI: run 36067050590, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (success).
 
@@ -225,16 +225,16 @@ tests.
 
 ## Acceptance criteria
 
-- [ ] Plans 280–281 behavior is represented in typed effective policy/state.
-- [ ] existing direct APIs remain default-compatible.
-- [ ] canonical H1 driver no longer depends on unrelated bind/TLS/static
+- [x] Plans 280–281 behavior is represented in typed effective policy/state.
+- [x] existing direct APIs remain default-compatible.
+- [x] canonical H1 driver no longer depends on unrelated bind/TLS/static
       config.
-- [ ] mandatory parser limits remain impossible to disable accidentally.
-- [ ] defaults exist in one authority only.
-- [ ] policy-aware validation occurs before runtime task construction.
-- [ ] core/H2/H3/static behavior is unchanged.
-- [ ] structural tests/guards prevent config authority from reconverging.
-- [ ] full CI is green.
+- [x] mandatory parser limits remain impossible to disable accidentally.
+- [x] defaults exist in one authority only.
+- [x] policy-aware validation occurs before runtime task construction.
+- [x] core/H2/H3/static behavior is unchanged.
+- [x] structural tests/guards prevent config authority from reconverging.
+- [x] full CI is green.
 
 ## Non-goals
 

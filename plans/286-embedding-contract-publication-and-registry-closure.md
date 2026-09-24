@@ -2,11 +2,12 @@
 
 ## Status
 
-**SOURCE PACKAGE SET DERIVED; registry publication waits for Plan 285 hosted CI.**
+**CLOSED — published artifacts and all registry-only consumer checks passed.**
 
-Plan 279 is source-closed. Per maintainer direction, its registry-only closure
-and the pending Plan 277 candidate are consolidated here; they are not
-intermediate blockers to source qualification.
+Plan 277 publication and Plan 279 registry closure were folded into this
+release per maintainer direction. The exact package set, checksums, timestamps, consumer fixtures, graphs, and
+hosted evidence are recorded in
+`release/plan-286-embedding-contract-publication-closure.md`.
 
 ## Purpose
 
@@ -271,21 +272,21 @@ state separately from the proof-bearing source candidate.
 
 ## Acceptance criteria
 
-- [ ] Plan 285 qualification and hosted CI are closed.
-- [ ] release version is selected from live registry + measured compatibility.
-- [ ] minimal publish set is derived.
-- [ ] sibling dependency lower bounds cannot resolve incompatible older APIs.
-- [ ] package/supply-chain gates pass.
-- [ ] packages publish in dependency order.
-- [ ] timestamps/checksums are retained.
-- [ ] registry-only default consumer proves hardened defaults unchanged.
-- [ ] registry-only advanced TLS-H1 consumer proves external ownership.
-- [ ] registry-only Tower consumer proves direct framework composition.
-- [ ] direct dependency graph excludes core/static/PHF.
-- [ ] core compatibility is proven where relevant.
-- [ ] no path/git/patch override appears in final proof.
-- [ ] release closure record and roadmap are reconciled.
-- [ ] downstream unblock is not claimed before all exact-artifact checks pass.
+- [x] Plan 285 qualification and hosted CI are closed.
+- [x] release version is selected from live registry + measured compatibility.
+- [x] minimal publish set is derived.
+- [x] sibling dependency lower bounds cannot resolve incompatible older APIs.
+- [x] package/supply-chain gates pass.
+- [x] packages publish in dependency order.
+- [x] timestamps/checksums are retained.
+- [x] registry-only default consumer proves hardened defaults unchanged.
+- [x] registry-only advanced TLS-H1 consumer proves external ownership.
+- [x] registry-only Tower consumer proves direct framework composition.
+- [x] direct dependency graph excludes core/static/PHF.
+- [x] core compatibility is proven where relevant.
+- [x] no path/git/patch override appears in final proof.
+- [x] release closure record and roadmap are reconciled.
+- [x] downstream unblock is not claimed before all exact-artifact checks pass.
 
 ## Non-goals
 

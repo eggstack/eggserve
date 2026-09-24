@@ -287,20 +287,20 @@ Record:
 
 ## Acceptance criteria
 
-- [ ] Plans 280–283 implemented and locally qualified.
-- [ ] Plan 284 has a final KEEP/NO-GO decision.
-- [ ] real caller-owned TLS-H1 fixture passes.
-- [ ] hardened default behavior remains unchanged.
-- [ ] all selected external policy modes behave exactly as documented.
-- [ ] external admission removes duplicate EggServe admission without
+- [x] Plans 280–283 implemented and locally qualified.
+- [x] Plan 284 has a final KEEP/NO-GO decision.
+- [x] real caller-owned TLS-H1 fixture passes.
+- [x] hardened default behavior remains unchanged.
+- [x] all selected external policy modes behave exactly as documented.
+- [x] external admission removes duplicate EggServe admission without
       weakening shutdown/lifecycle.
-- [ ] custom rejection presentation cannot change status/framing/lifecycle.
-- [ ] direct native and Tower graphs exclude core/static/PHF.
-- [ ] caller-owned path contains no raw Hyper public API.
-- [ ] combined path has no material unexplained performance regression.
-- [ ] API compatibility is measured and release version class is recorded.
-- [ ] full local gates and hosted CI pass.
-- [ ] durable qualification evidence exists.
+- [x] custom rejection presentation cannot change status/framing/lifecycle.
+- [x] direct native and Tower graphs exclude core/static/PHF.
+- [x] caller-owned path contains no raw Hyper public API.
+- [x] combined path has no material unexplained performance regression.
+- [x] API compatibility is measured and release version class is recorded.
+- [x] full local gates and hosted CI pass.
+- [x] durable qualification evidence exists.
 
 ## Non-goals
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry artifact qualification is Plan 286.**
+**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry-only artifact qualification passed under Plan 286.**
 
 Hosted CI: run 36067050590, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (success).
 
@@ -202,17 +202,17 @@ accessor is impossible without lying, stop and record the API issue for Plan
 
 ## Acceptance criteria
 
-- [ ] Plan 279 is closed before production changes.
-- [ ] service admission has explicit EggServe/External ownership.
-- [ ] tunnel admission has explicit EggServe/External ownership.
-- [ ] default behavior and limits are unchanged.
-- [ ] no giant-semaphore sentinel represents external ownership.
-- [ ] file-stream admission remains bounded and internal.
-- [ ] high-level TCP connection admission remains unchanged.
-- [ ] no internal 503/counter is produced for externally-owned admission.
-- [ ] tunnel lifecycle/commitment/shutdown semantics remain unchanged.
-- [ ] Plan 280 ownership settings compose independently.
-- [ ] Rust 1.89 and repository CI remain green.
+- [x] Plan 279 is closed before production changes.
+- [x] service admission has explicit EggServe/External ownership.
+- [x] tunnel admission has explicit EggServe/External ownership.
+- [x] default behavior and limits are unchanged.
+- [x] no giant-semaphore sentinel represents external ownership.
+- [x] file-stream admission remains bounded and internal.
+- [x] high-level TCP connection admission remains unchanged.
+- [x] no internal 503/counter is produced for externally-owned admission.
+- [x] tunnel lifecycle/commitment/shutdown semantics remain unchanged.
+- [x] Plan 280 ownership settings compose independently.
+- [x] Rust 1.89 and repository CI remain green.
 
 ## Non-goals
 

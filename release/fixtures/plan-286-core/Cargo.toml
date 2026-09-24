@@ -1,0 +1,23 @@
+[package]
+name = "plan-286-core-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[features]
+tower = ["eggserve-core/tower"]
+
+[dependencies]
+eggserve-core = "=0.3.0"
+eggserve-primitives = "=0.2.1"
+eggserve-static = "=0.3.0"
+tokio = { version = "1", features = ["macros", "net", "time", "io-util", "sync", "rt", "rt-multi-thread"] }
+
+[dev-dependencies]
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+tower-service = "0.3"
+tempfile = "3"
+
+[workspace]

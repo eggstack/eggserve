@@ -2,32 +2,28 @@
 
 ## Status
 
-**SOURCE SCOPE CLOSED; registry-only proof transferred to Plan 286 per maintainer direction.**
+**CLOSED through Plan 286 registry publication and exact-artifact consumer proof.**
 
-Plan 277 publication and Plan 279 exact-artifact closure are consolidated into Plan 286. This closes Plan 279’s source qualification and sequencing role; downstream unblock remains gated on Plan 286 registry evidence.
+Plan 277 publication and Plan 279 exact-artifact closure were consolidated into Plan 286. EggServe’s publication blocker for EggReplay M013B is cleared; downstream integration remains outside this repository.
 
 ## Purpose
 
 Publish the Plan-278 opt-in absolute-form H1 service-dispatch seam as the next
 compatible 0.2.x Rust patch and prove it from clean registry-only consumers.
 
-This plan is the downstream unblock gate for EggReplay M013B. It does not add
-new runtime behavior beyond Plan 278.
+This plan was the downstream unblock gate for EggReplay M013B. Its exact-artifact
+proof completed under Plan 286; the EggServe publication blocker is cleared.
+No downstream repository integration or qualification is claimed.
 
 ## Publication baseline
 
-At planning time:
-
-- Plan 277 has selected synchronized 0.2.3 but remains publication-pending;
-- published baseline before Plan 277 closure is
-  `eggserve-server 0.2.1` / `eggserve-core 0.2.2`;
-- Plan 278 is forbidden from changing the 0.2.3 candidate before that
-  publication closes.
-
-At Plan-279 execution time, query crates.io again and select the next unused
-compatible 0.2.x patch. **Expected only if still unused: 0.2.4.**
-
-Do not hard-code 0.2.4 if registry state has changed.
+Historical planning assumed a synchronized 0.2.x patch after Plan 277. Per
+maintainer direction, Plan 277 publication and this plan’s registry proof were
+consolidated into Plan 286. Plan 285 then measured source-incompatible API
+changes, so Plan 286 selected the compatible 0.3.0 line for the affected public
+crates and the next unused CLI patch `eggserve-bin 0.2.1`. Published exact
+artifacts and their registry evidence are recorded in
+`release/plan-286-embedding-contract-publication-closure.md`.
 
 ## Track A — Derive the minimal publish set
 
@@ -221,23 +217,23 @@ At minimum preserve:
 
 ## Acceptance criteria
 
-- [ ] Plan 277 publication is already closed.
-- [ ] Plan 278 implementation/hosted CI is closed.
-- [ ] next available compatible patch is selected from live registry state.
-- [ ] minimal publish set is derived rather than assumed.
-- [ ] server cannot resolve against a primitives version lacking the new API.
-- [ ] dry-runs and staged local-registry qualification pass.
-- [ ] packages publish in dependency order.
-- [ ] checksums/timestamps are retained.
-- [ ] fresh registry-only default consumer proves origin-only default.
-- [ ] fresh registry-only opt-in consumer proves absolute-form service dispatch.
-- [ ] Host mismatch and target limit fail closed.
-- [ ] CONNECT semantics remain unchanged.
-- [ ] streaming body/trailer/service behavior still composes in the opt-in mode.
-- [ ] no path/git/patch dependency is used in final consumer proof.
-- [ ] no public Internet is required by runtime tests.
-- [ ] release closure record and roadmap status are updated.
-- [ ] downstream EggReplay is not marked unblocked until all above evidence
+- [x] Plan 277 standalone publication was explicitly deferred; its candidate API was consolidated into Plan 286.
+- [x] Plan 278 implementation/hosted CI is closed.
+- [x] next available compatible patch is selected from live registry state.
+- [x] minimal publish set is derived rather than assumed.
+- [x] server cannot resolve against a primitives version lacking the new API.
+- [x] dry-runs and staged local-registry qualification pass.
+- [x] packages publish in dependency order.
+- [x] checksums/timestamps are retained.
+- [x] fresh registry-only default consumer proves origin-only default.
+- [x] fresh registry-only opt-in consumer proves absolute-form service dispatch.
+- [x] Host mismatch and target limit fail closed.
+- [x] CONNECT semantics remain unchanged.
+- [x] streaming body/trailer/service behavior still composes in the opt-in mode.
+- [x] no path/git/patch dependency is used in final consumer proof.
+- [x] no public Internet is required by runtime tests.
+- [x] release closure record and roadmap status are updated.
+- [x] downstream EggReplay is not marked unblocked until all above evidence
       exists.
 
 ## Non-goals

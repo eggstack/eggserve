@@ -2,9 +2,9 @@
 
 ## Status
 
-**IMPLEMENTED; SOURCE QUALIFICATION COMPLETE. Registry publication and artifact proof are consolidated into Plan 286.**
+**CLOSED — implementation and qualification passed; registry artifacts are published and proven under Plan 286.**
 
-Plan 277 publication remains deferred into the next release per maintainer direction. Plan 278 closes its source implementation and validation scope; no registry artifact is claimed.
+Plan 277’s separate candidate publication was folded into the next release per maintainer direction; no standalone Plan 277 publication is claimed.
 
 ## Purpose
 
@@ -376,24 +376,24 @@ marked implemented/closed locally.
 - [x] Maintainer direction defers Plan 277 publication and its registry
       blockers into the combined Plan 286 release; source work proceeds against
       the qualified workspace candidate.
-- [ ] origin-form remains the default direct H1 policy.
-- [ ] existing default absolute-form rejection remains covered.
-- [ ] direct H1 can explicitly opt into absolute-form dispatch.
-- [ ] canonical service requests expose target form, scheme, authority,
+- [x] origin-form remains the default direct H1 policy.
+- [x] existing default absolute-form rejection remains covered.
+- [x] direct H1 can explicitly opt into absolute-form dispatch.
+- [x] canonical service requests expose target form, scheme, authority,
       path/query without Hyper types.
-- [ ] `RequestTarget::parse` remains origin-form-only/source-compatible.
-- [ ] full absolute request-target length is bounded.
-- [ ] Host/URI authority mismatch fails before service invocation.
-- [ ] client-proxy transport scheme is not confused with target URI scheme.
-- [ ] CONNECT authority-form semantics are unchanged.
-- [ ] H2/H3 semantics/support tiers are unchanged.
-- [ ] static/confinement paths remain origin-form-only and cannot be widened by
+- [x] `RequestTarget::parse` remains origin-form-only/source-compatible.
+- [x] full absolute request-target length is bounded.
+- [x] Host/URI authority mismatch fails before service invocation.
+- [x] client-proxy transport scheme is not confused with target URI scheme.
+- [x] CONNECT authority-form semantics are unchanged.
+- [x] H2/H3 semantics/support tiers are unchanged.
+- [x] static/confinement paths remain origin-form-only and cannot be widened by
       the runtime opt-in.
-- [ ] no raw target/credentials/query leakage is introduced in diagnostics.
-- [ ] no new HTTP parser, outbound proxy/client stack, URL dependency, or
+- [x] no raw target/credentials/query leakage is introduced in diagnostics.
+- [x] no new HTTP parser, outbound proxy/client stack, URL dependency, or
       downstream-project-specific type is added.
-- [ ] Rust 1.89 and routine platform/feature CI remain green.
-- [ ] a closure record identifies exact public API additions and test evidence.
+- [x] Rust 1.89 and routine platform/feature CI remain green.
+- [x] a closure record identifies exact public API additions and test evidence.
 
 ## Non-goals
 

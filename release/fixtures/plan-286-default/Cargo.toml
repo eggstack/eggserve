@@ -1,0 +1,12 @@
+[package]
+name = "plan-286-default-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+eggserve-primitives = "=0.2.1"
+eggserve-server = "=0.3.0"
+tokio = { version = "1", features = ["macros", "net", "time", "io-util", "sync", "rt", "rt-multi-thread"] }
+
+[workspace]

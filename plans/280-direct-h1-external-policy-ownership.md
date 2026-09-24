@@ -2,7 +2,7 @@
 
 ## Status
 
-**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry artifact qualification is Plan 286.**
+**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry-only artifact qualification passed under Plan 286.**
 
 Hosted CI: run 36067050590, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (success).
 
@@ -300,23 +300,23 @@ Use bounded test-level timeouts so test failures cannot hang CI.
 
 ## Acceptance criteria
 
-- [ ] Plan 279 is closed before production changes.
-- [ ] existing direct/server APIs retain all-EggServe policy by default.
-- [ ] ownership is explicit; no magic-large-value convention.
-- [ ] handler deadline can be externally owned.
-- [ ] body deadline can be externally owned across eager and deferred paths.
-- [ ] keep-alive idle deadline can be externally owned.
-- [ ] response write-progress deadline can be externally owned.
-- [ ] global request-body ceiling can be service/external owned without
+- [x] Plan 279 is closed before production changes.
+- [x] existing direct/server APIs retain all-EggServe policy by default.
+- [x] ownership is explicit; no magic-large-value convention.
+- [x] handler deadline can be externally owned.
+- [x] body deadline can be externally owned across eager and deferred paths.
+- [x] keep-alive idle deadline can be externally owned.
+- [x] response write-progress deadline can be externally owned.
+- [x] global request-body ceiling can be service/external owned without
       changing `0 == reject bodies`.
-- [ ] semantic request-target ceiling can be externally owned while parser
+- [x] semantic request-target ceiling can be externally owned while parser
       bounds remain mandatory.
-- [ ] parser `max_buf_size`, `max_headers`, framing checks, canonical
+- [x] parser `max_buf_size`, `max_headers`, framing checks, canonical
       response normalization, and shutdown remain mandatory.
-- [ ] observability does not claim enforcement EggServe did not perform.
-- [ ] H2/H3 behavior is unchanged unless separately and explicitly proven.
-- [ ] no downstream-specific API or feature is added.
-- [ ] Rust 1.89 + full repository CI pass.
+- [x] observability does not claim enforcement EggServe did not perform.
+- [x] H2/H3 behavior is unchanged unless separately and explicitly proven.
+- [x] no downstream-specific API or feature is added.
+- [x] Rust 1.89 + full repository CI pass.
 
 ## Non-goals
 

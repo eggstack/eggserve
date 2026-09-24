@@ -1037,11 +1037,11 @@ boundary.
 The sequence is strict:
 
 ```text
-277  publish/close the already-qualified 0.2.3 adapter candidate
+277  candidate publication folded into the next release per maintainer direction
  |
-278  opt-in absolute-form H1 service dispatch + canonical target metadata
+278  absolute-form H1 service dispatch + canonical target metadata (closed)
  |
-279  next-patch publication + clean registry-only downstream proof
+279  registry-only proof completed with Plan 286
 ```
 
 ### Plan 278 — opt-in absolute-form service dispatch
@@ -1069,13 +1069,14 @@ absolute-form seam from fresh crates.io-only consumers.
 
 Its generic EggReplay-shaped fixture must prove duplicate-preserving canonical
 headers, request streaming/trailers, bounded shutdown, and target
-form/scheme/authority/path/query access without Hyper types. EggReplay remains
-blocked until that exact published-artifact proof is complete.
+form/scheme/authority/path/query access without Hyper types. The EggServe
+publication blocker for EggReplay M013B is cleared by Plan 286’s exact-artifact
+proof; downstream integration and qualification remain with that project.
 
 Implementation plan:
 `plans/279-forward-proxy-seam-publication-and-downstream-closure.md`.
 
-Status: **Plans 278–279 source scopes closed; exact published-artifact closure is Plan 286.** Plan 277's unpublished candidate is carried into that release per maintainer direction; Plan 277 itself is not changed or treated as a prerequisite to this source sequence.
+Status: **Plans 278–279 closed; Plan 286 completed the consolidated publication and registry-only proof.** Plan 277 itself was left unchanged; its eligible adapter API was carried into the new release artifacts per maintainer direction.
 
 
 ## Direct H1 embedding policy-ownership program — Plans 280–286
@@ -1227,4 +1228,4 @@ residuals are retained in a release evidence record.
 Implementation plan:
 `plans/286-embedding-contract-publication-and-registry-closure.md`.
 
-Status: **Plans 280–285 source scopes closed; exact-SHA hosted CI run 36067050590 passed on `c62faf59b19913eb49b97d371435122c5a8fb6ac`; Plan 286 owns the combined publication and registry-only closure.** Plan 285 selects 0.3.0 due source-incompatible public changes.
+Status: **Plans 280–286 closed.** The direct-server version is `0.3.0` due source-incompatible public changes; the exact package set and registry-only proof are recorded in `release/plan-286-embedding-contract-publication-closure.md`. The EggServe publication blocker for EggReplay M013B is cleared; downstream integration is not claimed. Hosted CI passed for source SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (run `36067050590`) and lock-corrected SHA `02aa50c14bf30c57422c40b1fbf8afc87a528a38` (run `36068742416`).

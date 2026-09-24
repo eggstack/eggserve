@@ -1,0 +1,111 @@
+plan-286-tower-consumer v0.0.0 (/home/sugarwookie/projects/eggserve/release/fixtures/plan-286-tower)
+├── axum v0.8.9
+│   ├── axum-core v0.5.6
+│   │   ├── bytes v1.12.1
+│   │   ├── futures-core v0.3.34
+│   │   ├── http v1.5.0
+│   │   │   ├── bytes v1.12.1
+│   │   │   └── itoa v1.0.18
+│   │   ├── http-body v1.1.0
+│   │   │   ├── bytes v1.12.1
+│   │   │   └── http v1.5.0 (*)
+│   │   ├── http-body-util v0.1.5
+│   │   │   ├── bytes v1.12.1
+│   │   │   ├── futures-core v0.3.34
+│   │   │   ├── http v1.5.0 (*)
+│   │   │   ├── http-body v1.1.0 (*)
+│   │   │   └── pin-project-lite v0.2.17
+│   │   ├── mime v0.3.17
+│   │   ├── pin-project-lite v0.2.17
+│   │   ├── sync_wrapper v1.0.2
+│   │   ├── tower-layer v0.3.3
+│   │   └── tower-service v0.3.3
+│   ├── bytes v1.12.1
+│   ├── futures-util v0.3.34
+│   │   ├── futures-core v0.3.34
+│   │   ├── futures-macro v0.3.34 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.107
+│   │   │   │   └── unicode-ident v1.0.26
+│   │   │   ├── quote v1.0.47
+│   │   │   │   └── proc-macro2 v1.0.107 (*)
+│   │   │   └── syn v3.0.6
+│   │   │       ├── proc-macro2 v1.0.107 (*)
+│   │   │       ├── quote v1.0.47 (*)
+│   │   │       └── unicode-ident v1.0.26
+│   │   ├── futures-task v0.3.34
+│   │   ├── pin-project-lite v0.2.17
+│   │   └── slab v0.4.12
+│   ├── http v1.5.0 (*)
+│   ├── http-body v1.1.0 (*)
+│   ├── http-body-util v0.1.5 (*)
+│   ├── itoa v1.0.18
+│   ├── matchit v0.8.4
+│   ├── memchr v2.8.3
+│   ├── mime v0.3.17
+│   ├── percent-encoding v2.3.2
+│   ├── pin-project-lite v0.2.17
+│   ├── serde_core v1.0.229
+│   ├── sync_wrapper v1.0.2
+│   ├── tower v0.5.3
+│   │   ├── futures-core v0.3.34
+│   │   ├── futures-util v0.3.34 (*)
+│   │   ├── pin-project-lite v0.2.17
+│   │   ├── sync_wrapper v1.0.2
+│   │   ├── tower-layer v0.3.3
+│   │   └── tower-service v0.3.3
+│   ├── tower-layer v0.3.3
+│   └── tower-service v0.3.3
+├── bytes v1.12.1
+├── eggserve-primitives v0.2.1
+│   ├── bytes v1.12.1
+│   └── futures-util v0.3.34 (*)
+├── eggserve-server v0.3.0
+│   ├── bytes v1.12.1
+│   ├── eggserve-primitives v0.2.1 (*)
+│   ├── futures-util v0.3.34 (*)
+│   ├── http v1.5.0 (*)
+│   ├── http-body v1.1.0 (*)
+│   ├── http-body-util v0.1.5 (*)
+│   ├── httpdate v1.0.3
+│   ├── hyper v1.11.1
+│   │   ├── atomic-waker v1.1.2
+│   │   ├── bytes v1.12.1
+│   │   ├── futures-channel v0.3.34
+│   │   │   └── futures-core v0.3.34
+│   │   ├── futures-core v0.3.34
+│   │   ├── http v1.5.0 (*)
+│   │   ├── http-body v1.1.0 (*)
+│   │   ├── httparse v1.10.1
+│   │   ├── httpdate v1.0.3
+│   │   ├── itoa v1.0.18
+│   │   ├── pin-project-lite v0.2.17
+│   │   ├── smallvec v1.16.1
+│   │   └── tokio v1.53.1
+│   │       ├── bytes v1.12.1
+│   │       ├── libc v0.2.189
+│   │       ├── mio v1.2.3
+│   │       │   └── libc v0.2.189
+│   │       ├── pin-project-lite v0.2.17
+│   │       ├── socket2 v0.6.5
+│   │       │   └── libc v0.2.189
+│   │       └── tokio-macros v2.7.2 (proc-macro)
+│   │           ├── proc-macro2 v1.0.107 (*)
+│   │           ├── quote v1.0.47 (*)
+│   │           └── syn v3.0.6 (*)
+│   ├── hyper-util v0.1.21
+│   │   ├── bytes v1.12.1
+│   │   ├── http v1.5.0 (*)
+│   │   ├── http-body v1.1.0 (*)
+│   │   ├── hyper v1.11.1 (*)
+│   │   ├── pin-project-lite v0.2.17
+│   │   └── tokio v1.53.1 (*)
+│   ├── tokio v1.53.1 (*)
+│   ├── tower-layer v0.3.3
+│   └── tower-service v0.3.3
+├── futures-util v0.3.34 (*)
+├── http v1.5.0 (*)
+├── http-body v1.1.0 (*)
+├── http-body-util v0.1.5 (*)
+├── tokio v1.53.1 (*)
+├── tower-layer v0.3.3
+└── tower-service v0.3.3

@@ -192,16 +192,16 @@ If NO-GO:
 
 ## Acceptance criteria
 
-- [ ] baseline tunnel cost is measured before code change.
-- [ ] candidate preserves exact post-upgrade read-ahead bytes.
-- [ ] runtime can still force termination of idle/uncooperative handlers.
-- [ ] no raw Hyper transport/type becomes public.
-- [ ] admission/commitment/lifecycle semantics remain intact.
-- [ ] same-machine A/B evidence drives KEEP or NO-GO.
-- [ ] retained implementation has no meaningful performance/resource
+- [x] baseline tunnel cost is measured before code change.
+- [x] candidate preserves exact post-upgrade read-ahead bytes.
+- [x] runtime can still force termination of idle/uncooperative handlers.
+- [x] no raw Hyper transport/type becomes public.
+- [x] admission/commitment/lifecycle semantics remain intact.
+- [x] same-machine A/B evidence drives KEEP or NO-GO.
+- [x] retained implementation has no meaningful performance/resource
       regression.
-- [ ] decision and raw evidence are recorded durably.
-- [ ] full CI is green for the retained state.
+- [x] decision and raw evidence are recorded durably.
+- [x] full CI is green for the retained state.
 
 ## Non-goals
 

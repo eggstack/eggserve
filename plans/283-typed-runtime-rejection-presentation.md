@@ -2,7 +2,7 @@
 
 ## Status
 
-**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry artifact qualification is Plan 286.**
+**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry-only artifact qualification passed under Plan 286.**
 
 Hosted CI: run 36067050590, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (success).
 
@@ -229,18 +229,18 @@ Explicitly state that this is response *presentation*, not error/status policy.
 
 ## Acceptance criteria
 
-- [ ] Plan 282 is implemented.
-- [ ] runtime rejection categories are typed and non-sensitive.
-- [ ] presenter cannot change protocol-selected status.
-- [ ] presenter cannot change close/reset/lifecycle consequences.
-- [ ] default behavior is byte/status compatible where currently specified.
-- [ ] presenter output passes canonical framing/privacy normalization.
-- [ ] presenter panic/invalid output fails closed.
-- [ ] no raw Hyper type enters the public hook.
-- [ ] direct crate works without core/static.
-- [ ] H2/H3 behavior is unchanged unless separately proven against the same
+- [x] Plan 282 is implemented.
+- [x] runtime rejection categories are typed and non-sensitive.
+- [x] presenter cannot change protocol-selected status.
+- [x] presenter cannot change close/reset/lifecycle consequences.
+- [x] default behavior is byte/status compatible where currently specified.
+- [x] presenter output passes canonical framing/privacy normalization.
+- [x] presenter panic/invalid output fails closed.
+- [x] no raw Hyper type enters the public hook.
+- [x] direct crate works without core/static.
+- [x] H2/H3 behavior is unchanged unless separately proven against the same
       generic hook.
-- [ ] full Rust 1.89/platform/feature CI passes.
+- [x] full Rust 1.89/platform/feature CI passes.
 
 ## Non-goals
 
