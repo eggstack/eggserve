@@ -926,12 +926,14 @@ control/completion shutdown.
 Implementation plan:
 `plans/275-http-tower-adapter-patch-publication-and-registry-closure.md`.
 
-Status: **274 COMPLETE; 275 RELEASE CANDIDATE PREPARED / PUBLICATION PENDING.**
+Status: **274 COMPLETE; 275 RELEASE CANDIDATE QUALIFIED / PUBLICATION PENDING.**
 Plan 274 implementation candidate `e49d67b3a459a11686a20a9c13cb183fc2a1dbd4`
 passed hosted CI run `35954240517` and the local gates recorded in its plan.
 Plan 275 selected unused patch 0.2.2 and passed local package and supply-chain
-qualification; its clean-commit dry run, hosted CI, publication, and registry
-consumer proof remain. No downstream unblock is claimed yet. Planning baseline is
+qualification, clean-commit publish dry run, and hosted CI run `35959464673` on
+candidate `5105a63d1d1569c4646c05c8d6fd96e83efe71ea`. Its manual publication
+and registry consumer proof remain. No downstream unblock is claimed yet.
+Planning baseline is
 `091cddc` with `eggserve-core 0.2.1` / `eggserve-server 0.2.1` published.
 This program does not reopen direct-server runtime ownership, static serving,
 H2/H3 tiers, or Python behavior; it repairs and permanently qualifies the

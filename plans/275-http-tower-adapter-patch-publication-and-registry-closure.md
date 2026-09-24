@@ -276,9 +276,9 @@ why the corrective exists.
 - [x] Plan 274 is implemented and all focused adapter feature gates pass.
 - [x] Routine local/security/package qualification passes on the exact
       release candidate.
-- [ ] Routine CI passes on the exact release candidate SHA.
+- [x] Routine CI passes on the exact release candidate SHA.
 - [x] The actual changed Rust publish set is derived and recorded.
-- [ ] `eggserve-core` package dry-run succeeds with the corrected feature
+- [x] `eggserve-core` package dry-run succeeds with the corrected feature
       surface.
 - [ ] The corrected core patch is published and registry-resolvable before
       downstream unblock is claimed.
@@ -332,6 +332,12 @@ lockfile supply-chain audit. The first `verify.sh fast` invocation stopped at
 the excluded Python check because its separate lockfile still had version
 0.2.1; that lockfile was synchronized and its required `--locked` check passed.
 
-The candidate's clean-commit crates.io dry run and hosted CI are pending. No
-crate has been published, and downstream status remains `PUBLICATION PENDING`
-until publication plus the fresh registry-only Axum consumer proof succeed.
+The clean-commit `cargo publish -p eggserve-core --locked --dry-run` passed on
+candidate `5105a63d1d1569c4646c05c8d6fd96e83efe71ea`; it packaged and verified
+`eggserve-core 0.2.2` and resolved the already-published
+`eggserve-server 0.2.1`. Hosted CI run
+[`35959464673`](https://github.com/eggstack/eggserve/actions/runs/35959464673)
+passed on that exact SHA (Rust, Python, and supply-chain jobs). No crate has
+been published. The remaining step is the manual, immutable crates.io upload;
+downstream status remains `PUBLICATION PENDING` until publication plus the
+fresh registry-only Axum consumer proof succeed.
