@@ -115,6 +115,14 @@ Plans 274–275 repair the optional HTTP/Tower request-body ownership boundary,
 qualify Axum 0.8 with direct `eggserve-server` composition, and publish the
 core-only 0.2.2 patch. The registry-only consumer proof and checksum are
 recorded in `release/plan-275-http-tower-adapter-patch-publication-closure.md`.
+Plans 276–277 are the follow-on packaging separation: move the optional
+`http-interop`/Tower implementation authority to `eggserve-server` while
+preserving the current `eggserve-core` adapter paths as compatibility
+re-exports. The direct H1 + Tower profile must remain free of
+`eggserve-static`/PHF; core remains the compatibility/static umbrella. Plan 277
+owns publication and registry-only proof. Do not solve this by making static
+optional inside core or by creating a new adapter micro-crate without concrete
+evidence that server ownership is invalid.
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
