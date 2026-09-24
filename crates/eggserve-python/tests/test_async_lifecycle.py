@@ -591,18 +591,25 @@ class AsyncTunnelOwnershipTests(unittest.TestCase):
                         s.sendall(b"ping-tunnel")
                         s.settimeout(10)
                         echo = s.recv(4096)
-                        return echo
-                    finally:
+                        return s, echo
+                    except Exception:
                         s.close()
+                        raise
 
-                echo = await asyncio.to_thread(fetch)
-                self.assertIn(b"ping-tunnel", echo)
-                await srv.shutdown()
-                self.assertTrue(
-                    await asyncio.to_thread(cancelled.wait, 10),
-                    "tracked tunnel driver was not cancelled by shutdown",
-                )
-                self.assertEqual(len(srv._tasks), 0)
+                client, echo = await asyncio.to_thread(fetch)
+                try:
+                    self.assertIn(b"ping-tunnel", echo)
+                    # Keep the peer open so the driver stays blocked in recv;
+                    # otherwise EOF may finish it before shutdown gets a
+                    # chance to exercise tracked-task cancellation.
+                    await srv.shutdown()
+                    self.assertTrue(
+                        await asyncio.to_thread(cancelled.wait, 10),
+                        "tracked tunnel driver was not cancelled by shutdown",
+                    )
+                    self.assertEqual(len(srv._tasks), 0)
+                finally:
+                    client.close()
             finally:
                 try:
                     await srv.shutdown()
