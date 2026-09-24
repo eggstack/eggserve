@@ -2,11 +2,9 @@
 
 ## Status
 
-**LOCAL QUALIFICATION COMPLETE; hosted CI and final artifact closure pending. Version decision: 0.3.0 for incompatible public API changes.**
+**CLOSED — local and hosted qualification passed. Version decision: 0.3.0 for incompatible public API changes.**
 
-Plan 279 source qualification is complete. Per maintainer direction, its
-registry-only closure is consolidated into Plan 286 with the pending Plan 277
-publication.
+Exact-SHA hosted CI: run 36067050590, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac`, completed 2026-09-24T22:22:25Z (success across Rust, Python, and supply-chain jobs).
 
 ## Purpose
 

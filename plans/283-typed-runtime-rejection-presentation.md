@@ -2,9 +2,9 @@
 
 ## Status
 
-**IMPLEMENTED; local presenter and integration qualification passed. Hosted CI closure remains under Plan 285.**
+**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry artifact qualification is Plan 286.**
 
-Plan 279 must already be closed.
+Hosted CI: run 36067050590, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (success).
 
 ## Purpose
 

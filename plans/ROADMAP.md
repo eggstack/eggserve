@@ -1075,7 +1075,7 @@ blocked until that exact published-artifact proof is complete.
 Implementation plan:
 `plans/279-forward-proxy-seam-publication-and-downstream-closure.md`.
 
-Status: **278 implementation and 279 source qualification complete; exact published-artifact closure is Plan 286.** Plan 277's unpublished candidate is carried into that release per maintainer direction; Plan 277 itself is not changed or treated as a prerequisite to this source sequence.
+Status: **Plans 278–279 source scopes closed; exact published-artifact closure is Plan 286.** Plan 277's unpublished candidate is carried into that release per maintainer direction; Plan 277 itself is not changed or treated as a prerequisite to this source sequence.
 
 
 ## Direct H1 embedding policy-ownership program — Plans 280–286
@@ -1227,4 +1227,4 @@ residuals are retained in a release evidence record.
 Implementation plan:
 `plans/286-embedding-contract-publication-and-registry-closure.md`.
 
-Status: **Plans 280–284 locally implemented/qualified; Plan 285 awaits hosted CI; Plan 286 owns the combined publication and registry-only closure.** Plan 285 selects 0.3.0 due source-incompatible public changes.
+Status: **Plans 280–285 source scopes closed; exact-SHA hosted CI run 36067050590 passed on `c62faf59b19913eb49b97d371435122c5a8fb6ac`; Plan 286 owns the combined publication and registry-only closure.** Plan 285 selects 0.3.0 due source-incompatible public changes.

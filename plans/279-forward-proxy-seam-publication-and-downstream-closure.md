@@ -2,14 +2,9 @@
 
 ## Status
 
-**SOURCE QUALIFICATION COMPLETE; registry-only closure consolidated into Plan 286.**
+**SOURCE SCOPE CLOSED; registry-only proof transferred to Plan 286 per maintainer direction.**
 
-Maintainer direction defers the pending Plan 277 publication and this seam's
-registry release into the combined next release. Plan 279 source behavior is
-qualified by the workspace direct-server tests. Plan 286 owns exact-artifact
-publication and registry-only closure. Plan 277 publication is not treated as
-a blocker to source work in this sequence, and no intermediate publication is
-performed.
+Plan 277 publication and Plan 279 exact-artifact closure are consolidated into Plan 286. This closes Plan 279’s source qualification and sequencing role; downstream unblock remains gated on Plan 286 registry evidence.
 
 ## Purpose
 

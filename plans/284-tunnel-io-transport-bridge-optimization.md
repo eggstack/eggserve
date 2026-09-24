@@ -2,12 +2,9 @@
 
 ## Status
 
-**KEEP; direct transport retained after local A/B and tunnel correctness qualification. Hosted cross-platform CI remains under Plan 285.**
+**CLOSED — KEEP; local A/B and tunnel correctness qualification plus exact-SHA hosted CI passed.**
 
-This plan is evidence-gated and may close **NO-GO** with the existing bridge
-retained.
-
-Planning baseline: `4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922`.
+Hosted CI: run 36067050590, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (success). The A/B evidence remains limited to in-process Tokio duplex, as recorded in the qualification artifact.
 
 ## Purpose
 

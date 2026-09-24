@@ -48,7 +48,7 @@ major changes (the tool skips fine-grained checks across major releases).
   and registry-local direct/core Tower consumers passed)
 - `cargo publish -p eggserve-primitives --locked --dry-run --allow-dirty`
 
-Hosted CI and proof-bearing SHA are pending the pushed candidate.
+Hosted CI passed on the exact pushed candidate: run `36067050590`, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac`, completed 2026-09-24T22:22:25Z. Rust, Python wheel, and supply-chain jobs all succeeded.
 
 The staged Tower package consumers reported 45 direct lockfile packages,
 111 direct no-dev dependency nodes, and a 579,576 byte release executable;

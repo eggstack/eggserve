@@ -2,13 +2,9 @@
 
 ## Status
 
-**IMPLEMENTED; local direct-server qualification passed. Registry-artifact qualification is consolidated into Plan 286.**
+**CLOSED — implementation, local qualification, and exact-SHA hosted CI passed. Registry artifact qualification is Plan 286.**
 
-Planning baseline: `4c2e5b6e0ce52256b61a96f0d8a0b0d20ca32922`.
-
-Original sequencing gate: Plan 279 publication preceded this source plan.
-Maintainer direction now consolidates Plan 279 and Plan 277 registry work into
-Plan 286; Plan 279 source behavior was qualified before this implementation.
+Hosted CI: run 36067050590, SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (success).
 
 ## Purpose
 

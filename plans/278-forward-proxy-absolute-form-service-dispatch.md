@@ -2,11 +2,9 @@
 
 ## Status
 
-**IMPLEMENTED; Plan 277 publication is consolidated into the later release.**
+**IMPLEMENTED; SOURCE QUALIFICATION COMPLETE. Registry publication and artifact proof are consolidated into Plan 286.**
 
-Plan 277's 0.2.3 publication remains pending and is intentionally carried
-forward into the next release, per maintainer direction. This implementation
-is based on the current source candidate; no registry artifact is claimed.
+Plan 277 publication remains deferred into the next release per maintainer direction. Plan 278 closes its source implementation and validation scope; no registry artifact is claimed.
 
 ## Purpose
 
