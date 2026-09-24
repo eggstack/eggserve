@@ -942,3 +942,72 @@ This program does not reopen direct-server runtime ownership, static serving,
 H2/H3 tiers, or Python behavior; it repairs and permanently qualifies the
 generic optional HTTP/Tower composition edge needed by downstream application
 servers.
+
+
+## Direct-server adapter packaging separation — Plans 276–277
+
+Plans 276–277 follow the successful Plan-274/275 adapter corrective with a
+package-boundary optimization for direct H1 application-server consumers.
+
+The current published `eggserve-core 0.2.2` Tower path is correct and remains
+supported, but core is intentionally the compatibility/static composition
+umbrella and therefore unconditionally depends on `eggserve-static`. That
+static authority owns the PHF MIME table. A consumer such as EggPool that needs
+only the direct H1 runtime plus Tower/Axum interoperability therefore resolves
+static-serving packages even though it never serves files through EggServe.
+
+The program does not make static serving optional inside core and does not add
+a new adapter micro-crate. The preferred ownership moves the optional
+`http-interop` and Tower adapter implementation onto `eggserve-server`,
+which already owns the direct `Service` contract and response transport
+adapter. Core retains its existing source paths as compatibility re-exports and
+continues to carry static dependencies by design.
+
+```text
+eggserve-primitives
+        ^
+        |
+eggserve-server
+  H1 runtime + Service
+  optional http-interop / tower
+        ^
+        |
+eggserve-core
+  compatibility/static umbrella
+  forwards adapter features and re-exports old paths
+```
+
+### Plan 276 — direct-server HTTP/Tower adapter extraction
+
+Plan 276 moves the HTTP body/conversion and Tower adapter authorities from core
+to `eggserve-server`, keeps them opt-in, preserves the current core import
+paths as facade-only re-exports, moves behavioral tests to the new authority,
+and adds topology/CI guards proving that
+`eggserve-server --features tower` has no `eggserve-core`,
+`eggserve-static`, or PHF dependency ancestry.
+
+It also requires a staged external Axum 0.8 consumer and before/after package
+measurements. The direct profile is the optimization target; core's
+static/composition profile remains unchanged.
+
+Implementation plan:
+`plans/276-direct-server-http-tower-adapter-extraction.md`.
+
+### Plan 277 — publication and registry-only closure
+
+Plan 277 owns release qualification and crates.io proof. It derives the exact
+changed publish set, publishes the server package before the core compatibility
+package when both change, proves a clean registry-only Axum consumer using
+only `eggserve-server --features tower`, and separately proves the published
+core compatibility import paths still work.
+
+Closure requires dependency ancestry showing the direct EggServe path contains
+neither `eggserve-static` nor the PHF family, plus package/binary measurements
+and a durable release evidence record.
+
+Implementation plan:
+`plans/277-direct-tower-adapter-publication-closure.md`.
+
+Status: **276 READY FOR IMPLEMENTATION; 277 BLOCKED ON 276.**
+Plans 274–275 remain complete historical corrective/publication evidence and
+are not reopened by this packaging optimization.
