@@ -1,0 +1,38 @@
+atomic-waker v1.1.2
+bytes v1.12.1
+eggserve-primitives v0.2.1 (/home/sugarwookie/projects/eggserve/crates/eggserve-primitives)
+eggserve-server v0.3.1 (/home/sugarwookie/projects/eggserve/crates/eggserve-server)
+futures-channel v0.3.32
+futures-core v0.3.32
+futures-macro v0.3.32 (proc-macro)
+futures-task v0.3.32
+futures-util v0.3.32
+futures-util v0.3.32 (*)
+httparse v1.10.1
+http-body-util v0.1.3
+http-body v1.0.1
+http-body v1.0.1 (*)
+httpdate v1.0.3
+http v1.4.2
+http v1.4.2 (*)
+hyper-util v0.1.20
+hyper v1.11.1
+hyper v1.11.1 (*)
+itoa v1.0.18
+libc v0.2.186
+mio v1.2.1
+pin-project-lite v0.2.17
+proc-macro2 v1.0.106
+proc-macro2 v1.0.106 (*)
+quote v1.0.46
+quote v1.0.46 (*)
+slab v0.4.12
+smallvec v1.15.2
+socket2 v0.6.4
+syn v2.0.118
+syn v2.0.118 (*)
+tokio-macros v2.7.0 (proc-macro)
+tokio v1.52.3
+tokio v1.52.3 (*)
+tower-service v0.3.3
+unicode-ident v1.0.24

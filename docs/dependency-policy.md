@@ -37,7 +37,7 @@ The following dependency categories are approved for initial development:
 | Async runtime | `tokio` | Event loop and async primitives |
 | HTTP server | `hyper`, `hyper-util`, `http-body`, `http-body-util` | HTTP protocol handling; `http-body` is the `Body` trait for response-completion tracking (Plan 164) |
 | Ecosystem interop | `http` (optional, `eggserve-server/http-interop`) | Direct `http` message types for loss-aware canonical adapters (Plans 200/276); transitive via Hyper today, direct so public adapters do not rely on re-exports |
-| Ecosystem interop | `tower-service`, `tower-layer` (optional, `eggserve-server/tower`) | Minimal Tower `Service`/`Layer` traits for middleware/app adapters (Plans 200/276); full `tower` never required, never in default builds |
+| Ecosystem interop | `tower-service` (optional, activated by `eggserve-server/tower`); `tower-layer` (optional declared, no longer activated — dev-dependency for tests, direct dependency of downstream `Layer` authors) | Minimal Tower `Service`/`Layer` traits for middleware/app adapters (Plans 200/276/296); full `tower` never required, never in default builds |
 | Buffer types | `bytes` | Efficient byte buffer management |
 | Streaming | `futures-util` | Async stream utilities for file streaming bodies |
 | Date formatting | `httpdate` | HTTP date formatting for Last-Modified headers |

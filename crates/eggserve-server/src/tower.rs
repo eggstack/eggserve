@@ -37,9 +37,11 @@
 //!
 //! # Middleware boundary (Track F)
 //!
-//! Tower [`tower_layer::Layer`]s compose around either adapter on standard
-//! `http` request/response objects after EggServe parsing/validation and
-//! before final normalization. Middleware may add ordinary headers/content
+//! Tower layers (the `tower-layer` crate, a direct dependency of downstream
+//! authors — not activated by this crate's `tower` feature since Plan 296)
+//! compose around either adapter on standard `http` request/response objects
+//! after EggServe parsing/validation and before final normalization.
+//! Middleware may add ordinary headers/content
 //! but cannot bypass body hard limits, framing validation, denylist/privacy,
 //! no-progress timeouts, or lifecycle/shutdown.
 

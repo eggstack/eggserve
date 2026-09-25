@@ -21,7 +21,12 @@ default = []
 http2 = []
 tls = []
 http-interop = ["dep:http", "eggserve-primitives/http-interop"]
-tower = ["http-interop", "dep:tower-service", "dep:tower-layer"]
+# Plan 296: production adapter code drives Tower services (poll_ready/call)
+# but never implements the Layer contract itself, so the `tower` feature no
+# longer activates `tower-layer`. The optional dependency stays declared
+# (topology-gated Plan-276 surface); tests use it via dev-dependencies, and
+# downstream Layer authors depend on `tower-layer` directly.
+tower = ["http-interop", "dep:tower-service"]
 
 [dependencies]
 eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.1" }
@@ -39,6 +44,7 @@ tokio = { version = "1", features = ["macros", "net", "time", "io-util", "fs", "
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }
+tower-layer = "0.3"
 axum = { version = "0.8", default-features = false }
 rustls = { version = "0.23.45", default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }

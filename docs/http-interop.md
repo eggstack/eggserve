@@ -28,9 +28,12 @@ remain compatibility re-exports. Core continues to depend on
 
 - `eggserve-server/http-interop` adds the direct `http` dependency and the
   `eggserve_server::interop` module.
-- `eggserve-server/tower` adds `http-interop` plus `tower-service` /
-  `tower-layer` and `eggserve_server::tower`. Full `tower` is never required;
-  layers compose via `tower-layer` only.
+- `eggserve-server/tower` adds `http-interop` plus `tower-service` and
+  `eggserve_server::tower`. Full `tower` is never required. Tower layers
+  compose around the adapters, but the feature does not activate
+  `tower-layer` (Plan 296: production adapter code never implements the
+  `Layer` contract); downstream `Layer` authors depend on `tower-layer`
+  directly.
 - Core's same-named features forward to the direct server features.
 
 ## When to use what
@@ -89,7 +92,10 @@ stays an outer hard ceiling; Tower readiness only further gates app work.
 - `response_from_http_body(http::Response<B>)` streams `B` incrementally
   into `ResponseStream` (data + validated trailers, no full buffering).
   Application `content-length`/`transfer-encoding` are stripped;
-  normalization recomputes framing. `HEAD`/body-forbidden never poll.
+  normalization recomputes framing. Bodies reporting an exact size hint are
+  declared known-length so `Content-Length` is emitted; the transport
+  verifies the count and fails closed on mismatch (Plan 295).
+  `HEAD`/body-forbidden never poll.
 - `response_from_bytes` / `empty_response_from_http` cover common cases
   without exposing `ResponseBody` variants.
 

@@ -1,6 +1,6 @@
 # Direct H1 Runtime Milestone 296 — Direct-profile footprint and capability split
 
-Status: blocked
+Status: closed (closure: `plans/closure/direct-h1-runtime/296-direct-profile-footprint-capability-split.md`; WP-A KEEP, file/tunnel NO-GO)
 
 Repository baseline: `81605fc36b970440d6e3edbfd1e0d1cfa3ec4d91` (planning baseline; implementation must refresh after 294)
 

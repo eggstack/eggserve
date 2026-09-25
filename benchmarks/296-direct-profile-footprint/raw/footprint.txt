@@ -1,0 +1,58 @@
+# Plan 296 footprint evidence (dist profile, same host as 294)
+
+## WP-A: tower-layer deactivation
+
+- Resolved `tower` no-dev graph: 38 lines (was 39); `tower-layer` absent,
+  `tower-service` retained. Capture: `raw/tree-tower-no-dev.txt`
+  (compare `benchmarks/294-direct-tower-baseline/raw/tree-tower-no-dev.txt`).
+- Stripped dist `size-tower` fixture: 951672 B (pre-change 951480 B;
+  +192 B linker noise — neutral link impact, as expected for a dep-free
+  trait crate). Fixture executed once after rebuild.
+- Topology gate + `--self-test`: pass (optional dep stays declared per
+  Plan-276 rule; default graph stays Tower-free).
+- MSRV 1.89: `check --all-targets --no-default-features` with and without
+  `tower`: clean.
+- Tokio/futures/http-body-util feature audit (from feature tree): every
+  active feature has a source-level use (net/time/io-util/sync/rt/macros;
+  fs only for file transport — see WP-B; futures StreamExt/poll_fn/unfold;
+  Full/StreamBody/combinators). No change.
+
+## WP-B: file-body / Tokio-fs gating experiment (NO-GO)
+
+- Symbol attribution (unstripped release `size-tower`, `nm --print-size`):
+  fs/file-matched `.text+.rodata+.data` ≈ 34,952 B across 123 symbols
+  (upper bound; includes shared blocking-pool monomorphizations).
+  ~3% of the 951,672 B stripped fixture.
+- Gating cost found: public `RuntimeState::file_stream_semaphore()`
+  accessor, doc-hidden `from_parts` signature, core H1 projection, config
+  validation/fields (exhaustive literals), adapter error fork, feature
+  matrix — for ~3% link and zero package removal (tokio stays regardless).
+- Verdict NO-GO before API polish, per plan stop conditions. Static, core,
+  and bin compositions keep file serving unchanged (proven by
+  `eggserve-static` 345 tests + `static_authority_conformance` 7 tests).
+
+## WP-C: tunnel gating (NO-GO by 294 gate)
+
+- 294 attributed no tunnel size/hot-path cost; symbol attribution ≈ 30,028 B
+  across 117 symbols (same method as WP-B).
+- Gating would fork the `Service::call_with_tunnel` contract, per-request
+  `classify_tunnel`, upgrade handling, semaphores, and ops events.
+- Tunnel suites (`tunnel_upgrade` 10 tests) green with no change.
+- Verdict NO-GO.
+
+## Package dry-run (local registry consumers)
+
+`bash scripts/verify-cargo-packages.sh --mode all`: pass.
+Plan-276 direct Axum consumer: 45 lock packages / 110 no-dev nodes /
+579,568 release bytes. Core Axum consumer: 62 / 154 / 647,096 B.
+
+## Semver classification (for the 297 release decision)
+
+- WP-A removes `dep:tower-layer` activation from the `tower` feature.
+  Consumers relying on transitive `tower-layer` presence via
+  `eggserve-server/tower` must add a direct dependency (one-line manifest
+  change; composition documented in `docs/http-interop.md`). No Rust API,
+  config, or default behavior changes. Pre-1.0 experimental line:
+  minor-level at most (not patch); no version bump in this milestone, no
+  publication. Final call belongs to 297.
+- WP-B/WP-C introduce no change, hence no semver consequence.
