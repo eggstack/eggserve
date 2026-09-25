@@ -1,6 +1,6 @@
 [package]
 name = "eggserve-server"
-version = "0.3.1"
+version = "0.4.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -29,7 +29,7 @@ http-interop = ["dep:http", "eggserve-primitives/http-interop"]
 tower = ["http-interop", "dep:tower-service"]
 
 [dependencies]
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.1" }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.2" }
 bytes = "1"
 futures-util = "0.3"
 http-body = "1"

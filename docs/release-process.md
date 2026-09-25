@@ -108,8 +108,8 @@ The release metadata remains synchronized. Rust crates are published in
 dependency order only after routine CI and the local layered package gate pass.
 Crates.io publication is a manual maintainer action and must be confirmed
 before claiming downstream registry consumers are unblocked. Continue on the
-current `0.3.x` leaf line (`eggserve-bin 0.2.1`, wheel `0.2.3`); never roll
-back to `0.1.x`.
+current `0.4.x` leaf line (`eggserve-bin 0.2.2`, wheel `0.2.4`; Plan 300);
+never roll back to `0.1.x`.
 
 ## Preflight version-sync check
 
