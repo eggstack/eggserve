@@ -1241,3 +1241,133 @@ Implementation plan:
 `plans/286-embedding-contract-publication-and-registry-closure.md`.
 
 Status: **Plans 280–286 closed.** The direct-server version is `0.3.0` due source-incompatible public changes; the exact package set and registry-only proof are recorded in `release/plan-286-embedding-contract-publication-closure.md`. The EggServe publication blocker for EggReplay M013B is cleared; downstream integration is not claimed. Hosted CI passed for source SHA `c62faf59b19913eb49b97d371435122c5a8fb6ac` (run `36067050590`) and lock-corrected SHA `02aa50c14bf30c57422c40b1fbf8afc87a528a38` (run `36068742416`).
+
+
+## Direct H1 boundary-ownership follow-up — Plans 288–291
+
+Status: **288–291 PLANNED**.
+
+Program:
+`plans/288-291-direct-h1-boundary-ownership-followup-program.md`.
+
+Planning baseline:
+`2d4bae12f8cb87c01a8496d765d18b1380871e72`.
+
+This program follows the published Plan 286 direct-H1 embedding contract. It
+closes two generic embedding gaps without changing hardened standalone
+defaults:
+
+1. EggServe currently imposes conservative 4 MiB / 10,000 upper bounds on
+   H1 `max_buf_size` / `max_headers` even though the resolved Hyper 1.11.1
+   H1 builder documents only the 8192 `max_buf_size` minimum and accepts
+   `usize` for `max_headers`.
+2. the final H1 response boundary always subordinates service `Date` and
+   `Server` to one runtime-global `ResponsePolicy`, preventing an explicit
+   direct embedder from owning valid per-response metadata.
+
+The same review classifies `max_header_bytes` separately: it is an
+EggServe post-parse semantic ceiling, not a Hyper parser requirement. Direct
+embedders may need to own that policy without disabling parser count/buffer
+defenses.
+
+```text
+288  parser-range expansion + external aggregate-header ownership
+ |
+289  service-response Date/Server ownership
+ |
+290  combined qualification + API/semver decision
+ |
+291  publication + registry-only/downstream closure
+```
+
+### Plan 288 — parser range and aggregate-header ownership
+
+Plan 288 removes only arbitrary EggServe upper caps from the explicit H1
+parser controls while keeping the 8192 Hyper minimum, nonzero header count,
+and unchanged secure defaults.
+
+It also adds an explicit direct-H1 policy override for the aggregate
+post-parse header-byte ceiling. Default/high-level behavior remains
+EggServe-owned; External ownership skips only that semantic ceiling and cannot
+disable `max_buf_size`, `max_headers`, Host/authority checks, framing, or
+target-form validation.
+
+Existing public hard-max constants are not removed in this patch; their docs
+must be reconciled if they cease to be validator maxima.
+
+Implementation plan:
+`plans/288-direct-h1-parser-range-and-header-ceiling-ownership.md`.
+
+### Plan 289 — service-response metadata ownership
+
+Plan 289 adds an explicit direct-H1 ownership seam for service-provided
+`Date` and `Server` without changing public `RuntimeConfig` or
+`ResponsePolicy` field shapes.
+
+Default ownership remains EggServe. Under explicit External service ownership:
+
+- valid per-response Date may survive exactly, including intentional absence;
+- invalid or duplicate Date fails safely before commit;
+- service Server may survive, subject to the existing explicit denylist;
+- runtime-generated errors/rejections continue using EggServe's runtime-global
+  response policy;
+- framing/hop-by-hop authority remains runtime-owned;
+- `Last-Modified <= Date` remains enforced when Date exists.
+
+The implementation must carry explicit private service-vs-runtime response
+provenance; task-local/global policy mutation is forbidden.
+
+Implementation plan:
+`plans/289-direct-h1-service-response-metadata-ownership.md`.
+
+### Plan 290 — combined qualification and version decision
+
+Plan 290 proves the combined contract with real direct H1:
+
+- parser settings above the former 4 MiB / 10,000 gates;
+- External aggregate-header ownership above/below EggServe's stored semantic
+  range while parser defenses remain active;
+- multiple service responses on one runtime with distinct Date/Server values;
+- invalid-Date fail-safe behavior;
+- runtime-error metadata isolation;
+- caller-owned Rustls/Tokio-Rustls H1;
+- direct Tower/Axum composition;
+- default/core/H2/H3 regression coverage and direct graph topology.
+
+It then classifies the public API diff. The intended design is additive
+(private H1ConnectionPolicy fields plus new methods/types, widened accepted
+values, no removed public constants), so a compatible `0.3.x` patch is
+expected if live evidence agrees. Any source-incompatible implementation
+requires a new pre-1.0 minor instead.
+
+Implementation plan:
+`plans/290-direct-h1-boundary-ownership-qualification-and-version-decision.md`.
+
+### Plan 291 — publication and registry-only closure
+
+Plan 291 derives the minimal publish set from Plan 290, queries live registry
+state, performs package/release gates, publishes manually, and proves the new
+contract from fresh crates.io-only direct, real TLS-H1, and Tower consumers.
+
+A server-only patch is the expected minimal shape if Plan 290 remains additive;
+`eggserve-core 0.3.0` already carries a compatible server dependency, so the
+plan explicitly proves core can resolve the new server patch rather than
+republishing siblings for version symmetry.
+
+Only Plan 291 may name the exact downstream-unblock artifact.
+
+Implementation plan:
+`plans/291-direct-h1-boundary-ownership-publication-closure.md`.
+
+Program invariants:
+
+- secure defaults unchanged;
+- parser protections remain explicit;
+- no magic numeric sentinel for ownership;
+- no malformed external Date on the wire;
+- runtime errors remain runtime metadata-owned;
+- response denylist and framing authority remain intact;
+- no raw Hyper public API;
+- no listener/TLS/H2/H3/static/Python behavior expansion;
+- no project-specific adapter;
+- Rust 1.89 MSRV unchanged.
