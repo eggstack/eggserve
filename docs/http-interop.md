@@ -9,16 +9,16 @@ Use the direct profile for H1 application services, or the compatibility
 profile when composing static serving or the multiprotocol runtime. Both
 adapter features remain opt-in:
 
-The direct-server feature is introduced in the 0.2.3 release candidate and is
-publication-pending. Registry consumers must use the currently published
-core compatibility path until the direct server package is visible; the
-candidate source and staged-package validation use these direct imports.
+The direct-server adapters are published in `eggserve-server 0.3.0` with
+registry-only consumer proof (see
+`../release/plan-286-embedding-contract-publication-closure.md`). Depend on
+the published leaves; the staged-package validation uses these direct imports.
 
 ```toml
-eggserve-server = { version = "0.2", default-features = false, features = ["http-interop"] }
-eggserve-server = { version = "0.2", default-features = false, features = ["tower"] }
+eggserve-server = { version = "0.3", default-features = false, features = ["http-interop"] }
+eggserve-server = { version = "0.3", default-features = false, features = ["tower"] }
 # Compatibility/static/multiprotocol composition:
-eggserve-core = { version = "0.2", features = ["tower"] }
+eggserve-core = { version = "0.3", features = ["tower"] }
 ```
 
 `eggserve-server` owns the interop and Tower implementations. The historical

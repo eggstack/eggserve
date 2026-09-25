@@ -528,9 +528,9 @@ Plans 257–258 supersede only the async suppressed-body permit/task-lifetime
 closure claim. The other Plan 256 results remain closed unless new evidence
 shows otherwise.
 
-## Docs-only refresh — Plans 259–261
+## Docs-only refresh — Plans 259–262 + 287
 
-**Plans 259–261** are docs/metadata/skill-text refreshes with no source,
+**Plans 259–262 + 287** are docs/metadata/skill-text refreshes with no source,
 API, ownership, topology, or support-tier change.
 
 - Plan 259 (`plans/259-architecture-overview-refresh.md`, commit `2ae733a`)
@@ -551,7 +551,19 @@ API, ownership, topology, or support-tier change.
   header on `RELEASE-READINESS-ROADMAP.md`. `AGENTS.md`, `docs/`,
   `README.md`, and `conformance/` verified current, left intact.
 
-Status: **259 COMPLETE, 260 COMPLETE, 261 COMPLETE, 262 COMPLETE**.
+Status: **259 COMPLETE, 260 COMPLETE, 261 COMPLETE, 262 COMPLETE, 287 COMPLETE**.
+
+- Plan 287 (`plans/287-agent-skill-docs-refresh-post-286.md`, this session)
+  closes the post-286 drift: skill 276–277 "0.2.3 publication-pending" →
+  published `0.3.0` outcome + new 278–286 paragraph (absolute-form seam,
+  policy/admission ownership, `H1ConnectionPolicy`, typed rejection,
+  TunnelIo KEEP, version decision, registry proof); `AGENTS.md` 0.2.3-pending
+  tripwire → current line (server/static/h3/core `0.3.0`, primitives
+  `0.2.1`, bin `0.2.1`, wheel `0.2.3`); overview plan-context names
+  261–262 + 287; README/`docs/http-interop.md` snippets `0.2` → `0.3`;
+  `docs/release-process.md` folded-into-286 outcome; `CHANGELOG.md`
+  `0.3.0` entry with `0.2.3` re-marked folded. No new skill/agent created
+  (single `eggserve-dev` source stays the right shape).
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 

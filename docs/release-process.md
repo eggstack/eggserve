@@ -94,18 +94,22 @@ ownership boundary. Plans 274–275 and
 implementation, package, and registry-only Axum qualification. Workspace and
 Python source metadata are synchronized; Python runtime behavior and wheel
 publication remain unchanged.
-The 0.2.3 source candidate moves adapter authority to `eggserve-server`,
-retains core compatibility re-exports, and raises core's server dependency
-floor to the server release that will expose the forwarded feature. The
-release remains publication-pending until routine CI, package dry-runs,
-registry visibility, and registry-only direct and compatibility consumers
-are recorded. This synchronized metadata change does not request a Python
-wheel publication.
+The standalone `0.2.3` source candidate moved adapter authority to
+`eggserve-server` with core compatibility re-exports, but per maintainer
+direction it was folded into Plan 286 and never published alone. The
+published `0.3.0` set (`eggserve-primitives 0.2.1`;
+`eggserve-server`/`eggserve-static`/`eggserve-h3`/`eggserve-core 0.3.0`;
+`eggserve-bin 0.2.1`) carries the server-owned adapters, the absolute-form
+seam, external policy/admission ownership, and the TunnelIo KEEP decision;
+exact checksums and registry-only consumer proof are recorded in
+`release/plan-286-embedding-contract-publication-closure.md`. No Python
+wheel publication was included.
 The release metadata remains synchronized. Rust crates are published in
 dependency order only after routine CI and the local layered package gate pass.
 Crates.io publication is a manual maintainer action and must be confirmed
 before claiming downstream registry consumers are unblocked. Continue on the
-`0.2.x` line; never roll back to `0.1.x`.
+current `0.3.x` leaf line (`eggserve-bin 0.2.1`, wheel `0.2.3`); never roll
+back to `0.1.x`.
 
 ## Preflight version-sync check
 

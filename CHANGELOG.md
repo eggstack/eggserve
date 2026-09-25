@@ -1,6 +1,31 @@
 # Changelog
 
-## 0.2.3 — release candidate; crates.io publication pending
+## 0.3.0 — published
+
+- Moved the optional HTTP interop and Tower adapter implementation to
+  `eggserve-server` (Plans 276–277), where direct H1 consumers enable
+  `http-interop` or `tower` without depending on `eggserve-core`,
+  `eggserve-static`, or PHF. Historical core adapter paths remain
+  compatibility re-exports. The direct H1 + Tower graph is proven free of
+  `eggserve-static`/PHF by registry-only consumers.
+- Added the opt-in forward-proxy absolute-form seam (Plans 278–279):
+  `OriginOnly` default, static stays origin-only and rejects absolute-form.
+- Added explicit external policy/admission ownership (Plans 280–281),
+  the narrow `H1ConnectionPolicy` projection (Plan 282), and
+  presentation-only typed runtime rejection (Plan 283). Secure defaults
+  stay EggServe-owned; `0.3.0` is a minor bump because exhaustive
+  `RuntimeConfig` literals and direct service/tunnel semaphore accessors
+  are source-incompatible (Plan 285).
+- Kept the direct opaque H1 tunnel transport (Plan 284 KEEP, evidence-gated).
+- H2/H3 tiers, TLS, static confinement, and Python runtime behavior are
+  unchanged. No Python wheel release is included.
+
+Published 2026-09-24 as `eggserve-primitives 0.2.1`,
+`eggserve-server`/`eggserve-static`/`eggserve-h3`/`eggserve-core 0.3.0`,
+`eggserve-bin 0.2.1`; see [the Plan 286 closure evidence](release/plan-286-embedding-contract-publication-closure.md)
+for timestamps, checksums, and the registry-only consumer proof.
+
+## 0.2.3 — folded into 0.3.0, never published alone
 
 - Moved the optional HTTP interop and Tower adapter implementation to
   `eggserve-server`, where direct H1 consumers can enable `http-interop` or

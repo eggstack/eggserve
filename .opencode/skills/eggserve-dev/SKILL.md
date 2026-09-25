@@ -115,15 +115,34 @@ Plans 274–275 repair the optional HTTP/Tower request-body ownership boundary,
 qualify Axum 0.8 with direct `eggserve-server` composition, and publish the
 core-only 0.2.2 patch. The registry-only consumer proof and checksum are
 recorded in `release/plan-275-http-tower-adapter-patch-publication-closure.md`.
-Plans 276–277 are the follow-on packaging separation. `eggserve-server` owns
-the optional `interop`/Tower adapters; core forwards features and keeps the
-historical paths as compatibility re-exports. The direct H1 + Tower graph must
-remain free of `eggserve-static`/PHF; core remains the compatibility/static
-umbrella. CI checks both feature authorities, and Plan 277 owns publication
-and registry-only proof. The 0.2.3 source candidate is publication-pending;
-do not describe the direct registry path as available until fresh registry
-consumers prove it. Do not make static optional inside core or add an adapter
-micro-crate without concrete blocker evidence.
+Plans 276–277 are the follow-on packaging separation, published as part of
+the `0.3.0` artifact set (Plan 286). `eggserve-server` owns the optional
+`interop`/Tower adapters; core forwards features and keeps the historical
+paths as compatibility re-exports. The direct H1 + Tower graph must remain
+free of `eggserve-static`/PHF (proven by the Plan 286 registry-only
+consumers); core remains the compatibility/static umbrella. CI checks both
+feature authorities. The standalone `0.2.3` candidate was folded into Plan
+286 and never published alone. Do not make static optional inside core or add
+an adapter micro-crate without concrete blocker evidence.
+
+Plans 278–286 close the direct H1 embedding program (see
+`release/plan-286-embedding-contract-publication-closure.md`). Plan 278 adds
+the opt-in forward-proxy absolute-form seam (`Http1RequestTargetMode::OriginOnly`
+default vs `OriginOrAbsolute`; static stays origin-only and rejects
+absolute-form). Plans 280–281 add explicit external ownership of selected
+deadlines/semantic ceilings (`PolicyOwner`) and service/tunnel admission
+(`AdmissionOwnership`) while secure defaults stay EggServe-owned. Plan 282
+projects a narrow `H1ConnectionPolicy` for the direct H1 driver. Plan 283
+adds presentation-only typed runtime rejection (`RuntimeRejectionKind`/
+`RuntimeRejection`; status/framing/lifecycle stay runtime-owned). Plan 284
+KEEPS the direct opaque H1 tunnel transport (evidence-gated). Plan 285
+qualifies the combined embedding contract (caller-owned Rustls/Tokio-Rustls
+TLS fixture, no core/static/PHF ancestry on the direct graph) and selects
+`0.3.0` because exhaustive `RuntimeConfig` literals and direct users of the
+service/tunnel semaphore accessors are source-incompatible. Plan 286
+publishes `primitives 0.2.1` + `server`/`static`/`h3`/`core 0.3.0` +
+`bin 0.2.1` with registry-only consumer proof; report the direct registry
+path as available only at these published versions.
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`

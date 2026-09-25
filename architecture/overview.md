@@ -19,8 +19,8 @@ subsystem for a focused review.
 
 Plan context: the authority split (Plans 211–225), maintainability
 convergence (Plans 243–250), and post-convergence maintenance (Plans 251–258)
-are closed; Plans 259–260 are docs-only refreshes (overview index + deep-dive
-refresh, no behavior/tier change). H1 + canonical `primitives` are supported; `server`/H2/H3/
+are closed; Plans 259–262 plus 287 are docs-only refreshes (overview index +
+deep-dive refresh, skill/agent-guide staleness sweeps, no behavior/tier change). H1 + canonical `primitives` are supported; `server`/H2/H3/
 tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remain
 experimental. `plans/` + `ROADMAP.md` are change-trace records, not normative
 API docs — normative user contracts live in `docs/`.

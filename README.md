@@ -88,19 +88,19 @@ For a composed/static server:
 
 ```toml
 [dependencies]
-eggserve-core = "0.2"
+eggserve-core = "0.3"
 tokio = { version = "1", features = ["full"] }
 ```
 
 For a generic supervised H1 daemon using native services, depend on
 `eggserve-server`, `eggserve-primitives`, and Tokio. The direct `tower` feature
-is part of the 0.2.3 release candidate and becomes available to registry
-consumers after publication; it adapts Tower/Axum without depending on
-`eggserve-core` or `eggserve-static`:
+is published in `eggserve-server 0.3.0` with registry-only consumer proof
+(see `release/plan-286-embedding-contract-publication-closure.md`); it adapts
+Tower/Axum without depending on `eggserve-core` or `eggserve-static`:
 
 ```toml
 [dependencies]
-eggserve-server = { version = "0.2", default-features = false, features = ["tower"] }
+eggserve-server = { version = "0.3", default-features = false, features = ["tower"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
