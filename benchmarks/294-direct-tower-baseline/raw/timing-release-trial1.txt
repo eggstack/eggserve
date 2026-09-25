@@ -1,0 +1,35 @@
+warning: field `seen` is never read
+   --> crates/eggserve-server/tests/direct_tower_baseline_294.rs:399:9
+    |
+398 |     struct TowerTrailer {
+    |            ------------ field in this struct
+399 |         seen: Arc<Mutex<Vec<String>>>,
+    |         ^^^^
+    |
+    = note: `TowerTrailer` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `eggserve-server` (test "direct_tower_baseline_294") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running tests/direct_tower_baseline_294.rs (target/release/deps/direct_tower_baseline_294-335d602c1a8e8aa3)
+
+running 1 test
+BASELINE294 {"case":"get-1kib-native-r0","profile":"release","requests":500,"elapsed_s":0.037,"rps":13479.7,"p50_ms":0.070,"p95_ms":0.098,"p99_ms":0.103}
+BASELINE294 {"case":"get-1kib-tower-r0","profile":"release","requests":500,"elapsed_s":0.043,"rps":11691.4,"p50_ms":0.083,"p95_ms":0.103,"p99_ms":0.119}
+BASELINE294 {"case":"get-1kib-tower-r1","profile":"release","requests":500,"elapsed_s":0.043,"rps":11591.3,"p50_ms":0.083,"p95_ms":0.114,"p99_ms":0.125}
+BASELINE294 {"case":"get-1kib-native-r1","profile":"release","requests":500,"elapsed_s":0.039,"rps":12941.4,"p50_ms":0.070,"p95_ms":0.098,"p99_ms":0.104}
+BASELINE294 {"case":"get-1kib-native-r2","profile":"release","requests":500,"elapsed_s":0.038,"rps":13081.8,"p50_ms":0.070,"p95_ms":0.099,"p99_ms":0.106}
+BASELINE294 {"case":"get-1kib-tower-r2","profile":"release","requests":500,"elapsed_s":0.046,"rps":10842.1,"p50_ms":0.084,"p95_ms":0.117,"p99_ms":0.121}
+BASELINE294 {"case":"get-1kib-axum","profile":"release","requests":500,"elapsed_s":0.044,"rps":11455.8,"p50_ms":0.086,"p95_ms":0.092,"p99_ms":0.116}
+BASELINE294 {"case":"get-headers-1-tower","profile":"release","requests":200,"elapsed_s":0.017,"rps":11686.0,"p50_ms":0.085,"p95_ms":0.090,"p99_ms":0.094}
+BASELINE294 {"case":"get-headers-16-tower","profile":"release","requests":200,"elapsed_s":0.018,"rps":10963.6,"p50_ms":0.091,"p95_ms":0.094,"p99_ms":0.096}
+BASELINE294 {"case":"get-headers-64-tower","profile":"release","requests":200,"elapsed_s":0.022,"rps":9272.1,"p50_ms":0.107,"p95_ms":0.111,"p99_ms":0.119}
+BASELINE294 {"case":"sse-32-native","profile":"release","requests":50,"elapsed_s":0.006,"rps":8711.3,"p50_ms":0.113,"p95_ms":0.118,"p99_ms":0.185}
+BASELINE294 {"case":"sse-32-tower","profile":"release","requests":50,"elapsed_s":0.006,"rps":8294.9,"p50_ms":0.119,"p95_ms":0.131,"p99_ms":0.149}
+BASELINE294 {"case":"stream-1mib-native","profile":"release","requests":20,"elapsed_s":0.007,"rps":2781.0,"p50_ms":0.350,"p95_ms":0.384,"p99_ms":0.500}
+BASELINE294 {"case":"stream-1mib-axum","profile":"release","requests":20,"elapsed_s":0.007,"rps":2748.7,"p50_ms":0.352,"p95_ms":0.396,"p99_ms":0.480}
+BASELINE294 {"case":"stream-1mib-tower-full","profile":"release","requests":20,"elapsed_s":0.007,"rps":2897.0,"p50_ms":0.334,"p95_ms":0.354,"p99_ms":0.476}
+test baseline_timing_matrix ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.42s
+

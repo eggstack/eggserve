@@ -1,0 +1,26 @@
+# Plan 294 stripped fixture sizes (dist profile)
+
+Identical 1 KiB fixtures, `--profile dist` (opt-z + fat LTO + 1 codegen
+unit + strip), x86_64-unknown-linux-gnu, same toolchain as environment.txt.
+Each fixture was executed once (printed its listen address, then shut down).
+
+| Fixture | Bytes | Delta vs native |
+|---|---|---|
+| size-native (direct `Service`, no-default-features) | 936608 | — |
+| size-tower (minimal Tower service via `TowerToEggserve`) | 951480 | +14872 (+1.6%) |
+| size-axum (`axum::Router` via `TowerToEggserve`) | 1037768 | +101160 (+10.8%) |
+
+Axum-vs-tower delta (+86288) is the Axum routing/middleware machinery, not
+EggServe adapter cost.
+
+No-dev package graph (`cargo tree -e no-dev --prefix none | sort -u`):
+
+- native: 37 lines; tower: 39 lines.
+- Exact package delta: `tower-layer v0.3.3` + `tower-service v0.3.3`.
+- Full captures: `raw/tree-native-no-dev.txt`, `raw/tree-tower-no-dev.txt`,
+  `raw/tree-features-native.txt`, `raw/tree-features-tower.txt`.
+
+Tokio features activated on the direct profile (from feature tree):
+`macros net time io-util fs sync rt` (+ `rt-multi-thread` in dev).
+`fs` is unconditional (file-body transport); no cfg gate exists anywhere in
+`eggserve-server` for file-body, tunnel, or tower-layer code.

@@ -1,0 +1,37 @@
+# Plan 294 evidence environment
+
+Measurement host (same-machine A/B, all trials):
+
+- OS: Linux 6.8.0-142-generic x86_64 (deadpool)
+- CPU: Intel Core i9-9900K @ 3.60GHz, 16 logical CPUs
+- RAM: 15 GiB (Swap 83 GiB, 3 GiB used at measurement time)
+- Toolchain: rustc 1.98.1 (48a229cea 2026-09-01), cargo 1.98.1
+- MSRV check lane available: 1.89 (not used for timing)
+- Repository planning baseline: 81605fc36b970440d6e3edbfd1e0d1cfa3ec4d91
+- Implementation HEAD at measurement: f2d581e0ce1fb18540f63175c319242162c48b6d
+  plus uncommitted 294 fixture/test work (committed with closure)
+
+Build profiles:
+
+- Timing: `cargo test --release -p eggserve-server
+  --no-default-features --features tower --test direct_tower_baseline_294
+  baseline_timing_matrix -- --ignored --nocapture` with `PROFILE_294=release`
+  at compile time (recorded per-sample as `"profile":"release"`).
+- Sizes: standalone fixtures in throwaway manifests (not committed; recipe in
+  README.md) built with `--profile dist` (opt-z, fat LTO, 1 codegen unit,
+  stripped symbols), `strip` verified via `file` (stripped ELF).
+
+Client shape:
+
+- Sequential loopback keep-alive on ONE connection for buffered cases
+  (50-request warm-up, then 500 measured; header sweep 20 + 200).
+- Fresh `Connection: close` connection per exchange for streaming cases
+  (5/3 warm-up, then 50/20 measured).
+- No allocator-count tooling on this host (consistent with Plan 240 note):
+  allocation evidence is mechanical source accounting (see results.json),
+  not measured counts. No CPU flamegraphs: single-digit-µs deltas sit below
+  useful profiler resolution for this harness; latency distribution is the
+  primary signal, interleaved across rounds to defeat order bias.
+- Harness-level peak RSS for the full release matrix run (all servers
+  in-process, sequential): 8508 KiB (`/usr/bin/time -v`). Not attributable
+  per profile; recorded for resource-recovery context only.

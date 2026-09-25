@@ -1,6 +1,6 @@
 # Direct H1 Runtime Milestone 294 — Direct Tower and footprint baseline
 
-Status: ready for handoff
+Status: closed (closure: `plans/closure/direct-h1-runtime/294-direct-tower-footprint-baseline.md`)
 
 Repository baseline: `81605fc36b970440d6e3edbfd1e0d1cfa3ec4d91`
 
