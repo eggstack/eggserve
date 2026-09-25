@@ -51,7 +51,7 @@ Consumes: `primitives` only; never static/core. `http2`/`tls` are inert compatib
 
 ## 4. Current state
 
-Core capability closure remains complete through `eggserve-server 0.3.1`; the subsystem is reopened only for the bounded Milestones 294–297 polish campaign. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
+Core capability closure remains complete through `eggserve-server 0.3.1`. Milestones 294–297 are now closed as a bounded direct-Tower/application-server polish campaign. The subsystem remains active only for Milestone 299, a scoped H1 response-trailer wire-correctness repair for the F3 gap discovered by 294; this does not reopen the completed performance/footprint campaign. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
 
 ## 5. Target architecture
 
@@ -72,10 +72,12 @@ direct H1 parity + tunnel convergence (closed: 215–217)
                                |
                                `--> boundary-ownership follow-up (closed: 288–291)
                                |
-                               `--> direct Tower/footprint polish (294–297)
+                               +--> direct Tower/footprint polish (294–297, closed)
+                               |
+                               `--> H1 response-trailer wire correctness (299)
 ```
 
-Milestone 294 is a hard evidence dependency for 295 and 296. Milestones 295 and 296 may proceed independently after 294 records their target costs. Milestone 297 has hard dependencies on every retained production change from 295/296 and closes the campaign with downstream-like evidence.
+Milestone 294 was the hard evidence dependency for 295 and 296; 297 closed that campaign after retained 295/296 work. Milestone 299 is independent of further performance work: its hard dependencies are the existing canonical trailer contract (Plan 198), the closed direct H1 authority/ownership work through 291, and the raw-wire F3 reproduction retained by 294/297.
 
 Parser work (288) and metadata work (289) ran in parallel from one baseline; combined qualification (290) gated publication (291): interface dependency between 288/289, hard dependency of 290 on both, operational dependency of 291 on 290's semver decision + registry state.
 
@@ -163,6 +165,20 @@ Dependencies: Milestones 5/6 for retained changes (hard); registry publication o
 
 Exit conditions: allocation/CPU/latency/tail/RSS/dependency/binary evidence, full correctness/security verification, exact keep/revert/defer decisions, and publication strategy recorded.
 
+### Milestone 8 — H1 response-trailer wire correctness
+
+Class: invariant
+
+Objective: restore the already-documented H1 response-trailer contract so an HTTP/1.1 client that advertises `TE: trailers` can receive validated terminal trailer fields on the wire, while HTTP/1.0 and non-opted-in H1.1 continue to suppress them.
+
+Dependencies: Plan 198 trailer model (hard, closed); Milestones 1–3 H1 authority (hard, closed); F3 raw-wire reproduction from Milestones 4/7 (evidence dependency, closed).
+
+Deliverable boundary: head-time trailer-field declaration owned by the runtime, correct H1 framing (no conflicting `Content-Length`; Hyper-selected chunked transfer), native/Tower parity, and fail-closed handling when produced fields violate the declaration. H2/H3 protocol-native trailers are not redesigned.
+
+User or operator value: the existing experimental trailer capability stops silently losing H1 response trailers after application code successfully produces them.
+
+Exit conditions: raw TCP tests observe the terminal trailer section for opted-in HTTP/1.1, suppression remains correct elsewhere, framing/security invariants remain singular, and the closure record classifies any additive public API and release impact.
+
 ## 8. Cross-cutting requirements
 
 Config: `RuntimeConfig` validated once; `Duration::ZERO` opts out of only the total lifetime. Security: TE+CL framing validation, bounded parser ceilings, sanitized errors, permits released once. Concurrency: JoinSet drain, level-triggered idempotent shutdown, `max_in_flight_requests` pre-response bound. Observability: explicit `OpsContext`, no library `println!`. Compat: exhaustive `RuntimeConfig` literals classified at each publication decision.
@@ -177,11 +193,13 @@ Direct-vs-compatibility parity suite, tunnel suites, app-server consumer + appli
 - Concrete response-body optimization must preserve trailers, HEAD/body-forbidden suppression, producer cancellation, no-progress accounting, and committed-response failure semantics.
 - File-body/tunnel feature separation may affect source or feature compatibility. Milestone 296 must classify semver before landing a public feature-layout change; create an ADR only if ownership or the durable public architecture would change.
 - Binary-size conclusions must use stripped identical fixtures and an EggPool-shaped consumer; dependency-count reduction alone is not proof of linked-size improvement.
+- The Milestone 299 fix must not poll a trailer future early or buffer the full response merely to discover field names. If Hyper requires head-time names, use explicit bounded declaration metadata rather than weakening runtime framing authority.
+- Existing `ResponseStream::with_trailers` callers without head-time declarations must not silently gain unsafe H1 behavior; preserve H2/H3 semantics and define an explicit H1 suppression/migration path.
 - Future H1-boundary widening still needs provenance-preserving design + a new scoped plan.
 
 ## 11. Completion definition
 
-The capability milestones 1–3 remain closed. The reopened polish campaign completes only when 294 establishes a reproducible baseline, every 295/296 candidate has an evidence-backed KEEP/REVERT/DEFER or NO-GO disposition, and 297 records downstream-like qualification with no unresolved correctness/security regression.
+The capability milestones 1–3 remain closed and the 294–297 polish campaign is closed. The subsystem can return to closed status after Milestone 299 restores H1 response-trailer wire delivery (or records an evidence-backed contract correction) with no unresolved medium+ trailer correctness defect.
 
 ## 12. Milestone status
 
@@ -194,3 +212,4 @@ The capability milestones 1–3 remain closed. The reopened polish campaign comp
 | 5 | closed | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | `plans/closure/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | — |
 | 6 | closed | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | `plans/closure/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | — |
 | 7 | closed | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | — |
+| 8 | ready | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | — | — |
