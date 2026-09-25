@@ -1,0 +1,30 @@
+# Plan 297 footprint matrix (WP-C)
+
+Same host/toolchain/profile conventions as 294/296.
+
+## Stripped dist fixtures (identical 1 KiB route)
+
+| Fixture | 294 baseline (B) | 297 candidate (B) | Delta |
+|---|---|---|---|
+| native | 936608 | 936784 | +176 (noise) |
+| tower | 951480 | 951672 | +192 (noise) |
+| axum | 1037768 | 1038264 | +496 (noise) |
+
+P1+P2+WP-A change no linked size beyond linker noise.
+
+## Dependency counts
+
+- Workspace `Cargo.lock`: 182 packages (both lockfiles audited clean by
+  `check-supply-chain.sh`; direct `rustls 0.23.45` floor intact).
+- Registry-only direct Axum consumer (296 package dry-run): 45 lock
+  packages / 110 no-dev nodes / 579,568 release bytes.
+- Direct `tower` no-dev graph: 38 lines, `tower-layer` absent,
+  core/static/PHF absent (topology gate).
+
+## Capability combinations retained
+
+- WP-B/WP-C closed NO-GO: no feature-layout change, no new combinations.
+- Only combination delta in the campaign: `tower` no longer activates
+  `tower-layer` (dev-deps cover tests). Matrix checked: server
+  default/no-default/tower/http-interop (+1.89 lanes), core tower lane,
+  static/core file composition, tunnel suites.

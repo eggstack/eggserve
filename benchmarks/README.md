@@ -22,6 +22,10 @@ qualified profile and point at the evidence files below.
 | `234-fixed-cost-baseline/` | Plan 234 current-head fixed-cost baseline: native keep-alive measurements, syscall fallback profiles, environment/lock provenance, and evidence-gated decisions for Plans 235–239. |
 | `240-fixed-cost-closure/` | Plan 240 same-machine candidate closure: retained native A/B capture, per-track keep/revert/defer decisions, and local CI/qualification provenance. |
 | `241-fixed-cost-evidence-corrective/` | Plan 241 corrective closure: per-trial custom H1/path/TLS/installed-wheel Python/slow-stream evidence, before/after Unix resolver traces, truthful unavailable/deferred classifications, and exact-SHA CI provenance. |
+| `294-direct-tower-baseline/` | Plan 294 direct Tower/Axum baseline: identical native/Tower/Axum fixtures, interleaved-round release timing (buffered + SSE-like + 1 MiB), no-dev graphs, stripped dist sizes, and the PROCEED/NO-GO decision record for Plans 295/296 (findings F1 always-chunked Tower responses, F2 Stream-policy keep-alive close, F3 H1 response-trailer wire gap). |
+| `295-direct-tower-optimization/` | Plan 295 candidate A/B: P1 known-length fast path + P2 provably-empty completion (tower p50 0.083→0.074ms), per-candidate KEEP/NO-GO/DEFER dispositions, retained release-candidate trials. |
+| `296-direct-profile-footprint/` | Plan 296 capability split: tower-layer deactivation evidence (−1 graph node, link-neutral), file-body/tunnel NO-GO symbol attribution (~35 KB/~30 KB upper bounds vs API churn), package-consumer numbers, semver classification. |
+| `297-application-server-qualification/` | Plan 297 campaign closure: EggPool-geometry fixture, extended matrix (c16, SSE-128, POST/JSON, slow streams, RSS), footprint/freeze records, KEEP/DEFER release decision (no publication; next server release minor). |
 
 ## Method
 

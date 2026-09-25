@@ -1,0 +1,18 @@
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running tests/application_server_qualification_297.rs (target/release/deps/application_server_qualification_297-7ca8a325f45d3f53)
+
+running 1 test
+QUAL297 rss_hwm_start_kb=Some(3852)
+QUAL297 {"case":"c16-1kib-native","profile":"release-qual","requests":1600,"elapsed_s":1.751,"rps":913.5,"p50_ms":1.056,"p95_ms":1.330,"p99_ms":1.466}
+QUAL297 {"case":"c16-1kib-tower","profile":"release-qual","requests":1600,"elapsed_s":1.880,"rps":850.9,"p50_ms":1.154,"p95_ms":1.353,"p99_ms":1.537}
+QUAL297 rss_hwm_after_c16_kb=Some(5616)
+QUAL297 {"case":"sse-128-native","profile":"release-qual","requests":30,"elapsed_s":0.006,"rps":5323.1,"p50_ms":0.187,"p95_ms":0.193,"p99_ms":0.194}
+QUAL297 {"case":"sse-128-tower","profile":"release-qual","requests":30,"elapsed_s":0.007,"rps":4533.3,"p50_ms":0.206,"p95_ms":0.300,"p99_ms":0.326}
+QUAL297 {"case":"post-json-native","profile":"release-qual","requests":50,"elapsed_s":0.005,"rps":10186.1,"p50_ms":0.096,"p95_ms":0.116,"p99_ms":0.129}
+QUAL297 {"case":"post-json-tower","profile":"release-qual","requests":50,"elapsed_s":0.005,"rps":9232.1,"p50_ms":0.102,"p95_ms":0.144,"p99_ms":0.189}
+QUAL297 {"case":"slow-10-concurrent","profile":"release-qual","completed":10}
+QUAL297 rss_hwm_end_kb=Some(5616)
+test extended_timing_matrix ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.81s
+

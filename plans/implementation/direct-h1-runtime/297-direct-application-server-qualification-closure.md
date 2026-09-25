@@ -1,6 +1,6 @@
 # Direct H1 Runtime Milestone 297 — Direct application-server qualification and closure
 
-Status: blocked
+Status: closed (closure: `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md`; campaign complete, no publication)
 
 Repository baseline: `81605fc36b970440d6e3edbfd1e0d1cfa3ec4d91` (planning baseline; refresh after retained 295/296 implementation)
 

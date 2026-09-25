@@ -779,7 +779,7 @@ The runtime handles request body ingestion transparently for services:
    - 413: body too large
    - 500: transport error
 
-6. **Incomplete body handling**: When a service returns with an Abandoned/Failed Stream body, the connection closes. When it returns with an Active body delegated to a downstream task, no forced close occurs; reuse waits for body Complete and abandonment closes via Hyper. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value.
+6. **Incomplete body handling**: When a service returns with an Abandoned/Failed Stream body, the connection closes. When it returns with an Active body delegated to a downstream task, no forced close occurs; reuse waits for body Complete and abandonment closes via Hyper. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value. Bodies Hyper already reports end-streamed before any poll complete as empty (Plan 295): an unconsumed drop stays `Complete` and preserves keep-alive. Any case with potentially unread wire bytes keeps the wrapped path, where an unconsumed drop still forces close.
 
 ## Request body handling
 

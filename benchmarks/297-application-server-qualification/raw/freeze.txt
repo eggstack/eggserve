@@ -1,0 +1,23 @@
+# Plan 297 freeze record (WP-A)
+
+- 294 baseline: planning `81605fc36b970440d6e3edbfd1e0d1cfa3ec4d91`;
+  implementation HEAD `f2d581e0ce1fb18540f63175c319242162c48b6d`
+  (+294 fixtures, committed with this campaign).
+- Candidate: same HEAD + 294/295/296 work:
+  P1 known-length Tower responses (`src/interop.rs`),
+  P2 provably-empty request completion (`src/connection/pipeline.rs`),
+  WP-A `tower-layer` deactivation (`Cargo.toml` + `src/tower.rs` docs).
+  Production diff: 2 small source changes + 1 manifest edge + doc comments.
+- Compiler: rustc 1.98.1. Profiles: `release` (timing), `release-qual`
+  (extended matrix), `dist` (sizes). MSRV lane 1.89 checked for affected
+  feature combos.
+- Features: `--no-default-features --features tower` for direct-profile
+  evidence; full default/H2/H3/TLS lanes via `verify.sh full`.
+- Runtime limits (fixtures): loopback bind, 1 MiB body ceiling on
+  measurement servers (runtime default is 0/reject), 64 KiB adapter
+  ceiling on app fixture; all other limits at published defaults.
+- Host/client: same machine/toolchain as `294/environment.txt`; in-test
+  Tokio TCP harness (sequential keep-alive, c16 concurrent keep-alive,
+  fresh close-connections for streaming/POST).
+- No production optimization was discovered or added during closure
+  (plan prohibition respected).

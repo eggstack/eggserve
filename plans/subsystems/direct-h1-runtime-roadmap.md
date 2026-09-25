@@ -190,7 +190,7 @@ The capability milestones 1–3 remain closed. The reopened polish campaign comp
 | 1 | closed | legacy `plans/243-*`, `244-*`, `249-*`, `250-*` | `release/plan-250-h1-authority-lifetime-corrective-closure.md` | — |
 | 2 | closed | legacy `plans/270-*`, `271-*`, `278-*`–`286-*` | `release/plan-286-embedding-contract-publication-closure.md` | — |
 | 3 | closed | legacy `plans/288-*`, `289-*`, `290-*`, `291-*` | `release/plan-291-direct-h1-boundary-ownership-publication-closure.md` | — |
-| 4 | ready | `plans/implementation/direct-h1-runtime/294-direct-tower-footprint-baseline.md` | — | — |
-| 5 | blocked | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | — | Hard: 294 evidence |
-| 6 | blocked | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | — | Hard: 294 evidence |
-| 7 | blocked | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | — | Hard: retained 295/296 work |
+| 4 | closed | `plans/implementation/direct-h1-runtime/294-direct-tower-footprint-baseline.md` | `plans/closure/direct-h1-runtime/294-direct-tower-footprint-baseline.md` | — |
+| 5 | closed | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | `plans/closure/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | — |
+| 6 | closed | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | `plans/closure/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | — |
+| 7 | closed | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | — |

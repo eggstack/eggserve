@@ -30,7 +30,7 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Subsystem | Status | Roadmap | Current milestone | Dependencies or blockers |
 |---|---|---|---|---|
 | Static confinement + static service | closed | `plans/subsystems/static-confinement-roadmap.md` | All milestones closed (sole authority in `eggserve-static`) | None. Trace: legacy Plans 002/007/219/224/245 + `release/plan-225-compatibility-facade-closure.md`. |
-| Direct H1 runtime + service contract | active | `plans/subsystems/direct-h1-runtime-roadmap.md` | 294 direct Tower + footprint baseline | Core capability remains closed through 288–291 (`eggserve-server 0.3.1`); reopened only for evidence-gated application-server performance/footprint polish. |
+| Direct H1 runtime + service contract | active | `plans/subsystems/direct-h1-runtime-roadmap.md` | Campaign complete (294–297 closed) | Core capability closed through 288–291 (`eggserve-server 0.3.1`); polish campaign closed with P1/P2 + WP-A retained, file/tunnel NO-GO, no publication. |
 | Planning-convention migration | active | Plan 292 (this migration; no separate roadmap — bootstrap) | 292 scaffolding in progress | None. Closes when §Acceptance in `plans/292-planning-convention-migration-to-codegg-style.md` holds. |
 | Docs architecture (overview index + deep dives) | closed | `plans/subsystems/docs-architecture-roadmap.md` | 293 closed (overview + all deep dives refreshed) | Trace: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. |
 
@@ -39,18 +39,16 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Subsystem | Milestone | Status | Implementation plan | Dependencies / handoff note |
 |---|---|---|---|---|
 | Docs architecture | 293 | closed | `plans/implementation/docs-architecture/293-architecture-overview-deep-dive-refresh.md` | Done; closure: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. |
-| Direct H1 runtime | 294 | ready | `plans/implementation/direct-h1-runtime/294-direct-tower-footprint-baseline.md` | Evidence gate for the application-server optimization campaign; no production changes. |
-| Direct H1 runtime | 295 | blocked | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | Hard dependency: 294 must confirm the targeted adapter allocations/CPU cost. |
-| Direct H1 runtime | 296 | blocked | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | Hard dependency: 294 must confirm graph/link footprint targets and candidate feature savings. |
-| Direct H1 runtime | 297 | blocked | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | Hard dependency: retained 295/296 production changes; operational publication evidence only if a release is selected. |
+| Direct H1 runtime | 294 | closed | `plans/implementation/direct-h1-runtime/294-direct-tower-footprint-baseline.md` | Evidence gate closed; closure: `plans/closure/direct-h1-runtime/294-direct-tower-footprint-baseline.md`. No production changes. |
+| Direct H1 runtime | 295 | closed | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | Done; closure: `plans/closure/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` (P1+P2 KEEP). |
+| Direct H1 runtime | 296 | closed | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | Done; closure: `plans/closure/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` (WP-A KEEP; file/tunnel NO-GO). |
+| Direct H1 runtime | 297 | closed | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | Done; closure: `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md`. Campaign complete; no publication (next server release minor when cut). |
 
 ## Blocked work
 
-| Subsystem | Milestone | Blocker |
-|---|---|---|
-| Direct H1 runtime | 295 | 294 baseline/evidence gate not yet closed. |
-| Direct H1 runtime | 296 | 294 baseline/evidence gate not yet closed. |
-| Direct H1 runtime | 297 | Retained 295/296 implementation not yet closed. |
+No blocked milestones. 297 was blocked on retained 295/296 work; both are
+now closed (295 P1/P2 KEEP, 296 WP-A KEEP with file/tunnel NO-GO), so 297
+is ready.
 
 ## Closure work and current control points
 
