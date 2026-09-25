@@ -1,6 +1,6 @@
 # Direct H1 Runtime Roadmap
 
-Status: closed
+Status: active
 
 Long-term references:
 
@@ -41,6 +41,7 @@ Consumes: `primitives` only; never static/core. `http2`/`tls` are inert compatib
 ### Polish
 
 - H1 dispatch-state and connection-metadata fixed-cost cleanup (Plans 228/237); activity/dispatch simplification with same-machine A/B evidence.
+- Direct Tower/Axum adapter hot-path and downstream-application footprint optimization (Milestones 294–297), evidence-gated and API-preserving unless a separately justified semver change is required.
 
 ## 3. Non-goals
 
@@ -50,11 +51,13 @@ Consumes: `primitives` only; never static/core. `http2`/`tls` are inert compatib
 
 ## 4. Current state
 
-Closed through `eggserve-server 0.3.1`. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
+Core capability closure remains complete through `eggserve-server 0.3.1`; the subsystem is reopened only for the bounded Milestones 294–297 polish campaign. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
 
 ## 5. Target architecture
 
-No change: preserve the direct authority, compatibility delegation shape, and explicit-ownership (not silent-default) seam discipline.
+Preserve the direct authority, compatibility delegation shape, and explicit-ownership (not silent-default) seam discipline while reducing avoidable work for direct application-server consumers.
+
+The target direct Tower shape is still one H1 parser/framing/security authority. Optimization may avoid redundant canonical↔`http` materialization or introduce narrower internal body representations only when the same validation, body-limit, response-policy, cancellation, and shutdown authorities remain singular. Feature/capability separation may remove file-body or tunnel machinery from builds that cannot exercise it, but must not move filesystem policy out of `eggserve-static` or create a second H1 runtime.
 
 ## 6. Dependency graph
 
@@ -68,7 +71,11 @@ direct H1 parity + tunnel convergence (closed: 215–217)
                       +--> absolute-form + ownership program (closed: 278–286)
                                |
                                `--> boundary-ownership follow-up (closed: 288–291)
+                               |
+                               `--> direct Tower/footprint polish (294–297)
 ```
+
+Milestone 294 is a hard evidence dependency for 295 and 296. Milestones 295 and 296 may proceed independently after 294 records their target costs. Milestone 297 has hard dependencies on every retained production change from 295/296 and closes the campaign with downstream-like evidence.
 
 Parser work (288) and metadata work (289) ran in parallel from one baseline; combined qualification (290) gated publication (291): interface dependency between 288/289, hard dependency of 290 on both, operational dependency of 291 on 290's semver decision + registry state.
 
@@ -104,6 +111,58 @@ Dependencies: Milestone 2 (hard); live crates.io state at execution (operational
 
 Exit conditions: `release/plan-290-*` qualification + `release/plan-291-*` registry closure (`eggserve-server 0.3.1`).
 
+### Milestone 4 — Direct Tower + footprint baseline
+
+Class: polish
+
+Objective: measure the exact direct `eggserve-server/tower` request/response hot path and compile/link footprint used by downstream application servers before changing production code.
+
+Dependencies: Milestone 3 (hard, closed).
+
+Deliverable boundary: retained allocation/CPU/latency/profile evidence for native H1 versus Tower/Axum, streaming-response adapter state, dependency ancestry, Tokio feature activation, and stripped fixture/downstream-like binary size.
+
+User or operator value: prevents speculative optimization and identifies which fixed costs are real for embedded application servers.
+
+Exit conditions: Milestone 294 closure records KEEP/NO-GO targets for 295/296.
+
+### Milestone 5 — Tower/Axum hot-path optimization
+
+Class: polish
+
+Objective: remove measured redundant request/response adaptation work for direct Tower consumers without adding a second validation/framing implementation.
+
+Dependencies: Milestone 4 (hard evidence dependency).
+
+Deliverable boundary: only measured costs retained; candidate areas include duplicate header/target materialization and streaming response body/trailer boxing/synchronization.
+
+User or operator value: lower per-request allocation/CPU and lower SSE/streaming overhead for application-server embedders.
+
+Exit conditions: focused parity/security tests plus same-machine A/B show a retained simplification or measurable win with no semantic regression.
+
+### Milestone 6 — Direct-profile capability and dependency footprint
+
+Class: polish
+
+Objective: reduce code/dependency footprint for direct application-server builds by gating machinery they cannot exercise and pruning unnecessary feature edges.
+
+Dependencies: Milestone 4 (hard evidence dependency); Milestone 5 is independent.
+
+Deliverable boundary: evidence-gated file-body transport separation, optional tunnel gating only if clean, unused direct-profile dependency removal, and Tokio/futures feature tightening. No new crate solely for size.
+
+User or operator value: smaller direct application binaries and narrower supply-chain/build graph.
+
+Exit conditions: direct Tower consumer keeps required behavior while graph/binary evidence improves or each candidate is explicitly NO-GO.
+
+### Milestone 7 — Downstream-like qualification and closure
+
+Class: polish
+
+Objective: qualify every retained 295/296 change against native/direct Tower behavior and an EggPool-shaped streaming application fixture, then make the semver/publication decision.
+
+Dependencies: Milestones 5/6 for retained changes (hard); registry publication only if a release is selected (operational).
+
+Exit conditions: allocation/CPU/latency/tail/RSS/dependency/binary evidence, full correctness/security verification, exact keep/revert/defer decisions, and publication strategy recorded.
+
 ## 8. Cross-cutting requirements
 
 Config: `RuntimeConfig` validated once; `Duration::ZERO` opts out of only the total lifetime. Security: TE+CL framing validation, bounded parser ceilings, sanitized errors, permits released once. Concurrency: JoinSet drain, level-triggered idempotent shutdown, `max_in_flight_requests` pre-response bound. Observability: explicit `OpsContext`, no library `println!`. Compat: exhaustive `RuntimeConfig` literals classified at each publication decision.
@@ -114,11 +173,15 @@ Direct-vs-compatibility parity suite, tunnel suites, app-server consumer + appli
 
 ## 10. Risks and decision points
 
-None open. Future H1-boundary widening needs provenance-preserving design + a new scoped plan.
+- A Tower fast path is acceptable only if it reuses the canonical H1 validation/framing authorities; a parallel parser/security implementation is a stop condition.
+- Concrete response-body optimization must preserve trailers, HEAD/body-forbidden suppression, producer cancellation, no-progress accounting, and committed-response failure semantics.
+- File-body/tunnel feature separation may affect source or feature compatibility. Milestone 296 must classify semver before landing a public feature-layout change; create an ADR only if ownership or the durable public architecture would change.
+- Binary-size conclusions must use stripped identical fixtures and an EggPool-shaped consumer; dependency-count reduction alone is not proof of linked-size improvement.
+- Future H1-boundary widening still needs provenance-preserving design + a new scoped plan.
 
 ## 11. Completion definition
 
-All three milestones closed with immutable qualification/publication records and no open corrective. Met at `release/plan-291-direct-h1-boundary-ownership-publication-closure.md`.
+The capability milestones 1–3 remain closed. The reopened polish campaign completes only when 294 establishes a reproducible baseline, every 295/296 candidate has an evidence-backed KEEP/REVERT/DEFER or NO-GO disposition, and 297 records downstream-like qualification with no unresolved correctness/security regression.
 
 ## 12. Milestone status
 
@@ -127,3 +190,7 @@ All three milestones closed with immutable qualification/publication records and
 | 1 | closed | legacy `plans/243-*`, `244-*`, `249-*`, `250-*` | `release/plan-250-h1-authority-lifetime-corrective-closure.md` | — |
 | 2 | closed | legacy `plans/270-*`, `271-*`, `278-*`–`286-*` | `release/plan-286-embedding-contract-publication-closure.md` | — |
 | 3 | closed | legacy `plans/288-*`, `289-*`, `290-*`, `291-*` | `release/plan-291-direct-h1-boundary-ownership-publication-closure.md` | — |
+| 4 | ready | `plans/implementation/direct-h1-runtime/294-direct-tower-footprint-baseline.md` | — | — |
+| 5 | blocked | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | — | Hard: 294 evidence |
+| 6 | blocked | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | — | Hard: 294 evidence |
+| 7 | blocked | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | — | Hard: retained 295/296 work |

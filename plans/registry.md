@@ -30,7 +30,7 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Subsystem | Status | Roadmap | Current milestone | Dependencies or blockers |
 |---|---|---|---|---|
 | Static confinement + static service | closed | `plans/subsystems/static-confinement-roadmap.md` | All milestones closed (sole authority in `eggserve-static`) | None. Trace: legacy Plans 002/007/219/224/245 + `release/plan-225-compatibility-facade-closure.md`. |
-| Direct H1 runtime + service contract | closed | `plans/subsystems/direct-h1-runtime-roadmap.md` | All milestones closed through 288–291 (`eggserve-server 0.3.1`) | None. Trace: `release/plan-250-*`, `plan-256-*`, `plan-286-*`, `plan-290-*`, `plan-291-*`. |
+| Direct H1 runtime + service contract | active | `plans/subsystems/direct-h1-runtime-roadmap.md` | 294 direct Tower + footprint baseline | Core capability remains closed through 288–291 (`eggserve-server 0.3.1`); reopened only for evidence-gated application-server performance/footprint polish. |
 | Planning-convention migration | active | Plan 292 (this migration; no separate roadmap — bootstrap) | 292 scaffolding in progress | None. Closes when §Acceptance in `plans/292-planning-convention-migration-to-codegg-style.md` holds. |
 | Docs architecture (overview index + deep dives) | closed | `plans/subsystems/docs-architecture-roadmap.md` | 293 closed (overview + all deep dives refreshed) | Trace: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. |
 
@@ -39,12 +39,18 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Subsystem | Milestone | Status | Implementation plan | Dependencies / handoff note |
 |---|---|---|---|---|
 | Docs architecture | 293 | closed | `plans/implementation/docs-architecture/293-architecture-overview-deep-dive-refresh.md` | Done; closure: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. |
+| Direct H1 runtime | 294 | ready | `plans/implementation/direct-h1-runtime/294-direct-tower-footprint-baseline.md` | Evidence gate for the application-server optimization campaign; no production changes. |
+| Direct H1 runtime | 295 | blocked | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | Hard dependency: 294 must confirm the targeted adapter allocations/CPU cost. |
+| Direct H1 runtime | 296 | blocked | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | Hard dependency: 294 must confirm graph/link footprint targets and candidate feature savings. |
+| Direct H1 runtime | 297 | blocked | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | Hard dependency: retained 295/296 production changes; operational publication evidence only if a release is selected. |
 
 ## Blocked work
 
 | Subsystem | Milestone | Blocker |
 |---|---|---|
-| — | — | None. |
+| Direct H1 runtime | 295 | 294 baseline/evidence gate not yet closed. |
+| Direct H1 runtime | 296 | 294 baseline/evidence gate not yet closed. |
+| Direct H1 runtime | 297 | Retained 295/296 implementation not yet closed. |
 
 ## Closure work and current control points
 
