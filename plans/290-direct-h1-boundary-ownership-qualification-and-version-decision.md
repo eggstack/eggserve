@@ -1,6 +1,6 @@
 # Plan 290 — Direct H1 boundary-ownership qualification and version decision
 
-Status: **IMPLEMENTED; hosted CI qualification pending**.
+Status: **COMPLETE**.
 
 Program:
 `plans/288-291-direct-h1-boundary-ownership-followup-program.md`.
@@ -235,7 +235,11 @@ run for the proof-bearing source SHA.
 - [x] direct graph topology remains narrow.
 - [x] public API compatibility is classified.
 - [x] exact release version strategy is recorded.
-- [ ] proof-bearing SHA has green hosted CI.
+- [x] proof-bearing SHA has green hosted CI.
+
+Evidence: `release/plan-290-direct-h1-boundary-ownership-qualification.md`.
+The implementation SHA `dc39fef20dd658755ef268c4cd82916448fa3da1` passed
+hosted CI run `36102738591`.
 
 ## Non-goals
 

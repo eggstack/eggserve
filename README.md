@@ -94,7 +94,7 @@ tokio = { version = "1", features = ["full"] }
 
 For a generic supervised H1 daemon using native services, depend on
 `eggserve-server`, `eggserve-primitives`, and Tokio. The direct `tower` feature
-is published in `eggserve-server 0.3.0` with registry-only consumer proof
+was first published in `eggserve-server 0.3.0` with registry-only consumer proof
 (see `release/plan-286-embedding-contract-publication-closure.md`); it adapts
 Tower/Axum without depending on `eggserve-core` or `eggserve-static`:
 
@@ -110,8 +110,8 @@ larger explicit values are operator resource choices. The direct connection
 policy also offers opt-in ownership of the aggregate post-parse header-byte
 ceiling and of Date/Server metadata on successful service responses. Runtime
 errors, response framing, and the stripped-header denylist remain EggServe-owned.
-Check the published `eggserve-server` version before relying on these newer
-policy methods; registry availability is recorded only by the Plan 291 closure.
+These ownership and parser-range APIs are published in `eggserve-server
+0.3.1`; registry-only evidence is recorded in the Plan 291 closure.
 
 The direct handle can be
 split into independent shutdown control and typed completion; setting

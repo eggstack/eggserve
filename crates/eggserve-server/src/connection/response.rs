@@ -4,8 +4,10 @@
 //! The runtime is the only framing authority: every service response
 //! converges on `normalize_then_convert` (idempotent `normalize_response`
 //! then Hyper conversion). `finalize_runtime_response` applies the Plan 165
-//! privacy boundary (denylist, `Server` subordination, sole `Date` authority,
-//! `Last-Modified <= Date`) at the one Hyper boundary.
+//! privacy boundary (denylist, default `Server`/`Date` ownership,
+//! `Last-Modified <= Date`) at the one Hyper boundary. Direct H1 can
+//! explicitly transfer successful service-response Date/Server ownership;
+//! runtime-generated responses remain under `ResponsePolicy`.
 
 use crate::config::{H1ConnectionPolicy, RuntimeConfig};
 use crate::response::BoxBodyInner;

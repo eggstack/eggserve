@@ -1,11 +1,13 @@
 # eggserve-server
 
-`eggserve-server 0.3.0` is the single mature H1 runtime and transport
+`eggserve-server 0.3.1` is the single mature H1 runtime and transport
 boundary (Plans 215–217, 243–250, 270–286). It owns the H1 driver,
 `Service` contract, tunnel execution, per-runtime observability vocabulary,
 response privacy, shared limit kernel, supervisory completion, external
-policy/admission ownership, typed rejection presentation, and opt-in
-absolute-form dispatch. `eggserve-core` keeps compatibility facades only;
+policy/admission ownership, typed rejection presentation, opt-in
+absolute-form dispatch, wider explicit parser ranges, external aggregate
+header ownership, and successful service-response Date/Server ownership.
+`eggserve-core` keeps compatibility facades only;
 it owns H2/TLS/PROXY/listener composition, Unix/systemd/H3 paths, and
 static orchestration.
 

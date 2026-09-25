@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1 — candidate (Plans 288–291)
+## 0.3.1 — published (Plans 288–291)
 
 - Removed the EggServe hard validation maxima for H1 parser buffer size and
   header count; the 8192-byte Hyper minimum and positive field count remain,
@@ -8,7 +8,12 @@
 - Added direct-H1 ownership controls for the post-parse aggregate request
   header-byte ceiling and successful service-response Date/Server metadata.
   Runtime errors, response framing, and the stripped-header denylist remain
-  runtime-owned. Publication and registry-only proof are pending Plan 291.
+  runtime-owned. Registry-only qualification proves these APIs on the
+  published artifact.
+
+Published 2026-09-25 as `eggserve-server 0.3.1` only. The exact checksum,
+registry consumers, and hosted CI evidence are in
+`release/plan-291-direct-h1-boundary-ownership-publication-closure.md`.
 
 ## 0.3.0 — published
 

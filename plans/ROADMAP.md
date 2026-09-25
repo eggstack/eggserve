@@ -1245,7 +1245,8 @@ Status: **Plans 280–286 closed.** The direct-server version is `0.3.0` due sou
 
 ## Direct H1 boundary-ownership follow-up — Plans 288–291
 
-Status: **288–291 PLANNED**.
+Status: **288–291 COMPLETE**; published and registry-qualified as
+`eggserve-server 0.3.1` (see the Plan 291 closure record below).
 
 Program:
 `plans/288-291-direct-h1-boundary-ownership-followup-program.md`.
@@ -1371,3 +1372,16 @@ Program invariants:
 - no listener/TLS/H2/H3/static/Python behavior expansion;
 - no project-specific adapter;
 - Rust 1.89 MSRV unchanged.
+
+### Plans 288–291 closure
+
+The additive H1 parser and ownership changes were released as the single
+compatible patch `eggserve-server 0.3.1`; no sibling crate was republished.
+The implementation SHA `dc39fef20dd658755ef268c4cd82916448fa3da1` passed
+hosted CI run `36102738591`. Registry-only direct TCP/TLS-H1 and Tower/Axum
+consumers passed, and the published `eggserve-core 0.3.0` consumer resolved
+`eggserve-server 0.3.1` through its existing compatible requirement.
+
+The exact registry checksum, publication time, consumer evidence, and
+downstream-unblock artifact are recorded in
+`release/plan-291-direct-h1-boundary-ownership-publication-closure.md`.

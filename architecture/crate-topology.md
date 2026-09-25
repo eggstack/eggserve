@@ -37,7 +37,10 @@ planning and rendering, while core's `StaticService` is a compatibility wrapper.
 The Python wheel carries maintained stubs and `py.typed`, and native PyO3
 registration is isolated from implementation modules. The topology checker
 walks production Rust module reachability, rejects orphan sources, and asserts
-that accepted direct-crate compatibility features remain inert.
+that accepted direct-crate compatibility features remain inert. Plans 288–291
+publish the additive direct-H1 ownership/range API as `eggserve-server 0.3.1`;
+the core `0.3.0` dependency resolves this compatible patch without a
+synchronized republish.
 
 Plan 248 closes the Plans 243–247 maintainability convergence with no API,
 ownership, or tier change (see
@@ -141,16 +144,17 @@ validation without reducing complexity (see
 `eggserve-core` is the compatibility and composition umbrella for EggServe's
 direct primitives, runtime, static-serving, TLS, and optional protocol
 adapters. Plan 226 executes the `0.2.0` version transition and the Rust
-1.89 MSRV move with no ownership change; the line now stands at `0.3.0`
-leaves / `0.2.1` bin / `0.2.3` wheel (Plans 272–286).
+1.89 MSRV move with no ownership change; Plans 272–291 leave the line at
+`eggserve-server 0.3.1`, other `0.3.0` leaves / `0.2.1` bin / `0.2.3` wheel.
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
 and legacy configuration; request/service/tunnel/canonical types are facades
 over the direct authorities (no second envelope, taxonomy, normalization, or
 state machine), and static/path/filesystem types are facades over the
 `eggserve-static` authority (no second parser, resolver, planner, or MIME
 table; `src/fs`, `src/path`, and `src/mime.rs` are deleted and the
-topology gate rejects their return). The current line is the `0.3.0` leaves
-/ `0.2.1` bin / `0.2.3` wheel (Plan 226 executed the original `0.2.0`
+topology gate rejects their return). The current line is the
+`eggserve-server 0.3.1` / other `0.3.0` leaves / `0.2.1` bin / `0.2.3` wheel
+(Plan 226 executed the original `0.2.0`
 transition; never publish this line as `0.1.x`). H2 dispatches through the single contract as transport glue,
 and `server/connection/tunnel.rs` stays deleted. The `eggserve_core::layers` module exposes
 the direct crates for migration; new consumers should name the direct leaf

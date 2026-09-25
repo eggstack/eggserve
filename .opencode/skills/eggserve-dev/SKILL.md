@@ -140,7 +140,7 @@ qualifies the combined embedding contract (caller-owned Rustls/Tokio-Rustls
 TLS fixture, no core/static/PHF ancestry on the direct graph) and selects
 `0.3.0` because exhaustive `RuntimeConfig` literals and direct users of the
 service/tunnel semaphore accessors are source-incompatible. Plan 286
-publishes `primitives 0.2.1` + `server`/`static`/`h3`/`core 0.3.0` +
+publishes `primitives 0.2.1` + `server 0.3.1` + `static`/`h3`/`core 0.3.0` +
 `bin 0.2.1` with registry-only consumer proof; report the direct registry
 path as available only at these published versions.
 
@@ -152,8 +152,9 @@ responses can opt into per-response Date/Server ownership. Carry explicit
 service/runtime provenance through finalization so timeouts, rejections,
 service failures, and fallback errors keep `ResponsePolicy` ownership. Keep
 framing and denylist runtime-owned, default/high-level behavior unchanged,
-H2/H3 untouched, and do not call the feature published before Plan 291's
-registry-only consumers qualify it.
+H2/H3 untouched. The published `eggserve-server 0.3.1` APIs are registry-
+qualified by the direct, TLS-H1, Tower, and core consumers in the Plan 291
+closure record.
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`

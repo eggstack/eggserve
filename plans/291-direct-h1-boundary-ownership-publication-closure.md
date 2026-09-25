@@ -1,6 +1,6 @@
 # Plan 291 — Direct H1 boundary-ownership publication and registry closure
 
-Status: **PLANNED**; blocked on Plan 290 qualification and hosted CI.
+Status: **COMPLETE**; `eggserve-server 0.3.1` is published and registry-qualified.
 
 Program:
 `plans/288-291-direct-h1-boundary-ownership-followup-program.md`.
@@ -253,21 +253,23 @@ post-publication metadata-only correction SHA before final closure.
 
 ## Acceptance criteria
 
-- [ ] live registry state was queried.
-- [ ] release version follows Plan 290 compatibility evidence.
-- [ ] minimal publish set is justified.
-- [ ] package dry-runs pass.
-- [ ] selected crates are visible on crates.io.
-- [ ] exact checksums/timestamps are recorded.
-- [ ] direct registry-only consumer proves all new ownership/range seams.
-- [ ] real registry-only caller-owned TLS-H1 fixture passes.
-- [ ] registry-only Tower/Axum fixture passes.
-- [ ] direct Tower graph excludes core/static/PHF.
-- [ ] core compatibility resolves without unnecessary republish, or the
+- [x] live registry state was queried.
+- [x] release version follows Plan 290 compatibility evidence.
+- [x] minimal publish set is justified.
+- [x] package dry-runs pass.
+- [x] selected crates are visible on crates.io.
+- [x] exact checksums/timestamps are recorded.
+- [x] direct registry-only consumer proves all new ownership/range seams.
+- [x] real registry-only caller-owned TLS-H1 fixture passes.
+- [x] registry-only Tower/Axum fixture passes.
+- [x] direct Tower graph excludes core/static/PHF.
+- [x] core compatibility resolves without unnecessary republish, or the
       minimal required core patch is explicitly qualified/published.
-- [ ] release evidence is complete.
-- [ ] roadmap/docs are truthful.
-- [ ] exact downstream-unblock artifact is named.
+- [x] release evidence is complete.
+- [x] roadmap/docs are truthful.
+- [x] exact downstream-unblock artifact is named.
+
+Evidence: `release/plan-291-direct-h1-boundary-ownership-publication-closure.md`.
 
 ## Non-goals
 

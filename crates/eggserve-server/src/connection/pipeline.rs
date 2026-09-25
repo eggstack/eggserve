@@ -227,8 +227,9 @@ fn h1_trailers_allowed(head: &eggserve_primitives::request_head::RequestHead) ->
 /// bounded application headers, empty body). The ordinary normalizer would
 /// strip the runtime-owned handshake as hop-by-hop, so it is bypassed here
 /// by construction. Privacy finalization still applies in
-/// `InFlightGuard::finish` (denylist, `Server` subordination, sole `Date`
-/// authority). Conversion failure (unreachable for validated handshakes)
+/// `InFlightGuard::finish` (denylist, configured `Server`/`Date` ownership,
+/// and the `Last-Modified <= Date` invariant). Conversion failure
+/// (unreachable for validated handshakes)
 /// falls back to a generic 500 without leaking detail.
 fn convert_handshake_without_normalization(
     canonical: eggserve_primitives::canonical::Response,
