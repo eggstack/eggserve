@@ -270,7 +270,8 @@ Every type that carries path data is classified by its role in the serving pipel
 
 ### Stream I/O error behavior (Workstream G)
 
-The file streaming code in `response.rs` propagates read failures through the HTTP body after logging a warning. A seek failure is converted to a generic 500 response before streaming starts. The body error causes Hyper to terminate the affected response/connection instead of silently presenting a successful response with fewer bytes than its `Content-Length`.
+The file streaming path (`response_from_plan` in `lib.rs` through the
+`eggserve-server` adapters) propagates read failures through the HTTP body after logging a warning. A seek failure is converted to a generic 500 response before streaming starts. The body error causes Hyper to terminate the affected response/connection instead of silently presenting a successful response with fewer bytes than its `Content-Length`.
 
 The semaphore permit remains owned by the stream state and is released when the stream completes or errors. Error responses do not expose local filesystem paths.
 

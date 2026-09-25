@@ -16,8 +16,8 @@ Depends on `eggserve-primitives` plus transport deps (`bytes`,
 http1/server, `hyper-util`, `tokio`) — never `eggserve-core`,
 `eggserve-static`, PHF, `eggnet-tls`, or QUIC. `http2`/`tls` are inert
 compatibility feature names; `http-interop`/`tower` are opt-in only.
-Direct native graph is 30 no-dev nodes, Tower 41, with no core/static/PHF
-ancestry (Plan 286 registry proof).
+Direct native graph has no core/static/PHF ancestry (Plan 286 registry
+proof).
 
 ## Module inventory
 
@@ -56,9 +56,9 @@ sole H1 authority over any `AsyncRead + AsyncWrite` stream — no Hyper types,
 no fabricated addrs. `Server::start_with_service` projects
 `RuntimeConfig::h1_connection_policy()` once and drives accepted TCP through
 the same driver with truthful socket contexts. Narrow `H1ConnectionPolicy`
-carries only H1 deadlines/ceilings/admission/presenter/target-mode; bind,
-TLS-handshake, listener concurrency, and file-stream settings do not enter
-it. `Duration::ZERO` disables only total lifetime (default 60 s); parser
+carries only H1 deadlines/ceilings/admission/presenter/target-mode plus the
+file-stream `stream_chunk_size`; bind, TLS-handshake, and listener
+concurrency settings do not enter it. `Duration::ZERO` disables only total lifetime (default 60 s); parser
 buffer/header-count/framing/header-timeout stay mandatory.
 
 ## Tunnel
@@ -140,7 +140,7 @@ CONNECT remains tunnel capability; no Python/CLI switch.
 - `release/plan-283-typed-runtime-rejection-closure.md`
 - `release/plan-284-tunnel-transport-ab-qualification.md`
 - `release/plan-285-embedding-contract-qualification.md`
-- `release/plan-286-embedding-contract-publication-closure.md` (+ `release/fixtures/plan-286-*`)
+- `release/plan-286-embedding-contract-publication-closure.md` (+ `release/fixtures/plan-286-*/`)
 - Guards: `scripts/check-crate-topology.py`, `scripts/verify-conformance-matrix.py`
 
 ## Authority notes (Plans 243/244/249/253, no ownership change)

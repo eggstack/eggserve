@@ -55,9 +55,10 @@ TunnelIo direct-transport KEEP (Plan 284), embedding-contract qualification
 (Plan 285), and publication of `primitives 0.2.1` + `server`/`static`/`h3`/
 `core 0.3.0` + `bin 0.2.1` with registry-only proof (Plan 286; see
 [the closure evidence](../release/plan-286-embedding-contract-publication-closure.md)).
-Current versions: `eggserve-server`/`eggserve-static`/`eggserve-h3`/
-`eggserve-core` at `0.3.0`, `eggserve-bin` at `0.2.1`, `eggserve-python`
-wheel at `0.2.3`.
+Current versions: `eggserve-server` at `0.3.1`, `eggserve-static`/
+`eggserve-h3`/`eggserve-core` at `0.3.0`, `eggserve-primitives` at `0.2.1`,
+`eggserve-bin` at `0.2.1`, `eggserve-python` wheel at `0.2.3`
+(Plans 288–291 extend only the direct H1 boundary).
 
 ## What eggserve Is
 
@@ -155,7 +156,7 @@ eggnet-tls              (leaf: neutral rustls substrate, no internal deps)
 eggserve-primitives     (leaf: canonical values, transport-neutral deps only)
         │
         ▼
-eggserve-server         (H1 runtime + Service; depends on primitives only)
+eggserve-server         (H1 runtime + Service; depends on primitives + transport deps, never static/core)
         │
         ▼
 eggserve-static         (static/path/FS authority; consumes primitives+server)
@@ -174,7 +175,7 @@ eggserve-core           (compatibility umbrella; facades over the leaves + H2/TL
 |-------|---------------------|-----------|
 | `eggnet-tls` | Neutral rustls identity/trust/client-auth/reload substrate: bounded PEM parsing, key/cert pairing, SNI (exact + single-level wildcard), WebPKI mTLS modes, trust/CRL bounds, atomic reload snapshots, neutral ALPN hook. No HTTP, Tokio, QUIC, proxy, or filesystem-watcher dependency; production graph is `rustls` + `rustls-pki-types` only. | [eggnet-tls.md](eggnet-tls.md), [tls.md](tls.md) |
 | `eggserve-primitives` | Canonical transport-neutral request/response/body/lifecycle/policy model: `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `Request`/`RequestBody`/`RequestContext`/`RequestLifecycle`, `StatusCode`, `ResponseHead`/`ResponseBody`/`Response`, `BodyLength`, trailers/interim, proxy metadata, tunnel vocabulary, `StaticPolicy`, `Limits`. Small transport-neutral deps only (`bytes`, `futures-util`). | [eggserve-primitives.md](eggserve-primitives.md), [primitives-api.md](primitives-api.md) |
-| `eggserve-server` | Single mature H1 connection runtime and transport boundary (`0.3.1`): strict-H1 driver over any `AsyncRead + AsyncWrite` stream, single `Service` contract (+ additive `call_with_tunnel`), `RuntimeConfig`/`RuntimeState` admission pool, per-connection shutdown, listener TCP `Server`, tunnel execution (incl. Plan 284 direct opaque `TunnelIo`), `OpsContext` authority, response policy, shared limit kernel. Plans 270/280–283 add supervisory `ServerControl`/`ServerCompletion`, external policy/admission ownership with narrow `H1ConnectionPolicy` projection, typed rejection presentation, and opt-in absolute-form dispatch (Plan 278). Plans 288–291 add wider explicit parser ranges plus external aggregate-header and successful service Date/Server ownership. Plans 276–277 add opt-in `http-interop` and Tower adapters for direct H1 composition. Depends on primitives only; never on static/core. `http2`/`tls` are inert compatibility feature names (H1-only crate). | [eggserve-server.md](eggserve-server.md), [runtime.md](runtime.md) |
+| `eggserve-server` | Single mature H1 connection runtime and transport boundary (`0.3.1`): strict-H1 driver over any `AsyncRead + AsyncWrite` stream, single `Service` contract (+ additive `call_with_tunnel`), `RuntimeConfig`/`RuntimeState` admission pool, per-connection shutdown, listener TCP `Server`, tunnel execution (incl. Plan 284 direct opaque `TunnelIo`), `OpsContext` authority, response policy, shared limit kernel. Plans 270/280–283 add supervisory `ServerControl`/`ServerCompletion`, external policy/admission ownership with narrow `H1ConnectionPolicy` projection, typed rejection presentation, and opt-in absolute-form dispatch (Plan 278). Plans 288–291 add wider explicit parser ranges plus external aggregate-header and successful service Date/Server ownership. Plans 276–277 add opt-in `http-interop` and Tower adapters for direct H1 composition. Depends on primitives plus transport deps (`hyper`, `tokio`, …); never on static/core. `http2`/`tls` are inert compatibility feature names (H1-only crate). | [eggserve-server.md](eggserve-server.md), [runtime.md](runtime.md) |
 | `eggserve-static` | SOLE static/path/filesystem/MIME/planning authority: `ConfinedPath` parsing, `SecureRoot`/`PinnedRoot` confinement, descriptor-relative (Unix) / handle-relative (Windows) resolution, capability bridge, MIME selection, conditional/range/ETag planner, `StaticService` request planning + rendering. Core keeps facades only. Plan 224 NO-GO: no capability-filesystem crate. | [eggserve-static.md](eggserve-static.md), [path-confinement.md](path-confinement.md), [filesystem-confinement.md](filesystem-confinement.md), [response-planning.md](response-planning.md) |
 | `eggserve-h3` | Experimental H3/QUIC transport adapter and sole QUIC dependency owner (`h3`/`h3-quinn`/`quinn` pinned set). Downward-only on primitives/server/`eggnet-tls`. Owns endpoint lifecycle, bounded QUIC/H3 policy, canonical request/response/tunnel adaptation, Alt-Svc. Blocked upstream (`hyperium/h3#338`, `#262` remainder); stays experimental. | [eggserve-h3.md](eggserve-h3.md), [http3.md](http3.md) |
 
@@ -191,8 +192,10 @@ eggserve-core           (compatibility umbrella; facades over the leaves + H2/TL
 | Feature | Crates | Purpose |
 |---------|--------|---------|
 | `tls` | `eggnet-tls`, `eggserve-core`, `eggserve-bin`, `eggserve-python` | Neutral rustls identity/trust policy + EggServe async TLS transport |
-| `http2` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/2 runtime; Python remains H1-only |
-| `http3` | `eggserve-h3`, `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/3/QUIC runtime; separate TLS 1.3/`h3` identity, same-port UDP; Python remains H1-only |
+| `http2` | `eggserve-core`, `eggserve-bin` (+ inert same-named `eggserve-server` compat flag) | Experimental bounded HTTP/2 runtime; Python remains H1-only |
+| `http3` | `eggserve-h3`, `eggserve-core`, `eggserve-bin` (+ inert same-named `eggserve-server` compat flag) | Experimental bounded HTTP/3/QUIC runtime; separate TLS 1.3/`h3` identity, same-port UDP; Python remains H1-only |
+| `http-interop` | `eggserve-server` (owner), `eggserve-core` (compat re-export) | Opt-in loss-aware `http` conversions + server-owned request/response body adapters (Plans 200/276) |
+| `tower` | `eggserve-server` (owner), `eggserve-core` (compat re-export) | Opt-in Tower service adapter with per-request clones (Plans 200/276) |
 | `python-bindings-internal` | `eggserve-core` → `eggserve-static` | Internal capability bridge (`ResolvedFile` extraction) for the wheel |
 | `windows-adversarial-qualification` | `eggserve-core` | Windows adversarial qualification gates |
 
@@ -305,7 +308,8 @@ Evidence store, never CI gates. Claims must name a profile (see
 excluded warm-up, repeated trials with variance, and raw files retained —
 never one best number; absolute RPS/latency never gates PR/routine CI. See
 [testing-and-conformance.md](testing-and-conformance.md) for the per-plan
-evidence index (Plans 088/109/168/170/227/231–234/240–241).
+evidence index (Plans 088/168/170/227/231–234/240–241 plus `binary-size.md`
+for Plan 109).
 
 ### Repo-level tests (`tests/`)
 
@@ -319,7 +323,7 @@ when `caddy`+`nginx` are on `PATH`). See
 | `tests/lib.sh` | Shared shell helpers for the harnesses |
 | `tests/proxy/caddy_interop.sh` / `nginx_interop.sh` | Eggserve behind Caddy/nginx (TLS termination, reuse, header forwarding, timeout alignment, no desync) |
 | `tests/proxy/desync_corpus.sh` | Request-smuggling/desync corpus against the proxy front |
-| `tests/soak/soak_24h.sh <profile>` | 24h mixed-traffic soak; profiles `unix-reverse-proxy \| unix-direct-https` + `fixtures/` |
+| `tests/soak/soak_24h.sh <profile>` | 24h mixed-traffic soak; profiles `unix-reverse-proxy \| unix-direct-https` |
 
 ### Examples (`examples/` + `crates/eggserve-core/examples/` + `crates/eggserve-server/examples/`)
 

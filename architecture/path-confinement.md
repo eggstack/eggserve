@@ -9,7 +9,8 @@ The path confinement pipeline validates and normalizes every incoming request ta
 
 ## Pipeline Stages
 
-`RequestTarget::parse()` is the sole HTTP request-target classifier. The
+`RequestTarget::parse()` is the origin-form HTTP request-target classifier
+(absolute-form enters opt-in via `from_absolute_components`, Plan 278). The
 runtime passes its validated `path()` component to
 `ConfinedPath::from_path_component()`. Direct `ConfinedPath::parse()` remains
 the stable convenience adapter for raw target text and delegates
@@ -100,7 +101,7 @@ Methods:
 | Variant | Stage | Meaning |
 |---------|-------|---------|
 | `Empty` | parse | Empty request target |
-| `TooLong` | (reserved) | Target exceeds maximum length — reserved variant (`#[allow(dead_code)]` in `rejected.rs`; the 8192-byte `parse` pre-check currently returns it) |
+| `TooLong` | parse | Target exceeds 8192 bytes (active pre-check; mapped to 414) |
 | `UnsupportedUriForm` | parse | Not origin-form (absolute or authority form) |
 | `MalformedPercentEncoding` | decode | Invalid `%XX` sequence |
 | `InvalidUtf8` | decode | Decoded bytes are not valid UTF-8 |

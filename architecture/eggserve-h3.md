@@ -41,10 +41,10 @@ Rules:
 | `lib.rs` | Crate surface: `accept_loop` + `apply_alt_svc` re-exports, `Http3Config` re-export, `H3_VERSION` consts + `dependency_versions()`; `h3` / `h3_quinn` / `quinn` re-exported `#[doc(hidden)]` only (not stable app APIs) |
 | `config.rs` | `Http3Config` authority: fields, defaults, `validate()` |
 | `quic.rs` | `load_quic_server_config`, `server_endpoint`, `endpoint_from_socket`, `validate_same_port_udp`: QUIC TLS + endpoint construction, same-port validation |
-| `endpoint.rs` | `ActiveConnectionGuard`, `h3_connection_close_reason`: endpoint lifecycle, close classification, peer/shutdown cancellation |
-| `request.rs` | `convert_request_head`, `declared_content_length`, `h3_trailers_to_block`, `invoke_service`: H3→canonical conversion, length checks, trailer receive |
-| `response.rs` | `runtime_error_response`, `spawn_body_timeout_watchdog`, `send_*` trio: error construction, `response_write_timeout` no-progress watchdog, data/trailer/known-length sends |
-| `tunnel.rs` | `kind_string`, `H3ActiveTunnelGuard`, `send_h3_tunnel_handshake`: Extended CONNECT bridging |
+| `endpoint.rs` | `ActiveConnectionGuard`, `h3_connection_close_reason` (`pub(crate)`): endpoint lifecycle, close classification, peer/shutdown cancellation |
+| `request.rs` | `convert_request_head`, `declared_content_length`, `h3_trailers_to_block`, `invoke_service` (`pub(crate)`): H3→canonical conversion, length checks, trailer receive |
+| `response.rs` | `runtime_error_response`, `spawn_body_timeout_watchdog`, `send_*` trio (`pub(crate)`): error construction, `response_write_timeout` no-progress watchdog, data/trailer/known-length sends |
+| `tunnel.rs` | `kind_string`, `H3ActiveTunnelGuard`, `send_h3_tunnel_handshake` (`pub(crate)`): Extended CONNECT bridging |
 | `adapter.rs` | `accept_loop`, `apply_alt_svc`: endpoint accept, connection/request dispatch, shutdown/drain over the shared kernel |
 
 Generic invocation, panic containment, body policy, canonical
@@ -110,9 +110,9 @@ stream-drop remainder (see [http3.md](http3.md) and the Plan 192–195 /
 - H2 counterpart (core glue, no extraction): [http2.md](http2.md)
 - Topology ledger: [crate-topology.md](crate-topology.md)
 - Normative TLS operator contract: [../docs/tls.md](../docs/tls.md)
-- Release records: `release/plan-192-http3-dependency-readiness.md`,
-  `release/plan-193-http3-supported-tier-qualification.md`,
-  `release/plan-194-http3-producer-timeout-correction.md`,
-  `release/plan-195-http3-response-timeout-corrective-qualification.md`,
-  `release/plan-213-http3-quic-isolation-qualification.md`,
-  `plans/220-http3-adapter-extraction.md`
+- Release records: `../release/plan-192-http3-dependency-readiness.md`,
+  `../release/plan-193-http3-supported-tier-qualification.md`,
+  `../release/plan-194-http3-producer-timeout-correction.md`,
+  `../release/plan-195-http3-response-timeout-corrective-qualification.md`,
+  `../release/plan-213-http3-quic-isolation-qualification.md`,
+  `../plans/220-http3-adapter-extraction.md`

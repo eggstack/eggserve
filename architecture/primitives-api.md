@@ -35,7 +35,7 @@ only planning *value* types (`src/primitives/response.rs`).
 | `response.rs` | `primitives/response.rs` | Planning value types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
 | `response_stream.rs` | `primitives/response_stream.rs` | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies with one terminal trailer source (`with_trailers`, `with_known_length_and_trailers`) |
-| `canonical.rs` | `primitives/canonical.rs` | Facade re-exporting submodules, preserving `primitives::canonical::X` and `primitives::X` paths (Plan 206 Track D); submodules (4 files only, no `adapters.rs`): `status.rs` (`StatusCode`/`ResponseConstructionError`), `headers.rs` (`ResponseHead` + hop-by-hop), `response_body.rs` (`BodyLength`/`ResponseBody`), `response.rs` (`Response`/`Builder`/`NormalizeRequest`/`normalize_*`; body field `pub(super)` for adapters; `runtime_error_with_policy` `pub(crate)`). Transport conversion is the `eggserve-server` adapter boundary, not a primitives submodule |
+| `canonical.rs` | `primitives/canonical.rs` | Facade re-exporting submodules, preserving `primitives::canonical::X` and `primitives::X` paths (Plan 206 Track D); submodules (4 files only, no `adapters.rs`): `status.rs` (`StatusCode`/`ResponseConstructionError`), `headers.rs` (`ResponseHead` + hop-by-hop), `response_body.rs` (`BodyLength`/`ResponseBody`), `response.rs` (`Response`/`Builder`/`NormalizeRequest`/`normalize_*`; body field `pub(super)` for adapters; `runtime_error_with_policy` public via the `canonical` re-export). Transport conversion is the `eggserve-server` adapter boundary, not a primitives submodule |
 | `request.rs` | `primitives/request.rs` | `Request` — canonical request envelope (head + body + `RequestContext`) |
 | `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body with terminal trailers (`trailers()`, `read_all_with_trailers()`, `from_bytes_with_trailers()`) |
 | `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |
@@ -45,7 +45,7 @@ only planning *value* types (`src/primitives/response.rs`).
 | `interim.rs` | `primitives/interim.rs` | `InterimSender`, `InterimLimits`, `InterimError`, `ExpectDecision` — bounded request-scoped 1xx (no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100) |
 | `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
 | `authority.rs` | `primitives/authority.rs` | `Authority` — validated effective host authority independent of Host/`:authority` spelling |
-| `interop.rs` | `eggserve-server::interop` (no `primitives/interop.rs` exists) | `http-interop` adapters (Plans 200/276): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt` (including Plan 202 effective fields)/`AuthorityExt`/`LifecycleExt`, server-owned `HttpRequestBody` wrapper for canonical `RequestBody`, `response_from_http_body`. Plans 246 and 251–256 keep this boundary fidelity-only with no API, capability, or tier change; see [`release/plan-256-post-convergence-interop-closure.md`](../release/plan-256-post-convergence-interop-closure.md) |
+| `interop.rs` | `eggserve-server::interop` (no `primitives/interop.rs` exists) | `http-interop` adapters (Plans 200/276): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt` (including Plan 202 effective fields)/`AuthorityExt`/`LifecycleExt`, server-owned `HttpRequestBody` wrapper for canonical `RequestBody`, `response_from_http_body`. Plans 246 and 251–256 keep this boundary fidelity-only with no API, capability, or tier change; see [`release/plan-256-post-convergence-maintenance-interop-closure.md`](../release/plan-256-post-convergence-maintenance-interop-closure.md) |
 
 ## Public Types
 
@@ -189,10 +189,10 @@ source-compatible facades:
 
 ```rust
 use eggserve_primitives::{
-    SecureRoot, ConfinedPath, StaticPolicy,
+    ConfinedPath, StaticPolicy,
     http::{validate_method, validate_request_target},
-    planner::plan_file_response,
 };
+use eggserve_static::{SecureRoot, planner::plan_file_response};
 
 // 1. Validate request
 let method = validate_method("GET")?;
@@ -379,8 +379,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 - `RequestLifecycle` — cloneable disconnect/cancel observer (`cancelled()`, `is_cancelled()`, `cancellation_reason()`); `RequestCancellationReason` (`#[non_exhaustive]`: PeerDisconnected/ServerShutdown/ConnectionTimeout/TransportFailure; match with wildcard)
 - `Request` exposes `lifecycle()`, `lifecycle_clone()`, `into_parts_with_lifecycle()` (additive; `into_parts` arity preserved) plus `context()`, `new_with_context()`, `into_parts_with_context()` (Plan 197 forward-compatible path)
 - `RequestContext` — single attachment point for transport-authenticated metadata + future opaque capabilities; cheap clone never clones the one-shot body; no generic type map, no raw transport handles
-- Public methods: `empty`, `from_bytes`, `declared_length`, `bytes_received`, `is_complete`, `state`, `max_bytes`, `read_all`, `next_chunk`, `lifecycle`
-- Internal methods (`pub(crate)`): `from_incoming()`, `shared()`, `was_fully_consumed()`
+- Public methods: `empty`, `from_bytes`, `declared_length`, `bytes_received`, `is_complete`, `state`, `max_bytes`, `read_all`, `next_chunk`, `lifecycle`, `from_incoming()`, `shared()`, `was_fully_consumed()`, `trailers()`, `read_all_with_trailers()`
 - Implements `Stream<Item = Result<Bytes, RequestBodyError>>`
 - Ownership: moving the body keeps it Active; dropping incomplete network bodies marks Abandoned; Complete reusable, Abandoned/Failed forces close, Active deferred without close (Hyper-pinned)
 - Canonical body types and `Service` do not require Hyper; the explicitly

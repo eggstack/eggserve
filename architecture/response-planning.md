@@ -56,7 +56,7 @@ A list of headers to include in the response:
 
 ```rust
 pub struct HeaderMapPlan {
-    pub headers: Vec<ResponseHeader>,
+    headers: Vec<ResponseHeader>, // private; build via new()/push(), read via get()/iter()/len()
 }
 
 pub struct ResponseHeader {
@@ -140,7 +140,7 @@ Parses `Range: bytes=START-END` header:
 
 - Valid range within file bounds → `206 Partial Content`
 - Range beyond file size → `416 Range Not Satisfiable`
-- Multiple ranges → fall through to full `200 OK` (single-range only is served, and the planner currently does not select the first range)
+- Multiple ranges → fall through to full `200 OK` (single-range only is served; explicit `MultipleRanges` variant, same outcome as malformed/unsupported)
 
 ### `evaluate_if_range()`
 
@@ -157,7 +157,7 @@ Generates ETag from file metadata:
 pub fn generate_etag(metadata: &std::fs::Metadata) -> Option<String>
 ```
 
-Returns `None` if metadata has no modification time. Format when present: `W/"<size>-<mtime_secs>-<mtime_nanos>"` (weak validator, nanosecond precision).
+Returns `None` only when the modification time cannot be read. Format when present: `W/"<size>-<mtime_secs>-<mtime_nanos>"` (weak validator, nanosecond precision; pre-epoch mtimes yield a stable validator, not `None`).
 
 ### Static validator privacy (Plan 165)
 
@@ -429,7 +429,7 @@ services.
 
 - [primitives-api.md](primitives-api.md) — Public API for response planning
 - [eggserve-core.md](eggserve-core.md) — Core library context
-- [architecture/overview.md](overview.md) — Data flow diagram
+- [overview.md](overview.md) — Data flow diagram
 
 ## Streaming Buffer Strategy
 

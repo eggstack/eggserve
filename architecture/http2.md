@@ -12,7 +12,7 @@ HTTP/1.1-shaped. HTTP/3 has its own QUIC boundary in
 |---|---|---|
 | Frame parsing, HPACK, stream state, pseudo-header ordering, protocol errors, stream windows, reset accounting | Hyper/h2 | H2 feature integration tests and release wire script |
 | H2 stream/header/frame/window/send-buffer/reset budgets | `Http2Config`, projected to Hyper explicitly | Configuration validation tests |
-| Canonical method, target, authority, scheme, version, and duplicate ordinary headers | EggServe request adapter | `http2_runtime.rs` |
+| Canonical method, target, authority, scheme, version, and duplicate ordinary headers | EggServe request adapter | `crates/eggserve-core/tests/http2_runtime.rs` |
 | Aggregate decoded header bytes and request-target ceiling | EggServe request adapter | Pre-service rejection tests |
 | Response normalization, privacy, body-forbidden statuses, content length, and no `Transfer-Encoding` | Canonical response pipeline | H2 response tests and shared normalization tests |
 | Service admission, file-stream admission, body policy, timeouts, lifecycle, and shutdown | EggServe runtime | Shared lifecycle and H2 integration tests |
@@ -70,8 +70,8 @@ wire driver.
   bytes already handed to Hyper are not claimed to have made wire progress.
 - Graceful shutdown and `max_requests_per_connection` use the H2 driver's
   graceful shutdown/GOAWAY path. HTTP/1 alone receives `Connection: close`.
-- Responses never originate server push, extended CONNECT, or
-  WebSocket framing. Generic tunnels use H2 Extended `CONNECT` (one stream, siblings survive) via `Service::call_with_tunnel`/`accept`/`TunnelIo` (Plan 217 single contract); see Plan 199. H1 `101` stays H1-only.
+- Responses never originate server push or WebSocket framing (server-initiated).
+  Generic tunnels use H2 Extended `CONNECT` (one stream, siblings survive) via `Service::call_with_tunnel`/`accept`/`TunnelIo` (Plan 217 single contract); see Plan 199. H1 `101` stays H1-only.
   HTTP/1 `Upgrade` remains H1-only (validated `101` via Plan 199); H2 uses Extended `CONNECT`, not `Upgrade` and
   cannot bypass canonical response normalization.
 - Trailers (Plan 198): H2 request/response trailers use stream-local terminal

@@ -11,7 +11,7 @@ implementation authority: every production module is classified
 (facade / adapter / documented orchestration / transport glue), duplicate
 implementations and leftover dependencies are removed, and the topology
 gate rejects silent re-expansion (see
-`release/plan-225-compatibility-facade-closure.md`). Plan 226 executes
+`../release/plan-225-compatibility-facade-closure.md`). Plan 226 executes
 the `0.2.0` version transition and the Rust 1.89 MSRV move with no
 ownership change. The crate is now at `0.3.0`: additive `0.2.1` (Plan 272
 downstream embedding qualification), core-only `0.2.2` Tower repair (Plans
@@ -20,8 +20,8 @@ downstream embedding qualification), core-only `0.2.2` Tower repair (Plans
 Plans 243–258 continue as an API-preserving maintenance index with no
 ownership change: compatibility H1 entry points delegate to the single
 `eggserve-server` H1 authority while core executes H2 only (Plans
-243–244/249–250; see
-`release/plan-250-h1-authority-lifetime-corrective-closure.md`); core
+  243–244/249–250; see
+`../release/plan-250-h1-authority-lifetime-corrective-closure.md`); core
 `StaticService` is a wrapper over `eggserve-static::StaticService` with no
 second renderer (Plan 245); the eight core/server connection parallels are
 classified in the overlap ledger in [crate-topology.md](crate-topology.md)
@@ -29,8 +29,8 @@ with sharing deferred (Plan 253); wheel typing/registration and
 orphan-source/topology-gate cleanup carry no API change (Plans
 246–247/251–252/255); and async-Python parity keeps bounded first-pull plus
 suppressed-body permit lifetimes (Plans 254/257–258; see
-`release/plan-256-post-convergence-maintenance-interop-closure.md` and
-`release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`).
+`../release/plan-256-post-convergence-maintenance-interop-closure.md` and
+`../release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`).
 
 The direct layers are [`eggserve-primitives`](crate-topology.md),
 [`eggserve-server`](crate-topology.md), and
@@ -70,7 +70,9 @@ indexed with the CLI and Python examples in [`examples/README.md`](../examples/R
 `static_server` shows the built-in confined service, `custom_service` shows a
 small public `service_fn`, `streaming_service` shows known/unknown-length
 streams, `caller_owned_stream` drives the canonical pipeline over a
-caller-owned stream without a listener, and `primitives` performs response
+caller-owned stream without a listener, `application_service` shows the
+native contract without static FS, `custom_headers` shows static header
+hooks, `https_server` shows rustls HTTPS, and `primitives` performs response
 planning without opening a socket. They are compiled by `scripts/verify.sh full`.
 
 ## Composition role (closed facade, Plans 226/272–286)
@@ -132,11 +134,11 @@ compatibility and advanced protocol/Python integration.
 | `primitives/connection_info.rs` | **pub** | `ConnectionInfo` raw peer/local plus Plan 202 effective layer (`proxy_source`/`proxy_destination`/`proxy_provenance`, `effective_client`/`effective_scheme`/`effective_authority`/`forwarded_provenance`) |
 | `primitives/proxy.rs` | **pub** | Plan 202 policy and bounded parsers (`IpPrefix`, `ProxySourceKind`, `TrustedProxyConfig`/`ProxyProtocolConfig`/`ForwardedConfig`, PROXY v1/v2, `Forwarded`/`X-Forwarded-*` single-hop) |
 
-| `server/` | **pub** (experimental) | Runtime service boundary: `mod.rs` — `Server`/`ServerBuilder`/re-exports/tests; `runtime.rs` — `RuntimeState`; `accept.rs` — `accept_loop_multi`/handlers/sources/TLS helpers (`pub(super)` where facade needs); `config.rs` — Builder + `try_from_serve_config` + re-exports + tests; re-exports `serve_http1_connection` and feature-gated `serve_http_connection` plus connection context/outcome types |
+| `server/` | **pub** (experimental) | Runtime service boundary: `mod.rs` — `Server`/`ServerBuilder`/re-exports/tests; `runtime.rs` — `RuntimeState`; `accept.rs` — `accept_loop_multi`/handlers/sources/TLS helpers (`pub(super)` where facade needs); `config.rs` — Builder + `try_from_serve_config` + re-exports + tests; `errors.rs`/`handle.rs`/`listener.rs`/`response_policy.rs`/`service.rs`/`static_service.rs` — error taxonomy, handle lifecycle, listener ownership, response policy, service contract, static composition; re-exports `serve_http1_connection` and feature-gated `serve_http_connection` plus connection context/outcome types |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
 | `server/connection/` | **pub** (experimental) | Transport-neutral driver facade (`mod.rs`: strict H1 entry points delegating to the direct `eggserve-server` driver, feature-gated H1/H2 `serve_http_connection` with `Auto` classified before any Hyper service exists, and internal protocol-selected entry); per-connection handling, body ingestion (H1 delegates to direct; core executes H2 only, Plan 249) |
 | `server/http3.rs` | internal (`http3`) | Thin facade (Plan 220): projects core `RuntimeConfig`/`RuntimeState` into `eggserve-h3::accept_loop` sharing admission pools/ops; no second state machine |
-| `server/config/` | **pub** (experimental) | Submodules (Plan 206 Track E): `runtime.rs` — `RuntimeConfig` single validation authority (delegates to `runtime_limits`); `http1.rs` — `pub(crate)` `Http1Config` projection; `http2.rs` — protocol config (validate `pub(super)`); `http3.rs` — facade re-exporting `eggserve_h3::Http3Config` (Plan 220 authority); `tls.rs` — TLS ownership pointer (no new knobs); facade `config.rs` keeps Builder + `try_from_serve_config` + re-exports + tests |
+| `server/config/` | **pub** (experimental) | Submodules (Plan 206 Track E): `runtime.rs` — `RuntimeConfig` single validation authority (delegates to `runtime_limits`); `http1.rs` — retained inventory placeholder with no H1 authority (no second defaults table, Plan 249); `http2.rs` — protocol config (validate `pub(super)`); `http3.rs` — facade re-exporting `eggserve_h3::Http3Config` (Plan 220 authority); `tls.rs` — TLS ownership pointer (no new knobs); facade `config.rs` keeps Builder + `try_from_serve_config` + re-exports + tests |
 | `server/connection/context.rs` | pub via facade | `ConnectionContext`, `ConnectionShutdown` (level-triggered, idempotent), `ConnectionOutcome`; `ConnectionContext` carries an optional Plan 202 PROXY layer (`proxy_source`/`proxy_destination`/`proxy_provenance` via `with_proxy_endpoints`) |
 | `server/proxy.rs` | pub(crate) | Plan 202 PROXY preamble reader: bounded timeout-protected `read_proxy_preamble` before TLS/HTTP with leftover replay (`PrefixedIo`); `LOCAL`/`UNKNOWN`/`UNSPEC`/UNIX truthful absence; TLVs ignored bounded |
 | `server/connection/lifecycle.rs` | pub(crate) | `ConnectionRequests` live-request registry + abnormal-termination cancellation |
@@ -147,7 +149,7 @@ compatibility and advanced protocol/Python integration.
 | `server/connection/request.rs` | pub(crate) | Target/header ceilings, framing checks, body-policy selection, Hyper body bridge |
 | `server/connection/response.rs` | pub(crate) | Normalization, panic containment, body-error mapping, final-boundary privacy |
 | `server/connection/deferred_body.rs` | pub(crate) | Deferred-body watchdog + terminal-state tracker |
-| `ops/` | **pub** (semver-considered pre-1.0 for the event/sink/counter vocabulary and `OpsContext`; runtime attachment experimental with `server`) | Operational observability (Plan 206 Track H): `mod.rs` — `OpsContext` authority; `events.rs` — `Severity`/`EventKind`/`Field`/`Event`, sanitization, JSON rendering; `sinks.rs` — `LogSink` implementations; `counters.rs` — `OpsCounters`/`Snapshot` |
+| `ops/` | **pub** (semver-considered pre-1.0 for the event/sink/counter vocabulary and `OpsContext`; runtime attachment experimental with `server`) | Operational observability facade (Plan 206 Track H): `mod.rs` re-exports the `eggserve-server::ops` authority (`OpsContext`, `Severity`/`EventKind`/`Field`/`Event` with sanitization/JSON rendering, `LogSink` implementations, `OpsCounters`/`Snapshot`) |
 
 ## Key Types
 
@@ -340,11 +342,12 @@ Control handle returned by `Server::start()`:
 - `force_shutdown(deadline)` — trigger graceful shutdown and wait with a deadline; forcibly abort if deadline exceeded
 - `state()` — query current `LifecycleState`
 
-Plan 270 typed path: `ServerHandle::into_parts()` splits the legacy handle
+Plan 270 typed path (direct `eggserve-server` authority): `ServerHandle::into_parts()` splits the direct handle
 into a cloneable `ServerControl` (shutdown/observability, safe to retain)
 and a single-owner `ServerCompletion` whose `wait(&mut self)` is
 cancellation-safe (borrowed future: `select!` over it and await again);
 legacy `wait(self)` remains source-compatible and discards terminal detail.
+(The core compatibility `ServerHandle` keeps `ready()`/`force_shutdown`/`wait(mut self)`; it has no `into_parts`.)
 `connection_total_timeout == Duration::ZERO` opts out of only the hard
 total connection lifetime; the default stays 60s and independent
 request/idle/write/admission/shutdown limits remain active.
@@ -363,7 +366,7 @@ absolute-form targets pre-resolution. Plans 280–286 (embedding program):
 external policy/admission ownership with narrow projection, typed rejection
 presentation, tunnel transport decision (Plan 284 keeps the direct opaque
 `TunnelIo`), and registry-only embedding-contract qualification with
-fixtures under `release/fixtures/plan-286-*`; publication closes in Plan
+fixtures under `release/fixtures/plan-286-*/`; publication closes in Plan
 286 (`core 0.3.0` with compatible Tower API in `server 0.3.0`).
 
 ## Dependencies

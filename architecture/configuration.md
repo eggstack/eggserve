@@ -30,15 +30,16 @@ is the core-facing projection, not a second owner:
 |--------|-----------|---------|
 | `config.rs` (facade) | **pub** (experimental) | `ServerBuilder` + `try_from_serve_config` + re-exports + tests; owns the public config surface |
 | `config/runtime.rs` | pub via facade | `RuntimeConfig` — single validation authority delegating to `runtime_limits` |
-| `config/http1.rs` | `pub(crate)` | `Http1Config` projection of compatibility `max_buf_size`/`max_headers` parser policy (no duplicate defaults) |
+| `config/http1.rs` | `pub(crate)` | Retained inventory placeholder with no H1 authority (no second defaults table, Plan 249) |
 | `config/http2.rs` | `pub(super)` | `Http2Config` protocol-owned controls (validate `pub(super)`) |
 | `config/http3.rs` | `pub(super)` | `Http3Config` optional QUIC/H3 envelope (validate `pub(super)`) |
 | `config/tls.rs` | pub via facade | TLS ownership pointer (no new knobs; PEM reload handle via `RuntimeConfig`) |
 
 Public import paths (`server::RuntimeConfig`, `server::RuntimeConfigBuilder`) resolve unchanged through the facade `config.rs`.
 
-With the `http3` feature, `RuntimeConfig::http3` owns the optional QUIC/H3
-transport envelope. `ServerBuilder::http3_identity` supplies PEM paths for a
+With the `http3` feature, the core compatibility `RuntimeConfig` owns the
+optional QUIC/H3 transport envelope (the direct `eggserve-server::RuntimeConfig`
+has no `http3` field). `ServerBuilder::http3_identity` supplies PEM paths for a
 separate TLS 1.3/`h3` configuration; callers do not provide Quinn or rustls
 transport objects. H3 remains disabled by default and requires the native TCP
 listener alongside its same-port UDP endpoint.

@@ -13,6 +13,11 @@ is the foundational constraint that shapes every architectural decision.
 ## Central Invariant
 
 > **Under safe defaults, no remotely supplied request path may resolve to content outside the configured root, and no denied filesystem object class may be served.**
+>
+> Normative form in [`docs/threat-model.md`](../docs/threat-model.md): no
+> remotely supplied request may cause eggserve to read or serve an object
+> outside the pinned root, and malformed or ambiguous HTTP input must not
+> cause cross-request or frontend/backend message-boundary confusion.
 
 Root identity is pinned at startup: the serving root is opened once and the resulting file descriptor is retained for the server lifetime. Renaming or replacing the configured pathname does not redirect the running server to a different tree. This prevents an attacker who can mutate the filesystem from steering the server to alternate content after startup.
 
@@ -73,7 +78,7 @@ These defaults are not advisory — the code rejects non-conforming requests bef
 
 ## Defensive Layers
 
-### 1. Path Confinement (6-stage pipeline)
+### 1. Path Confinement (5-stage pipeline + filesystem root check)
 
 All HTTP request targets are classified by `RequestTarget::parse()`, then their
 validated path component passes through `ConfinedPath::from_path_component()`
@@ -169,9 +174,11 @@ See [filesystem-confinement.md](filesystem-confinement.md) for the full traversa
 Full CLI flag names live in `docs/cli.md`; full timeout semantics in
 `docs/timeout-reference.md`.
 
-### 6. Response Normalization
+### 6. Response Normalization + Framing Enforcement
 
-All response producers converge on a single normalization path:
+All response producers converge on a single normalization path (framing stays
+runtime-owned; see [`docs/threat-model.md`](../docs/threat-model.md) for the
+normative layer taxonomy):
 
 - **HEAD suppression** — body bytes discarded, representation headers preserved
 - **Body-forbidden enforcement** — 1xx, 204, 205, 304 bodies discarded
@@ -201,9 +208,8 @@ An attacker can:
 
 ### Out of Scope
 
-- Local privileged attacker modifying served files concurrently
+- Local privileged attacker (root/kernel), malicious operator-provided root directory, or compromised edge proxy outside the explicit Plan 202 trust set (concurrent filesystem mutation by an unprivileged local writer IS in scope: namespace/reparse/TOCTOU)
 - Kernel or filesystem compromise
-- Malicious operator-provided root directory
 - Full reverse-proxy threat model (a compromised edge proxy outside the explicit Plan 202 trust set remains untrusted; trusted-proxy mode only narrows the inbound metadata boundary, never forwards requests upstream)
 - TLS certificate lifecycle automation
 
@@ -217,17 +223,17 @@ routing/forwarding (Plan 223 holds).
 
 | Platform | Security Model | Limitations |
 |----------|---------------|-------------|
-| Linux (x86_64, aarch64) | Descriptor-relative traversal via `statat`+`openat` | None for the local hardened profile; public reverse-proxy deployment still requires its documented qualification |
-| macOS (x86_64, aarch64) | Same descriptor-relative guarantees | None (fully hardened) |
+| Linux (x86_64, aarch64) | Descriptor-relative traversal via `statat`+`openat` | Hardened local profile; public reverse-proxy deployment still requires its documented qualification |
+| macOS (x86_64, aarch64) | Same descriptor-relative guarantees | Same as Linux; platform qualification per `docs/toolchain-support.md` |
 | Windows (x86_64) | Parser-level checks + handle-relative child resolution + directory enumeration + manual adversarial qualification suites | Functionally qualified for executed classes; two open-descendant root-rename cases are skipped by NTFS path-rename semantics, so not for untrusted mutable public content |
 
 ## Unsafe-code boundary
 
 The workspace denies Rust `unsafe_code` by default. EggServe has two narrow,
 documented production exceptions: Windows handle-relative filesystem FFI in
-`fs/windows.rs` and systemd descriptor adoption in `server/listener.rs`.
-Unix FIFO creation in resolver tests and Windows qualification fixtures are
-test-only exceptions. Each production call is locally annotated with its
+`crates/eggserve-static/src/fs/windows.rs` and systemd descriptor adoption in
+`crates/eggserve-core/src/server/listener.rs`, plus two documented test-only
+boundaries (Unix FIFO fixtures, Windows qualification fixtures). Each production call is locally annotated with its
 pointer, buffer, and ownership invariants; PyO3 and other dependencies do not
 expand the application-owned unsafe surface. See the complete inventory in
 [the unsafe Rust policy](../docs/unsafe-code-policy.md).

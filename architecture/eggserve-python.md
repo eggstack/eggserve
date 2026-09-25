@@ -174,6 +174,7 @@ crates/eggserve-python/
 ├── pyproject.toml      # maturin metadata and entry points
 ├── src/
 │   ├── lib.rs          # PyO3 module registration
+│   ├── registration.rs   # registers all `_native` classes/functions
 │   ├── server.rs       # facade: declares mods + re-exports Py* types for lib.rs
 │   └── server/         # bridge submodules owned by the facade
 │       ├── errors.rs       # exception mapping

@@ -16,18 +16,20 @@ When `tls` is enabled in `eggserve-core`:
 
 - `eggnet-tls` — neutral bounded identity, SNI, WebPKI client-auth, trust/CRL,
   and reload policy (runtime dependencies: `rustls` and `rustls-pki-types`)
-- `rustls` / `tokio-rustls` — EggServe's transport-facing TLS and HTTP/3 QUIC
-  assembly
+- `rustls` / `tokio-rustls` — EggServe's transport-facing TCP TLS assembly
+  (QUIC uses `quinn::crypto::rustls::QuicServerConfig`, not `tokio-rustls`)
 
 `eggserve-bin` enables `eggserve-core/tls` and re-exports the module
-(`bin/src/tls.rs` is `pub use eggnet_tls::*`). The historical
+(`crates/eggserve-bin/src/tls.rs` is `pub use eggnet_tls::*`, behind the
+`tls` feature gate). The historical
 `eggserve_core::tls` module re-exports `eggnet_tls`; only HTTP/3-specific QUIC
 assembly remains in the compatibility module.
 
 The `http3` feature builds a separate Quinn rustls configuration from the
 PEM identity supplied through `ServerBuilder::http3_identity`. The authority
 is `eggserve-h3::load_quic_server_config` (`crates/eggserve-h3/src/quic.rs`);
-`eggserve_core::tls::load_quic_server_config` (`crates/eggserve-core/src/tls.rs`)
+`eggserve_core::tls::load_quic_server_config` (`crates/eggserve-core/src/tls.rs`,
+`pub(crate)`)
 is a thin delegate with no second QUIC/TLS implementation. See
 [the H3 boundary](eggserve-h3.md). It restricts
 QUIC TLS to TLS 1.3, advertises only `h3`, and sets early data to zero. The
@@ -91,7 +93,7 @@ selected variants below; see `eggnet_tls::TlsError` for the full list.
 | `InvalidCrl` | CRL PEM invalid |
 | `TooManyCrls` | CRLs exceed `MAX_CRLS` (16) |
 | `TrustRootsRequired` | Client auth requires at least one trust root |
-| `InvalidAlpn` | ALPN protocols exceed 16 × 255 bounds or are empty |
+| `InvalidAlpn` | An ALPN entry is empty or the list exceeds 16 × 255 bounds (an empty list is valid: no ALPN) |
 
 ### CLI Usage
 

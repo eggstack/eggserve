@@ -32,12 +32,13 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Static confinement + static service | closed | `plans/subsystems/static-confinement-roadmap.md` | All milestones closed (sole authority in `eggserve-static`) | None. Trace: legacy Plans 002/007/219/224/245 + `release/plan-225-compatibility-facade-closure.md`. |
 | Direct H1 runtime + service contract | closed | `plans/subsystems/direct-h1-runtime-roadmap.md` | All milestones closed through 288–291 (`eggserve-server 0.3.1`) | None. Trace: `release/plan-250-*`, `plan-256-*`, `plan-286-*`, `plan-290-*`, `plan-291-*`. |
 | Planning-convention migration | active | Plan 292 (this migration; no separate roadmap — bootstrap) | 292 scaffolding in progress | None. Closes when §Acceptance in `plans/292-planning-convention-migration-to-codegg-style.md` holds. |
+| Docs architecture (overview index + deep dives) | closed | `plans/subsystems/docs-architecture-roadmap.md` | 293 closed (overview + all deep dives refreshed) | Trace: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. |
 
 ## Dependency-ready implementation plans
 
 | Subsystem | Milestone | Status | Implementation plan | Dependencies / handoff note |
 |---|---|---|---|---|
-| — | — | — | — | No open milestones. New work registers here before handoff. First new number: `293`. |
+| Docs architecture | 293 | closed | `plans/implementation/docs-architecture/293-architecture-overview-deep-dive-refresh.md` | Done; closure: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. |
 
 ## Blocked work
 
@@ -52,6 +53,7 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Direct H1 boundary ownership (288–291) | closed | `plans/288-291-direct-h1-boundary-ownership-followup-program.md`; `release/plan-290-direct-h1-boundary-ownership-qualification.md`; `release/plan-291-direct-h1-boundary-ownership-publication-closure.md` (registry-qualified `eggserve-server 0.3.1`). |
 | Embedding contract (280–286) | closed | `plans/280-286-direct-h1-embedding-policy-ownership-program.md`; `release/plan-286-embedding-contract-publication-closure.md` (`primitives 0.2.1`, `server/static/h3/core 0.3.0`, `bin 0.2.1`, wheel `0.2.3`). |
 | Post-convergence maintenance (251–258) | closed | `release/plan-256-post-convergence-maintenance-interop-closure.md`; `release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`. |
+| Docs architecture overview + deep dives (293) | closed | `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md` (docs-only; overview index + all 23 deep dives refreshed). |
 
 ## Legacy trace pointer
 

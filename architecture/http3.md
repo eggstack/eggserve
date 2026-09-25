@@ -84,8 +84,10 @@ observer.
 
 QUIC gets a fresh rustls `ServerConfig` rather than reusing TCP TLS state. It
 offers only `h3`, restricts the protocol versions to TLS 1.3, and sets early
-data to zero. The initial implementation does not accept application 0-RTT,
-WebTransport, HTTP datagrams, extended CONNECT, server push, WebSockets, or
+data to zero. Generic tunneled streams use H2/H3 Extended `CONNECT` (generic
+`:protocol` values such as `websocket` are still rejected by `h3` 0.0.8);
+the implementation does not accept application 0-RTT,
+WebTransport, HTTP datagrams, server push, WebSockets, or
 connection migration as an application identity mechanism.
 
 ## Bounded configuration

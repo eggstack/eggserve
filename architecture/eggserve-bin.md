@@ -16,7 +16,7 @@ Plan 286 (lockfile-only `0.2.1` selection; no behavior change).
 | `lib.rs` | `run()` (parse → exit code) and `run_cli(argv) -> i32` (same syntax, no `exit`); current-thread Tokio runtime; dual `cfg(tls)` orchestration paths |
 | `args.rs` | Manual `[OPTIONS] [PORT] [DIRECTORY]` grammar, `require_value` flag-guard, `--header=NAME=VALUE` expansion, `validate_static_metadata` gate |
 | `shutdown.rs` | Ctrl+C / SIGTERM / SIGHUP → `broadcast::Sender<()>` graceful-stop relay |
-| `tls.rs` | Re-export of `eggnet_tls::*` (Plan 221; single-identity PEM loading lives in the neutral substrate) |
+| `tls.rs` | Re-export of `eggnet_tls::*` (Plan 221; `#[cfg(feature = "tls")]`-gated; single-identity PEM loading lives in the neutral substrate) |
 
 ## Entrypoints
 
@@ -162,4 +162,4 @@ suites.
 * [crate-topology.md](crate-topology.md) — Plan 221/225/249/276 gates
 * [security-model.md](security-model.md) — safe defaults behind the flags
 * [overview.md](overview.md) — crate map and request lifecycle
-* `release/plan-286-embedding-contract-publication-closure.md` — `0.2.1` publication evidence
+* `../release/plan-286-embedding-contract-publication-closure.md` — `0.2.1` publication evidence

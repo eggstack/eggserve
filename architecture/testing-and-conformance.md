@@ -28,14 +28,15 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Python typing smoke | `crates/eggserve-python/tests/typing_smoke.py` (via `scripts/check-python-types.py`, `mypy --strict`) | Installed-wheel stub fidelity | focused |
 | Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 11 targets |
 | Conformance corpora | `conformance/*.json` + `conformance/*.toml` | Shared Rust/Python test data + normative matrices | 2 corpora + 3 matrices |
-| Executable examples | `examples/`, `crates/eggserve-core/examples/` | Canonical CLI/Python/Rust product demonstrations | current |
+| Executable examples | `examples/`, `crates/eggserve-core/examples/`, `crates/eggserve-server/examples/` | Canonical CLI/Python/Rust product demonstrations | current |
 
 The installed-wheel script is the authoritative Python test entry point; its count changes with the compatibility façade and is intentionally not duplicated here.
 
 `./scripts/verify.sh full` additionally runs `cargo check -p eggserve-core
---examples`, builds those examples for the live harness, then starts the
-canonical Python static/custom examples and Rust static/custom examples on
-loopback port `0`. Each smoke test makes a real HTTP request and verifies clean
+--examples`, builds those examples for the live Rust harness
+(`scripts/test-examples.sh`, loopback port `0`). Python static/custom
+examples are smoked separately by `scripts/test-python-wheel.sh` (port `0`).
+Each smoke test makes a real HTTP request and verifies clean
 shutdown; the process harness uses only Python's standard library.
 
 ## Rust Integration Test Files
@@ -175,7 +176,7 @@ repository root.
 | `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
 | `fuzz_normalize_response` | StatusCode validation, response building, response normalization, Content-Length reconciliation |
 | `fuzz_request_body` | RequestBody state machine |
-| `fuzz_directory_buffer` | Directory listing buffer behavior |
+| `fuzz_directory_buffer` | Directory listing buffer behavior (Windows-only harness; stale `eggserve_core::fs` import pending a dedicated fuzz-hook refresh, empty on Linux/macOS) |
 
 ### Seed Corpora
 
@@ -265,7 +266,9 @@ Performance snapshots and the regression/claims policy live in
 `benchmarks/170-closure/results.json`, `benchmarks/227-current-head/`,
 `benchmarks/231-optimization-closure/`, `benchmarks/232-corrective/`,
 `benchmarks/233-evidence-polish/`, `benchmarks/234-fixed-cost-baseline/`,
-and `benchmarks/240-fixed-cost-closure/`.
+and `benchmarks/240-fixed-cost-closure/`. The full evidence index (including
+`benchmarks/241-fixed-cost-evidence-corrective/` and `benchmarks/binary-size.md`
+for Plan 109) is `benchmarks/README.md`.
 
 Plan 232 adds a mandatory forced-over-capacity file-read regression to the
 direct server adapter tests. Its manual evidence compares 64 KiB and 128 KiB

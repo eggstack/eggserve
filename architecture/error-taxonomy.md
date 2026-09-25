@@ -150,7 +150,7 @@ supplies bounded body/application-header presentation.
 | `RuntimeRejectionKind` | 11 kinds (`#[non_exhaustive]`) | `RequestTargetTooLong`, `RequestHeadersTooLarge`, `RequestBodyRejected`, `RequestBodyTooLarge`, `RequestBodyTimeout`, `ServiceAdmissionSaturated`, `TunnelAdmissionSaturated`, `HandlerTimeout`, `ServicePanic`, `ServiceRejected`, `Internal` |
 | `RuntimeRejection` | kind + status only | No request, transport, or error text reaches the presenter (`new(kind, status)`, `kind()`, `status()`) |
 | `RuntimeErrorPresentation` | bounded headers + ≤64 KiB body | `headers: HeaderBlock` (framing, hop-by-hop, `Date`, `Server` ignored) + `body: Vec<u8>` capped at `MAX_RUNTIME_REJECTION_BODY_BYTES` (64 KiB) |
-| `RuntimeRejectionPresenter` | `present(&Rejection) -> Option<Presentation>` | `None` selects the configured generic representation; presenter panics and invalid/oversized output fall back to it |
+| `RuntimeRejectionPresenter` | `present(&self, rejection: &RuntimeRejection) -> Option<RuntimeErrorPresentation>` | `None` selects the configured generic representation; presenter panics and invalid/oversized output fall back to it |
 
 EggServe retains status, framing, privacy, and connection-disposition
 authority regardless of presenter output. Hyper parser failures raised

@@ -27,7 +27,7 @@ dependencies.
 |--------|-----------|
 | `method` / `version` / `authority` | `Method`, non-exhaustive `HttpVersion` (`Http10`/`Http11`/`Http2`/`Http3`), `Authority` |
 | `header_block` | `HeaderBlock`, `HeaderField`/`Name`/`Value`, `HeaderValueTextError` |
-| `request_target` | `RequestTarget`, `RequestTargetForm`, `RequestTargetError` (sole target classifier) |
+| `request_target` | `RequestTarget`, `RequestTargetForm`, `RequestTargetError` (origin-form classifier via `parse`; absolute-form enters via `from_absolute_components`, Plan 278) |
 | `request_head` / `request` / `request_context` | `RequestHead`, `Request`, `RequestContext` (`connection` + `lifecycle` + `interim` + `tunnel_request`) |
 | `connection_info` / `proxy` | `ConnectionInfo`/`Scheme`/`SocketEndpoints`/`TlsInfo`, `TrustedProxyConfig`/`IpPrefix`/`ProxyProtocolConfig`/`ForwardedConfig`, effective/provenance layer (Plan 202) |
 | `request_body` / `request_body_policy` / `request_body_error` / `incomplete_body_policy` | one-shot `RequestBody`, `RequestBodyPolicy`, 14-variant `RequestBodyError`, `IncompleteBodyPolicy` |

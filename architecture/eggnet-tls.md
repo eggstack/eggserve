@@ -84,8 +84,8 @@ EggServe re-exports the crate through `eggserve_core::tls` to preserve the
 existing 0.1 import path. `tokio-rustls` wrapping belongs to EggServe's
 accept loop and consumer transport adapters, not to this crate: the crate
 has no Tokio dependency (production dependencies are `rustls` +
-`rustls-pki-types` only per `crates/eggnet-tls/Cargo.toml`; Tokio appears
-solely in `dev-dependencies` for tests). Its HTTP/3 adapter separately builds the TLS 1.3/`h3` QUIC
+`rustls-pki-types` only per `crates/eggnet-tls/Cargo.toml`; `tokio` +
+`tokio-rustls` plus `rcgen` appear solely in `dev-dependencies` for tests). Its HTTP/3 adapter separately builds the TLS 1.3/`h3` QUIC
 configuration from `eggnet-tls::load_identity`. `TlsReloadHandle` changes the
 configuration seen by new TCP handshakes; established sessions are unchanged.
 

@@ -9,7 +9,10 @@ failed body causes the response and connection to close.
 
 ## Overview
 
-> **Status: Experimental.** The `server` module API is subject to change without notice.
+> **Status:** the direct H1 runtime plus the canonical `primitives` model are
+> the supported path. `eggserve-core::server` composition (H2/H3, tunnel,
+> trailer, adapter, listener, proxy, TLS-identity surfaces) plus async Python
+> remain experimental and subject to change without notice.
 
 `eggserve-server` is the direct generic dependency layer for new
 application-server consumers. It depends on `eggserve-primitives`, preserves
@@ -305,8 +308,6 @@ remains source-compatible and discards that terminal detail. Dropping an
 unfinished `ServerCompletion` requests graceful shutdown. See the
 [leaf-only fixture](../crates/eggserve-server/tests/downstream_embedding.rs).
 
-Control handle returned by `Server::start()`. Not `Clone` — there is exactly one handle per server instance.
-
 The following `LifecycleState` / `ready()` / `force_shutdown()` /
 `endpoints()` / `tcp_local_addr()` surface is the **core compatibility
 handle** (multi-listener orchestration), not the direct
@@ -412,11 +413,12 @@ undispatched transports.
 
 ### Runtime ownership corrective contract
 
-`RuntimeState` now lives in `server/runtime.rs` and `accept_loop_multi` plus
-TLS handlers live in `server/accept.rs` (Plan 206 Track A). The facade
-`server/mod.rs` keeps `Server`/`ServerBuilder` and re-exports
-`RuntimeState`/`accept::*` (`pub(super)` where facade needs). Public import
-paths (`server::RuntimeState`) resolve unchanged.
+`RuntimeState` lives in `eggserve-server/src/runtime.rs` and the direct
+accept loop lives inline in `eggserve-server/src/lib.rs` (Plan 206 Track A);
+the multi-listener `accept_loop_multi` plus TLS handlers live in
+`eggserve-core/src/server/accept.rs`. The direct facade keeps `Server`/
+`ServerBuilder` in `eggserve-server/src/lib.rs` and re-exports
+`RuntimeState`. Public import paths (`server::RuntimeState`) resolve unchanged.
 
 Each running server creates exactly one `RuntimeState`, including one
 `max_file_streams` semaphore, one `max_in_flight_requests` semaphore, and one
@@ -495,8 +497,8 @@ All paths then share the same steps:
     Plan 282 `H1ConnectionPolicy` projection of the runtime config
     (`RuntimeConfig::h1_connection_policy()`, projected once at the
     accept loop; see `crates/eggserve-server/src/config.rs`). The narrow
-    projection excludes bind/TLS-handshake/listener/file-stream settings.
-    HTTP/2 on the core compatibility path uses the validated `Http2Config`
+    projection excludes bind/TLS-handshake/listener-concurrency settings
+    (file-stream `stream_chunk_size` IS projected). HTTP/2 on the core compatibility path uses the validated `Http2Config`
     projection. Cleartext
     H2 uses bounded prior-knowledge detection; TLS uses ALPN (`h2` before
     `http/1.1`). There is no HTTP/1 `Upgrade: h2c` path.
@@ -532,12 +534,13 @@ All paths then share the same steps:
 
 ### Connection module ownership (Plan 180)
 
-The pipeline above lives in `server/connection/` (facade `mod.rs` plus nine
-invariant-owned submodules); the split is mechanical and behavior-preserving.
-External code imports only the facade (`ConnectionContext`,
-`ConnectionShutdown`, `ConnectionOutcome`, `serve_http1_connection`,
-`serve_http1_connection_with_id`, and, with `http2`,
-`serve_http_connection`/`serve_http_connection_with_id`).
+The pipeline above lives in `eggserve-server/src/connection/` (facade
+`mod.rs` plus invariant-owned submodules); the split is mechanical and
+behavior-preserving. External code imports only the facade
+(`ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome`,
+`serve_http1_connection`, `serve_http1_connection_with_id`,
+`serve_http1_connection_with_policy`). The H1/H2 `serve_http_connection`
+selector lives only in `eggserve-core` compatibility.
 
 | Module | Owns |
 |--------|------|
@@ -560,8 +563,10 @@ not enabled.
 ### Transport-neutral connection driver (Plan 163)
 
 `serve_http1_connection(io, service, config, context, runtime_state, shutdown)`
-is the strict HTTP/1 connection driver. With the `http2` feature,
-`serve_http_connection(...)` is the H1/H2 selector for caller-owned streams.
+is the strict HTTP/1 connection driver. The H1/H2 `serve_http_connection`
+selector for caller-owned streams lives only in `eggserve-core`
+compatibility (the direct crate exposes `serve_http1_connection` /
+`_with_id` / `_with_policy` only).
 The caller supplies an already-established
 bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
 `Service`, and the following per-connection state:
@@ -897,7 +902,7 @@ shutdown) is handled by the Python subprocess wrapper, not the Rust server.
 ## Maintainability convergence notes (Plans 243–258)
 
 - Plan 243: durable direct-server shutdown with runtime-owned JoinSet task draining; see [`release/plan-248-maintainability-convergence-closure.md`](../release/plan-248-maintainability-convergence-closure.md).
-- Plans 280–286 (`0.3.0` line): external `PolicyOwner`/`H1PolicyOwnership`
+- Plans 280–286 (`0.3.0` line, extended to `0.3.1` by Plans 288–291): external `PolicyOwner`/`H1PolicyOwnership`
   (six deadlines/ceilings) and `AdmissionOwnership` (service + tunnel gates)
   with the narrow `H1ConnectionPolicy` projection (Plans 280–282), the
   `RuntimeRejectionPresenter` hook (Plan 283), opt-in `OriginOrAbsolute`
