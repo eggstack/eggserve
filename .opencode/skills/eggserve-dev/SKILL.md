@@ -192,7 +192,7 @@ plus package/release checks). The example index is `examples/README.md`.
 1. **Safe defaults** — loopback bind, no symlinks, no dotfiles, no directory listing. Every unsafe behavior requires explicit opt-in via CLI flag.
 2. **No serving outside root** — path traversal and symlink escape denied at library level. On Unix with safe defaults, descriptor-relative traversal via `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`.
 3. **No broad dependencies** — every dependency must have an explicit purpose. See `docs/dependency-policy.md`.
-4. **Plan-driven development** — every change must be traced to a plan: new work (293+) registers in `plans/registry.md` with a subsystem roadmap and a bounded `plans/implementation/<subsystem>/` handoff plan closed by a `plans/closure/<subsystem>/` record (`plans/README.md`, `plans/003-planning-process.md`); legacy flat plans + `release/` records are archived in place. No ad-hoc feature additions.
+4. **Plan-driven development** — every change must be traced to a plan: new work (294+; 293 closed) registers in `plans/registry.md` with a subsystem roadmap and a bounded `plans/implementation/<subsystem>/` handoff plan closed by a `plans/closure/<subsystem>/` record (`plans/README.md`, `plans/003-planning-process.md`); legacy flat plans + `release/` records are archived in place. No ad-hoc feature additions.
 
 Keep detailed Python deviations in `docs/python-http-server-compatibility.md`
 and detailed Rust ownership in `architecture/runtime.md`; plans record change
@@ -216,8 +216,17 @@ cargo fmt --all -- --check
 cargo +1.89 check --workspace --all-targets
 cargo +1.89 check --workspace --all-targets --features http2,tls
 cargo +1.89 check --workspace --all-targets --features http3,tls
+cargo +1.89 check -p eggserve-server --all-targets --no-default-features --features http-interop
+cargo +1.89 check -p eggserve-server --all-targets --no-default-features --features tower
+cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features http-interop
+cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features tower
 cargo clippy --workspace --lib --bins --tests -- -D warnings  # lint (warnings are errors)
 cargo test --workspace
+cargo clippy -p eggserve-server --no-default-features --features tower --lib --tests -- -D warnings
+cargo test -p eggserve-server --no-default-features --features tower
+cargo clippy -p eggserve-core --no-default-features --features tower --lib --tests -- -D warnings
+cargo test -p eggserve-core --no-default-features --features tower
+cargo test -p eggserve-core --no-default-features --features http-interop --lib
 cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked  # excluded crate still parses
 cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings  # TLS lint
 cargo test -p eggserve-bin --features tls                   # TLS tests
@@ -251,8 +260,8 @@ open. Keep Windows support language aligned with the evidence in
 Or use the local verification script:
 
 ```sh
-./scripts/verify.sh fast                 # routine dev check (Rust workspace + Python crate check)
-./scripts/verify.sh full                 # pre-release validation (examples, Rust + Python wheel; needs Python 3.14 + maturin, `PYTHON=` overrides)
+./scripts/verify.sh fast                 # routine dev check (workspace + H2/H3 + Tower/interop clippy+tests + Python crate check; skips TLS-only bin tests)
+./scripts/verify.sh full                 # fast + TLS tests + examples + Python wheel + package dry-run (needs Python 3.14 + maturin, `PYTHON=` overrides)
 ./scripts/verify.sh deep                 # expensive suites (manual)
 bash scripts/qualify-http2.sh             # manual Linux H2 wire/ALPN qualification
 bash scripts/qualify-http3.sh             # manual H3/QUIC qualification; direct clients required for wire evidence

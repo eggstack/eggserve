@@ -22,6 +22,8 @@ eggserve [OPTIONS] [PORT] [DIRECTORY]
 | `DIRECTORY` | First positional token not consumed as PORT; once PORT is occupied, it is used verbatim, including numeric names | `.` (current directory) |
 | `--public` | Bind to all interfaces (required for `0.0.0.0` or `::` binds) | off |
 | `--http3` | Enable experimental native HTTP/3/QUIC beside TCP; requires `--tls-cert` (and optionally `--tls-key`), binds same-port UDP, and advertises `Alt-Svc` | off |
+| `--tls-cert PATH` | PEM certificate chain; enables TLS (requires `tls` build) | none |
+| `--tls-key PATH` | PEM private key; defaults to `--tls-cert` when omitted; requires `--tls-cert` (requires `tls` build) | `--tls-cert` |
 
 `--bind` accepts IPv4/IPv6 literals and hostnames. Hostname resolution happens
 once during argument validation; the resolved address is then used for the

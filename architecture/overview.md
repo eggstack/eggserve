@@ -24,9 +24,11 @@ deep-dive refresh, skill/agent-guide staleness sweeps, no behavior/tier change).
 migrates planning itself to the CodeGG-style hierarchy (`plans/README.md` +
 `registry.md` + `000`–`003` canonical docs + `subsystems/`/`implementation/`/
 `closure/`/`adrs/`/`archive/`; legacy flat plans + `release/` archived in place).
+Plan 293 (overview index + all deep dives refreshed, docs-only) is closed;
+new work continues at 294+ (see `plans/registry.md`).
 H1 + canonical `primitives` are supported; `server`/H2/H3/
 tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remain
-experimental. `plans/` + `ROADMAP.md` are change-trace records, not normative
+experimental. `plans/ROADMAP.md` and the flat `plans/NNN-*.md` files are change-trace records, not normative
 API docs — normative user contracts live in `docs/`.
 
 Plans 270–273 add the direct H1 control/completion split and opt-in disabled
@@ -363,7 +365,7 @@ nothing; listener examples bind loopback with port `0`.
   `deployment`, `timeout-reference`, `ops-logging`, `migration-guide`, …).
 - Change-trace records (not API docs): `plans/` hierarchy (`README.md` + `registry.md`
   control surface + `000`–`003` canonical docs + `subsystems/`/`implementation/`/
-  `closure/`; legacy flat `NNN-*.md` + `ROADMAP.md` archived in place),
+  `closure/`/`adrs/`/`archive/`; legacy flat `NNN-*.md` + `ROADMAP.md` archived in place),
   `release/` per-plan closure reports. When docs conflict with
   config/scripts, trust the executable source.
 
