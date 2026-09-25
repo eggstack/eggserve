@@ -1,6 +1,6 @@
 # Direct H1 Runtime Milestone 295 — Direct Tower hot-path optimization
 
-Status: blocked
+Status: closed (closure: `plans/closure/direct-h1-runtime/295-direct-tower-hotpath-optimization.md`; P1+P2 KEEP, all other rework NO-GO/DEFER)
 
 Repository baseline: `81605fc36b970440d6e3edbfd1e0d1cfa3ec4d91` (planning baseline; implementation must refresh after 294)
 

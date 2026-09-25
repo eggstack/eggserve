@@ -596,7 +596,9 @@ type HttpTrailerSlot =
 /// - EggServe remains the final framing authority: incoming
 ///   `content-length`/`transfer-encoding` are stripped and recomputed by
 ///   canonical normalization; application values are validated/reconciled,
-///   never blindly trusted.
+///   never blindly trusted. A body with an exact size hint is declared as a
+///   known-length stream (so `Content-Length` is emitted) and the transport
+///   verifies the byte count, failing closed on mismatch.
 /// - Hop-by-hop/protocol-forbidden fields pass through canonical
 ///   normalization (which strips them centrally).
 /// - Response trailers map through the Plan 198 validator without
@@ -656,6 +658,16 @@ where
                 r
             });
     }
+
+    // Known-length fast path (Plan 295 P1): a body reporting an exact size
+    // hint carries its full length without polling (e.g. buffered `Full`
+    // bodies from Tower/Axum handlers). Declare it so the runtime emits
+    // `Content-Length` instead of chunked. This declares, never trusts: the
+    // transport verifies the exact byte count against the declaration and
+    // fails closed (truncated close, no second response) on over/under-run,
+    // exactly like a native known-length stream. Bodies without an exact
+    // hint keep the unknown-length path below; nothing is buffered here.
+    let known_len: Option<u64> = body.size_hint().exact();
 
     // Shared terminal-trailer slot: the byte stream fills it once at EOF;
     // the trailer future (polled once after bytes by the transport) reads
@@ -764,7 +776,12 @@ where
         }
     };
 
-    let stream = ResponseStream::with_trailers(data_stream, trailer_future);
+    let stream = match known_len {
+        Some(len) => {
+            ResponseStream::with_known_length_and_trailers(data_stream, len, trailer_future)
+        }
+        None => ResponseStream::with_trailers(data_stream, trailer_future),
+    };
     let mut response = Response::builder()
         .status(status)
         .body(ResponseBody::Stream(stream))?;

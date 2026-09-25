@@ -1,0 +1,24 @@
+   Compiling eggserve-server v0.3.1 (/home/sugarwookie/projects/eggserve/crates/eggserve-server)
+    Finished `release` profile [optimized] target(s) in 6.49s
+     Running tests/direct_tower_baseline_294.rs (target/release/deps/direct_tower_baseline_294-335d602c1a8e8aa3)
+
+running 1 test
+BASELINE294 {"case":"get-1kib-native-r0","profile":"release-candidate","requests":500,"elapsed_s":0.038,"rps":13313.8,"p50_ms":0.073,"p95_ms":0.100,"p99_ms":0.117}
+BASELINE294 {"case":"get-1kib-tower-r0","profile":"release-candidate","requests":500,"elapsed_s":0.038,"rps":13146.2,"p50_ms":0.073,"p95_ms":0.099,"p99_ms":0.106}
+BASELINE294 {"case":"get-1kib-tower-r1","profile":"release-candidate","requests":500,"elapsed_s":0.038,"rps":13069.7,"p50_ms":0.073,"p95_ms":0.102,"p99_ms":0.116}
+BASELINE294 {"case":"get-1kib-native-r1","profile":"release-candidate","requests":500,"elapsed_s":0.036,"rps":13980.5,"p50_ms":0.069,"p95_ms":0.094,"p99_ms":0.103}
+BASELINE294 {"case":"get-1kib-native-r2","profile":"release-candidate","requests":500,"elapsed_s":0.035,"rps":14339.8,"p50_ms":0.069,"p95_ms":0.073,"p99_ms":0.094}
+BASELINE294 {"case":"get-1kib-tower-r2","profile":"release-candidate","requests":500,"elapsed_s":0.037,"rps":13403.1,"p50_ms":0.073,"p95_ms":0.083,"p99_ms":0.094}
+BASELINE294 {"case":"get-1kib-axum","profile":"release-candidate","requests":500,"elapsed_s":0.039,"rps":12936.2,"p50_ms":0.075,"p95_ms":0.087,"p99_ms":0.109}
+BASELINE294 {"case":"get-headers-1-tower","profile":"release-candidate","requests":200,"elapsed_s":0.015,"rps":13054.4,"p50_ms":0.073,"p95_ms":0.100,"p99_ms":0.112}
+BASELINE294 {"case":"get-headers-16-tower","profile":"release-candidate","requests":200,"elapsed_s":0.017,"rps":11855.4,"p50_ms":0.079,"p95_ms":0.112,"p99_ms":0.122}
+BASELINE294 {"case":"get-headers-64-tower","profile":"release-candidate","requests":200,"elapsed_s":0.021,"rps":9733.8,"p50_ms":0.096,"p95_ms":0.144,"p99_ms":0.154}
+BASELINE294 {"case":"sse-32-native","profile":"release-candidate","requests":50,"elapsed_s":0.005,"rps":9095.6,"p50_ms":0.109,"p95_ms":0.113,"p99_ms":0.128}
+BASELINE294 {"case":"sse-32-tower","profile":"release-candidate","requests":50,"elapsed_s":0.006,"rps":8657.9,"p50_ms":0.115,"p95_ms":0.119,"p99_ms":0.122}
+BASELINE294 {"case":"stream-1mib-native","profile":"release-candidate","requests":20,"elapsed_s":0.007,"rps":2903.2,"p50_ms":0.341,"p95_ms":0.357,"p99_ms":0.372}
+BASELINE294 {"case":"stream-1mib-axum","profile":"release-candidate","requests":20,"elapsed_s":0.007,"rps":2868.0,"p50_ms":0.341,"p95_ms":0.388,"p99_ms":0.399}
+BASELINE294 {"case":"stream-1mib-tower-full","profile":"release-candidate","requests":20,"elapsed_s":0.007,"rps":3044.6,"p50_ms":0.325,"p95_ms":0.347,"p99_ms":0.374}
+test baseline_timing_matrix ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.39s
+

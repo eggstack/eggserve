@@ -999,30 +999,47 @@ where
             // presence required; H2 Extended CONNECT stays
             // compatibility-owned until Plan 217.
             let mut tunnel_candidate = crate::tunnel::classify_tunnel(&head, has_body, on_upgrade);
+            // Provably-empty fast path (Plan 295 P2): when Hyper already
+            // reports end-of-stream before any body poll, no body bytes can
+            // ever arrive — not even a chunked terminator remains unread.
+            // Such bodies complete as empty instead of wrapping the
+            // transport stream, so a service that never polls them drops a
+            // `Complete` body rather than abandoning a network body. This
+            // preserves keep-alive reuse for bodyless requests under
+            // Buffer/Stream policies (matching Reject-path behavior) without
+            // weakening framing safety: any case with potentially unread
+            // wire bytes (chunked framing, declared length, trailers) keeps
+            // the wrapped path, where an unconsumed drop still forces close
+            // so leftovers can never be parsed as a next request.
+            let body_already_complete = http_body::Body::is_end_stream(&body);
             let request_body = match &effective_policy {
                 RequestBodyPolicy::Reject => {
                     eggserve_primitives::request_body::RequestBody::empty()
                 }
                 RequestBodyPolicy::Buffer { max_bytes }
                 | RequestBodyPolicy::Stream { max_bytes } => {
-                    let slot = eggserve_primitives::request_body::new_wire_slot();
-                    let (stream, slot) = wrap_incoming_body_with_trailers(body, slot);
-                    // Shared allocation so `RequestBody` and `RequestLifecycle`
-                    // observe the same ownership state.
-                    let shared =
-                        eggserve_primitives::request_lifecycle::RequestShared::new_active();
-                    // `requests` registry needs the shared observer; register
-                    // after construction below via the body's shared clone.
-                    eggserve_primitives::request_body::RequestBody::from_incoming_with_shared_and_wire_slot(
-                        stream,
-                        declared_length,
-                        *max_bytes,
-                        shared,
-                        slot,
-                    )
+                    if body_already_complete {
+                        drop(body);
+                        eggserve_primitives::request_body::RequestBody::empty()
+                    } else {
+                        let slot = eggserve_primitives::request_body::new_wire_slot();
+                        let (stream, slot) = wrap_incoming_body_with_trailers(body, slot);
+                        // Shared allocation so `RequestBody` and `RequestLifecycle`
+                        // observe the same ownership state.
+                        let shared =
+                            eggserve_primitives::request_lifecycle::RequestShared::new_active();
+                        // `requests` registry needs the shared observer; register
+                        // after construction below via the body's shared clone.
+                        eggserve_primitives::request_body::RequestBody::from_incoming_with_shared_and_wire_slot(
+                            stream,
+                            declared_length,
+                            *max_bytes,
+                            shared,
+                            slot,
+                        )
+                    }
                 }
             };
-
             // For Buffer policy, pre-buffer the body under timeout.
             match &effective_policy {
                 RequestBodyPolicy::Reject => {
