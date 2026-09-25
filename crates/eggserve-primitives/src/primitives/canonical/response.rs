@@ -101,8 +101,9 @@ impl Response {
     /// prior normalization so framing is recomputed without trailers.
     pub fn strip_response_trailers(&mut self) {
         if let Some(ResponseBody::Stream(stream)) = self.body.as_mut() {
-            // Drop without polling: `take_trailer_future` + drop.
+            // Drop without polling: `take_trailer_future` + declaration drop.
             let _ = stream.take_trailer_future();
+            let _ = stream.take_trailer_declaration();
         }
         self.normalized = false;
     }
@@ -110,6 +111,16 @@ impl Response {
     /// Returns `true` when the response carries a terminal trailer source.
     pub fn has_response_trailers(&self) -> bool {
         matches!(self.body.as_ref(), Some(ResponseBody::Stream(s)) if s.has_trailers())
+    }
+
+    /// Returns the head-time trailer declaration, if attached (Plan 299).
+    pub fn response_trailer_declaration(
+        &self,
+    ) -> Option<&crate::primitives::trailers::TrailerDeclaration> {
+        match self.body.as_ref() {
+            Some(ResponseBody::Stream(s)) => s.trailer_declaration(),
+            _ => None,
+        }
     }
 }
 

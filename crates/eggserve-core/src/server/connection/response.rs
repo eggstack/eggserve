@@ -20,6 +20,7 @@ use super::lifecycle::LifecycleDisposition;
 /// is idempotent so eagerly normalized static responses are preserved
 /// (HEAD equivalent-GET lengths, unknown-length omission). Conversion
 /// failures become generic 500/503 without leaking details.
+#[allow(dead_code)]
 pub(crate) fn normalize_then_convert(
     canonical: crate::primitives::canonical::Response,
     is_head: bool,
@@ -28,13 +29,53 @@ pub(crate) fn normalize_then_convert(
     error_policy: crate::policy::ErrorRepresentationPolicy,
     ops: Option<&crate::ops::OpsContext>,
 ) -> hyper::Response<BoxBodyInner> {
-    let normalized = match crate::primitives::canonical::normalize_response(
+    normalize_then_convert_with_h1_trailer_head(
+        canonical,
+        is_head,
+        false,
+        file_stream_semaphore,
+        stream_chunk_size,
+        error_policy,
+        ops,
+    )
+}
+
+/// Normalize, synthesize the runtime-owned H1 `Trailer` head field when
+/// requested, then convert (Plan 299 compatibility forwarding; no second
+/// H1 implementation).
+///
+/// Synthesis applies only to H1 trailer-bearing responses with a valid
+/// head-time declaration: conflicting `Content-Length` is removed so Hyper
+/// selects legal chunked framing, and a single runtime-generated `Trailer`
+/// head field is added. H2/H3 protocol-native paths pass `false` and are
+/// unchanged.
+pub(crate) fn normalize_then_convert_with_h1_trailer_head(
+    canonical: crate::primitives::canonical::Response,
+    is_head: bool,
+    synthesize_trailer_head: bool,
+    file_stream_semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
+    stream_chunk_size: usize,
+    error_policy: crate::policy::ErrorRepresentationPolicy,
+    ops: Option<&crate::ops::OpsContext>,
+) -> hyper::Response<BoxBodyInner> {
+    let mut normalized = match crate::primitives::canonical::normalize_response(
         canonical,
         &crate::primitives::canonical::NormalizeRequest::new(is_head),
     ) {
         Ok(r) => r,
         Err(_) => return crate::response::internal_error_with_policy(error_policy),
     };
+    if synthesize_trailer_head && normalized.has_response_trailers() {
+        if let Some(declaration) = normalized.response_trailer_declaration() {
+            let value = declaration.header_value();
+            {
+                let headers = normalized.head_mut().headers_mut();
+                headers.retain(|f| !f.name.as_str().eq_ignore_ascii_case("content-length"));
+                headers.retain(|f| !f.name.as_str().eq_ignore_ascii_case("trailer"));
+                let _ = headers.push_str("trailer", value);
+            }
+        }
+    }
     match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(
         normalized,
         file_stream_semaphore,

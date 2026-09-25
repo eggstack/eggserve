@@ -64,7 +64,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use super::trailers::Trailers;
+use super::trailers::{TrailerDeclaration, Trailers};
 
 /// Maximum advisory application chunk size.
 ///
@@ -160,6 +160,7 @@ pub struct ResponseStream {
     inner: ByteStream,
     known_length: Option<u64>,
     trailers: Option<TrailerFuture>,
+    trailer_declaration: Option<TrailerDeclaration>,
 }
 
 impl ResponseStream {
@@ -175,6 +176,7 @@ impl ResponseStream {
             inner: Box::pin(stream),
             known_length: None,
             trailers: None,
+            trailer_declaration: None,
         }
     }
 
@@ -191,6 +193,7 @@ impl ResponseStream {
             inner: Box::pin(stream),
             known_length: Some(len),
             trailers: None,
+            trailer_declaration: None,
         }
     }
 
@@ -209,6 +212,7 @@ impl ResponseStream {
             inner: Box::pin(stream),
             known_length: None,
             trailers: Some(Box::pin(trailer_future)),
+            trailer_declaration: None,
         }
     }
 
@@ -226,6 +230,56 @@ impl ResponseStream {
             inner: Box::pin(stream),
             known_length: Some(len),
             trailers: Some(Box::pin(trailer_future)),
+            trailer_declaration: None,
+        }
+    }
+
+    /// Create an unknown-length stream with a head-time trailer declaration.
+    ///
+    /// Plan 299: H1 wire delivery requires anticipated field names before
+    /// response commitment (Hyper only serializes terminal trailer frames
+    /// when the initial head declares them). H2/H3 continue to work without
+    /// a declaration; H1 trailer sources without one are suppressed before
+    /// polling with diagnostics. The trailer future is never polled to
+    /// derive names.
+    pub fn with_declared_trailers<S, F>(
+        stream: S,
+        declaration: TrailerDeclaration,
+        trailer_future: F,
+    ) -> Self
+    where
+        S: Stream<Item = Result<Bytes, ResponseStreamError>> + Send + 'static,
+        F: Future<Output = Result<Option<Trailers>, ResponseStreamError>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(stream),
+            known_length: None,
+            trailers: Some(Box::pin(trailer_future)),
+            trailer_declaration: Some(declaration),
+        }
+    }
+
+    /// Create a known-length stream with a head-time trailer declaration.
+    ///
+    /// The declared length counts data bytes only. H1 wire framing omits the
+    /// conflicting `Content-Length` for trailer-bearing responses (Hyper
+    /// selects legal chunked framing); internal byte-count validation still
+    /// applies.
+    pub fn with_known_length_and_declared_trailers<S, F>(
+        stream: S,
+        len: u64,
+        declaration: TrailerDeclaration,
+        trailer_future: F,
+    ) -> Self
+    where
+        S: Stream<Item = Result<Bytes, ResponseStreamError>> + Send + 'static,
+        F: Future<Output = Result<Option<Trailers>, ResponseStreamError>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(stream),
+            known_length: Some(len),
+            trailers: Some(Box::pin(trailer_future)),
+            trailer_declaration: Some(declaration),
         }
     }
 
@@ -242,6 +296,16 @@ impl ResponseStream {
     /// Returns `true` when a terminal trailer source is attached.
     pub fn has_trailers(&self) -> bool {
         self.trailers.is_some()
+    }
+
+    /// Returns the head-time trailer declaration, if attached.
+    pub fn trailer_declaration(&self) -> Option<&TrailerDeclaration> {
+        self.trailer_declaration.as_ref()
+    }
+
+    /// Take the head-time trailer declaration, if attached.
+    pub fn take_trailer_declaration(&mut self) -> Option<TrailerDeclaration> {
+        self.trailer_declaration.take()
     }
 
     /// Create an empty known-length (0) stream.
@@ -266,8 +330,36 @@ impl ResponseStream {
     ///
     /// Public runtime-adapter API (Plan 215): the direct connection driver
     /// in `eggserve-server` converts streams through this split.
+    ///
+    /// Note: this drops an attached head-time declaration (Plan 299).
+    /// Runtime conversion must use [`ResponseStream::into_parts_with_declaration`]
+    /// so H1 framing and actual-vs-declared enforcement see the names.
     pub fn into_parts(self) -> (ByteStream, Option<TrailerFuture>) {
-        (self.inner, self.trailers)
+        let Self {
+            inner, trailers, ..
+        } = self;
+        (inner, trailers)
+    }
+
+    /// Take the byte stream, trailer future, and head-time declaration.
+    ///
+    /// Public runtime-adapter API (Plan 299): the direct H1 driver converts
+    /// streams through this split so terminal trailer names can be enforced
+    /// as a subset of the declared set.
+    pub fn into_parts_with_declaration(
+        self,
+    ) -> (
+        ByteStream,
+        Option<TrailerFuture>,
+        Option<TrailerDeclaration>,
+    ) {
+        let Self {
+            inner,
+            trailers,
+            trailer_declaration,
+            ..
+        } = self;
+        (inner, trailers, trailer_declaration)
     }
 }
 

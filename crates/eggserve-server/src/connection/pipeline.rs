@@ -29,7 +29,6 @@ use super::request::{
 };
 use super::response::{
     apply_http1_disposition, body_error_disposition, body_error_to_response, contain_service_panic,
-    normalize_then_convert_with_provenance,
 };
 
 fn finish_response(
@@ -358,16 +357,49 @@ where
     }
     match result {
         Ok(Ok(mut canonical)) => {
-            if canonical.has_response_trailers() && !trailer_allowed {
-                ops.emit(
-                    crate::ops::Event::new(
-                        crate::ops::Severity::Debug,
-                        crate::ops::EventKind::ResponseTrailerSuppressed,
-                        "response trailers suppressed by H1 policy",
-                    )
-                    .connection_id(conn_id),
-                );
-                canonical.strip_response_trailers();
+            // Plan 299 H1 trailer policy: suppress before polling unless the
+            // H1.1 client opted in (`TE: trailers`), the response is not
+            // HEAD/body-forbidden, and a valid head-time declaration exists.
+            // Undeclared H1 trailer sources are suppressed (not silently
+            // dropped after polling) with diagnostics; H2/H3 paths never
+            // reach this H1 driver.
+            let mut synthesize_trailer_head = false;
+            if canonical.has_response_trailers() {
+                let status_permits = canonical.status().permits_payload_body();
+                let has_declaration = canonical.response_trailer_declaration().is_some();
+                if is_head || !status_permits {
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ResponseTrailerSuppressed,
+                            "response trailers suppressed for HEAD/body-forbidden response",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    canonical.strip_response_trailers();
+                } else if !trailer_allowed {
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ResponseTrailerSuppressed,
+                            "response trailers suppressed by H1 policy",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    canonical.strip_response_trailers();
+                } else if !has_declaration {
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ResponseTrailerSuppressed,
+                            "response trailers suppressed without head-time declaration",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    canonical.strip_response_trailers();
+                } else {
+                    synthesize_trailer_head = true;
+                }
             }
             // Tunnel acceptance: when the service consumed the capability,
             // the sidecar holds exactly one staged acceptance. Admit via the
@@ -416,14 +448,16 @@ where
                     }
                 }
             }
-            let (response, provenance) = normalize_then_convert_with_provenance(
-                canonical,
-                is_head,
-                file_stream_semaphore,
-                stream_chunk_size,
-                error_policy,
-                Some(ops),
-            );
+            let (response, provenance) =
+                super::response::normalize_then_convert_with_h1_trailer_head(
+                    canonical,
+                    is_head,
+                    synthesize_trailer_head,
+                    file_stream_semaphore,
+                    stream_chunk_size,
+                    error_policy,
+                    Some(ops),
+                );
             ServiceInvocationResponse {
                 response,
                 provenance,

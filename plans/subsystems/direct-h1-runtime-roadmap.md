@@ -1,6 +1,6 @@
 # Direct H1 Runtime Roadmap
 
-Status: active
+Status: closed
 
 Long-term references:
 
@@ -51,7 +51,7 @@ Consumes: `primitives` only; never static/core. `http2`/`tls` are inert compatib
 
 ## 4. Current state
 
-Core capability closure remains complete through `eggserve-server 0.3.1`. Milestones 294–297 are now closed as a bounded direct-Tower/application-server polish campaign. The subsystem remains active only for Milestone 299, a scoped H1 response-trailer wire-correctness repair for the F3 gap discovered by 294; this does not reopen the completed performance/footprint campaign. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
+Core capability closure remains complete through `eggserve-server 0.3.1`. Milestones 294–297 are closed as a bounded direct-Tower/application-server polish campaign, and Milestone 299 is closed as the scoped H1 response-trailer wire-correctness repair for the F3 gap discovered by 294; neither reopens the completed performance/footprint campaign. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
 
 ## 5. Target architecture
 
@@ -212,4 +212,4 @@ The capability milestones 1–3 remain closed and the 294–297 polish campaign 
 | 5 | closed | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | `plans/closure/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | — |
 | 6 | closed | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | `plans/closure/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | — |
 | 7 | closed | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | — |
-| 8 | ready | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | — | — |
+| 8 | closed | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | `plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | — |

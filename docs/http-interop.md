@@ -92,10 +92,16 @@ stays an outer hard ceiling; Tower readiness only further gates app work.
 - `response_from_http_body(http::Response<B>)` streams `B` incrementally
   into `ResponseStream` (data + validated trailers, no full buffering).
   Application `content-length`/`transfer-encoding` are stripped;
-  normalization recomputes framing. Bodies reporting an exact size hint are
-  declared known-length so `Content-Length` is emitted; the transport
-  verifies the count and fails closed on mismatch (Plan 295).
-  `HEAD`/body-forbidden never poll.
+  normalization recomputes framing. An ecosystem `Trailer` header is treated
+  as a validated head-time declaration request only (Plan 299): it is
+  stripped from ordinary headers and stored as neutral `TrailerDeclaration`
+  input while the runtime regenerates the wire field; malformed/forbidden
+  declarations fail before commitment and a trailer-bearing H1 response
+  without a declaration is suppressed, never silently frame-lost. Bodies
+  reporting an exact size hint are declared known-length so `Content-Length`
+  is emitted (trailer-bearing H1 responses omit it for legal chunked
+  framing instead); the transport verifies the count and fails closed on
+  mismatch (Plan 295). `HEAD`/body-forbidden never poll.
 - `response_from_bytes` / `empty_response_from_http` cover common cases
   without exposing `ResponseBody` variants.
 

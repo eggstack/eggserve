@@ -209,6 +209,154 @@ pub fn validate_trailers(
     Ok(())
 }
 
+/// Head-time trailer field-name declaration (Plan 299).
+///
+/// Transport-neutral anticipated trailer names required before response
+/// commitment so the H1 runtime can synthesize its owned `Trailer` head
+/// field (Hyper's H1 encoder only serializes terminal trailer frames when
+/// the initial head declares them). Contains names only, never values.
+///
+/// Validation reuses the single canonical trailer denylist plus canonical
+/// [`HeaderName`] rules; bounds align with [`TrailerLimits`] defaults
+/// (`32` names / `8 KiB` aggregate name bytes). Duplicate/case-equivalent
+/// names are canonicalized deterministically (first occurrence wins).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrailerDeclaration {
+    names: Vec<crate::primitives::header_block::HeaderName>,
+}
+
+impl TrailerDeclaration {
+    /// Validate and wrap explicit header names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TrailerValidationError`] for empty input, forbidden fields,
+    /// invalid names, excess count, or excess aggregate bytes.
+    pub fn new(
+        names: Vec<crate::primitives::header_block::HeaderName>,
+    ) -> Result<Self, TrailerValidationError> {
+        Self::validate_names(names)
+    }
+
+    /// Parse and validate names from text (e.g. Tower `Trailer` header input).
+    ///
+    /// Each item is validated as a canonical header name and against the
+    /// trailer denylist. Empty items after trimming are rejected.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TrailerValidationError`] on the first invalid entry.
+    pub fn from_names<I, S>(names: I) -> Result<Self, TrailerValidationError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut parsed = Vec::new();
+        for raw in names {
+            let text = raw.as_ref().trim();
+            if text.is_empty() {
+                return Err(TrailerValidationError::InvalidLimits(
+                    "trailer declaration must be non-empty".to_owned(),
+                ));
+            }
+            let name = crate::primitives::header_block::HeaderName::new(text)?;
+            parsed.push(name);
+        }
+        Self::validate_names(parsed)
+    }
+
+    /// Parse a comma-separated `Trailer` header value into a declaration.
+    ///
+    /// Used by the direct Tower bridge, which treats the ecosystem `Trailer`
+    /// header as a validated declaration request (never as raw framing).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TrailerValidationError`] for empty input or any
+    /// invalid/forbidden name.
+    pub fn parse_header_value(value: &str) -> Result<Self, TrailerValidationError> {
+        let parts: Vec<&str> = value
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if parts.is_empty() {
+            return Err(TrailerValidationError::InvalidLimits(
+                "trailer declaration must be non-empty".to_owned(),
+            ));
+        }
+        Self::from_names(parts)
+    }
+
+    fn validate_names(
+        names: Vec<crate::primitives::header_block::HeaderName>,
+    ) -> Result<Self, TrailerValidationError> {
+        if names.is_empty() {
+            return Err(TrailerValidationError::InvalidLimits(
+                "trailer declaration must be non-empty".to_owned(),
+            ));
+        }
+        // Deterministic case-insensitive dedup: first occurrence wins.
+        let mut seen = std::collections::HashSet::new();
+        let mut unique = Vec::with_capacity(names.len());
+        let mut bytes = 0usize;
+        for name in names {
+            let lower = name.as_str().to_ascii_lowercase();
+            if is_forbidden_trailer_field(&lower) {
+                return Err(TrailerValidationError::ForbiddenField(lower));
+            }
+            if seen.insert(lower) {
+                bytes = bytes.saturating_add(name.as_str().len());
+                unique.push(name);
+            }
+        }
+        if unique.len() > DEFAULT_MAX_TRAILER_FIELDS {
+            return Err(TrailerValidationError::TooManyFields {
+                count: unique.len(),
+                limit: DEFAULT_MAX_TRAILER_FIELDS,
+            });
+        }
+        if bytes > DEFAULT_MAX_TRAILER_BYTES {
+            return Err(TrailerValidationError::TooLarge {
+                bytes,
+                limit: DEFAULT_MAX_TRAILER_BYTES,
+            });
+        }
+        Ok(Self { names: unique })
+    }
+
+    /// Declared field names in declaration order.
+    pub fn names(&self) -> impl Iterator<Item = &crate::primitives::header_block::HeaderName> {
+        self.names.iter()
+    }
+
+    /// Number of declared names.
+    pub fn len(&self) -> usize {
+        self.names.len()
+    }
+
+    /// Returns `true` when no names are declared (unreachable via constructors).
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
+
+    /// Returns `true` when `name` was declared (ASCII case-insensitive).
+    pub fn contains(&self, name: &str) -> bool {
+        self.names
+            .iter()
+            .any(|n| n.as_str().eq_ignore_ascii_case(name))
+    }
+
+    /// Render the runtime-owned wire `Trailer` header value (`name[, name...]`).
+    pub fn header_value(&self) -> String {
+        self.names
+            .iter()
+            .map(|n| n.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 /// Canonical terminal trailer section.
 ///
 /// Wraps a validated [`HeaderBlock`] so initial headers and trailers cannot

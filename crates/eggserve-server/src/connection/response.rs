@@ -120,6 +120,7 @@ pub(crate) fn present_runtime_rejection(
 /// is idempotent so eagerly normalized static responses are preserved
 /// (HEAD equivalent-GET lengths, unknown-length omission). Conversion
 /// failures become generic 500/503 without leaking details.
+#[allow(dead_code)]
 pub(crate) fn normalize_then_convert_with_provenance(
     canonical: eggserve_primitives::canonical::Response,
     is_head: bool,
@@ -128,7 +129,40 @@ pub(crate) fn normalize_then_convert_with_provenance(
     error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
     ops: Option<&crate::ops::OpsContext>,
 ) -> (hyper::Response<BoxBodyInner>, ResponseProvenance) {
-    let normalized = match eggserve_primitives::canonical::normalize_response(
+    normalize_then_convert_with_h1_trailer_head(
+        canonical,
+        is_head,
+        false,
+        file_stream_semaphore,
+        stream_chunk_size,
+        error_policy,
+        ops,
+    )
+}
+
+/// Normalize, synthesize the runtime-owned H1 `Trailer` head field when
+/// `synthesize_trailer_head` is set, then convert to Hyper (Plan 299).
+///
+/// When synthesis is requested and the normalized response still carries a
+/// terminal trailer source with a valid head-time declaration, the runtime:
+/// - removes any conflicting `Content-Length` (including for
+///   `with_known_length_and_declared_trailers` so Hyper selects legal
+///   chunked framing; internal byte-count validation still runs in the
+///   stream adapter),
+/// - pushes a single runtime-generated `Trailer: name[, name...]` head field.
+///
+/// Application `Trailer`/`Transfer-Encoding` remain stripped by
+/// normalization; only this runtime synthesis can advertise H1 trailers.
+pub(crate) fn normalize_then_convert_with_h1_trailer_head(
+    canonical: eggserve_primitives::canonical::Response,
+    is_head: bool,
+    synthesize_trailer_head: bool,
+    file_stream_semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
+    stream_chunk_size: usize,
+    error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
+    ops: Option<&crate::ops::OpsContext>,
+) -> (hyper::Response<BoxBodyInner>, ResponseProvenance) {
+    let mut normalized = match eggserve_primitives::canonical::normalize_response(
         canonical,
         &eggserve_primitives::canonical::NormalizeRequest::new(is_head),
     ) {
@@ -140,6 +174,19 @@ pub(crate) fn normalize_then_convert_with_provenance(
             )
         }
     };
+    if synthesize_trailer_head && normalized.has_response_trailers() {
+        if let Some(declaration) = normalized.response_trailer_declaration() {
+            let value = declaration.header_value();
+            {
+                let headers = normalized.head_mut().headers_mut();
+                headers.retain(|f| !f.name.as_str().eq_ignore_ascii_case("content-length"));
+                // Normalization stripped any application `Trailer`; this single
+                // runtime-owned field is the only advertisement.
+                headers.retain(|f| !f.name.as_str().eq_ignore_ascii_case("trailer"));
+                let _ = headers.push_str("trailer", value);
+            }
+        }
+    }
     match crate::adapters::to_hyper_response_with_file_stream_semaphore_and_chunk_size(
         normalized,
         file_stream_semaphore,

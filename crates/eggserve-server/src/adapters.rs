@@ -357,6 +357,7 @@ struct ResponseStreamAdapter {
         >,
     >,
     declared: Option<u64>,
+    trailer_declaration: Option<eggserve_primitives::trailers::TrailerDeclaration>,
     emitted: u64,
     chunk_size: usize,
     pending_split: Option<bytes::Bytes>,
@@ -375,11 +376,12 @@ impl ResponseStreamAdapter {
     ) -> Self {
         let declared = stream.known_length();
         let chunk_size = chunk_size.max(1);
-        let (inner, trailers) = stream.into_parts();
+        let (inner, trailers, trailer_declaration) = stream.into_parts_with_declaration();
         Self {
             inner: Some(inner),
             trailers,
             declared,
+            trailer_declaration,
             emitted: 0,
             chunk_size,
             pending_split: None,
@@ -606,6 +608,24 @@ impl futures_util::Stream for ResponseStreamAdapter {
             TaskPoll::Ready(Ok(Some(trailers))) => {
                 // Exactly one terminal block; no data may follow by
                 // construction (body already ended, future polled once).
+                // Plan 299: when a head-time declaration is present, every
+                // actual field must be a subset of the declared set;
+                // violation after commitment fails closed (truncated close,
+                // sanitized diagnostics, no second response).
+                if let Some(declaration) = self.trailer_declaration.as_ref() {
+                    let undeclared = trailers
+                        .iter()
+                        .any(|f| !declaration.contains(f.name.as_str()));
+                    if undeclared {
+                        self.owner().emit(crate::ops::Event::new(
+                            crate::ops::Severity::Warn,
+                            crate::ops::EventKind::ResponseStreamProducerError,
+                            "response trailer outside declared set; closing connection",
+                        ));
+                        let err = self.fail_producer();
+                        return TaskPoll::Ready(Some(Err(err)));
+                    }
+                }
                 match trailers_to_header_map(&trailers) {
                     Ok(map) => {
                         self.trailers = None;

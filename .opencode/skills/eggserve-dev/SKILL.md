@@ -192,7 +192,7 @@ plus package/release checks). The example index is `examples/README.md`.
 1. **Safe defaults** — loopback bind, no symlinks, no dotfiles, no directory listing. Every unsafe behavior requires explicit opt-in via CLI flag.
 2. **No serving outside root** — path traversal and symlink escape denied at library level. On Unix with safe defaults, descriptor-relative traversal via `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`.
 3. **No broad dependencies** — every dependency must have an explicit purpose. See `docs/dependency-policy.md`.
-4. **Plan-driven development** — every change must be traced to a plan: new work (294+; 293 closed) registers in `plans/registry.md` with a subsystem roadmap and a bounded `plans/implementation/<subsystem>/` handoff plan closed by a `plans/closure/<subsystem>/` record (`plans/README.md`, `plans/003-planning-process.md`); legacy flat plans + `release/` records are archived in place. No ad-hoc feature additions.
+4. **Plan-driven development** — every change must be traced to a plan: new work registers in `plans/registry.md` (the next-number/current-work authority) with a subsystem roadmap and a bounded `plans/implementation/<subsystem>/` handoff plan closed by a `plans/closure/<subsystem>/` record (`plans/README.md`, `plans/003-planning-process.md`); legacy flat plans + `release/` records are archived in place. No ad-hoc feature additions.
 
 Keep detailed Python deviations in `docs/python-http-server-compatibility.md`
 and detailed Rust ownership in `architecture/runtime.md`; plans record change

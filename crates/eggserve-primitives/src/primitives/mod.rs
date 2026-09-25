@@ -71,8 +71,8 @@ pub use response::{
 };
 pub use response_stream::MAX_RESPONSE_STREAM_CHUNK_BYTES;
 pub use trailers::{
-    is_forbidden_trailer_field, trailer_block_bytes, validate_trailers, TrailerLimits,
-    TrailerValidationError, Trailers,
+    is_forbidden_trailer_field, trailer_block_bytes, validate_trailers, TrailerDeclaration,
+    TrailerLimits, TrailerValidationError, Trailers,
 };
 pub use tunnel::{
     classify_extended_protocol, classify_h1_upgrade, validate_handshake_headers, ProtocolName,

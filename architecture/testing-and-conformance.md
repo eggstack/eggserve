@@ -85,6 +85,8 @@ shutdown; the process harness uses only Python's standard library.
 | `windows_plan084.rs` | `windows-adversarial-qualification` | Windows handle-relative directory retention |
 | `windows_plan086.rs` | `windows-adversarial-qualification` | Windows adversarial filesystem qualification |
 `crates/eggserve-server/tests/interop_http_tower.rs` | `tower` | Plans 200/276: server-owned `http`/`http-body`/Tower adapters — streaming, trailers, middleware, H1 parity |
+`crates/eggserve-server/tests/h1_response_trailers_299.rs` | — (+`tower` for declaration bridge) | Plan 299: H1 response-trailer wire correctness — raw-TCP declaration/framing/suppression/undeclared-fail-closed matrix + native/Tower convergence |
+`crates/eggserve-core/tests/h1_response_trailers_299.rs` | — | Plan 299: compatibility H1 trailer parity (no second implementation) |
 `trailers_interim.rs` | — | Plan 198: canonical trailers + bounded interim 1xx |
 `tunnel_upgrade.rs` | — (+`http2`/`http3` for Extended CONNECT, dev `tokio-tungstenite` for WS interop) | Plan 199: generic tunnel/upgrade/Extended CONNECT + denial + duplex |
 `trusted_proxy.rs` | — | Plan 202: PROXY protocol + Forwarded provenance, fail-closed |

@@ -1,6 +1,6 @@
 # Planning Governance Roadmap
 
-Status: active
+Status: closed
 
 Long-term references:
 
@@ -143,4 +143,4 @@ The planning-governance roadmap closes when Milestone 298 has an accepted closur
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| 1 | ready | `plans/implementation/planning-governance/298-planning-control-surface-reconciliation.md` | — | — |
+| 1 | closed | `plans/implementation/planning-governance/298-planning-control-surface-reconciliation.md` | `plans/closure/planning-governance/298-planning-control-surface-reconciliation.md` | — |

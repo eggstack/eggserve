@@ -30,8 +30,8 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Subsystem | Status | Roadmap | Current milestone | Dependencies or blockers |
 |---|---|---|---|---|
 | Static confinement + static service | closed | `plans/subsystems/static-confinement-roadmap.md` | All milestones closed (sole authority in `eggserve-static`) | None. Trace: legacy Plans 002/007/219/224/245 + `release/plan-225-compatibility-facade-closure.md`. |
-| Direct H1 runtime + service contract | active | `plans/subsystems/direct-h1-runtime-roadmap.md` | 299 H1 response-trailer wire correctness | 294–297 polish campaign is closed. Plan 299 is a scoped correctness repair for F3; no broader adapter/performance reopening. |
-| Planning governance | active | `plans/subsystems/planning-governance-roadmap.md` | 298 planning control-surface reconciliation | Verifies and closes the legacy Plan 292 bootstrap without rewriting immutable legacy plans; reconciles stale 294–297 control-surface status. |
+| Direct H1 runtime + service contract | closed | `plans/subsystems/direct-h1-runtime-roadmap.md` | 299 closed (H1 response-trailer wire correctness) | 294–297 polish campaign closed; 299 F3 repair closed (`plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md`). No broader adapter/performance reopening. |
+| Planning governance | closed | `plans/subsystems/planning-governance-roadmap.md` | 298 closed (planning control-surface reconciliation) | Plan 292 bootstrap retired without rewriting immutable legacy plans; stale 294–297 status reconciled (`plans/closure/planning-governance/298-planning-control-surface-reconciliation.md`). |
 | Docs architecture (overview index + deep dives) | closed | `plans/subsystems/docs-architecture-roadmap.md` | 293 closed (overview + all deep dives refreshed) | Trace: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. |
 
 ## Dependency-ready implementation plans
@@ -43,12 +43,12 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Direct H1 runtime | 295 | closed | `plans/implementation/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` | Done; closure: `plans/closure/direct-h1-runtime/295-direct-tower-hotpath-optimization.md` (P1+P2 KEEP). |
 | Direct H1 runtime | 296 | closed | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | Done; closure: `plans/closure/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` (WP-A KEEP; file/tunnel NO-GO). |
 | Direct H1 runtime | 297 | closed | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | Done; closure: `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md`. Campaign complete; no publication (next server release minor when cut). |
-| Planning governance | 298 | ready | `plans/implementation/planning-governance/298-planning-control-surface-reconciliation.md` | Docs/planning-only cleanup. Legacy Plan 292 remains immutable; closure must prove its acceptance criteria are satisfied before removing it from active control state. |
-| Direct H1 runtime | 299 | ready | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | Scoped F3 correctness repair. Hard dependencies (Plans 198, 288–291, 294–297) are closed; no dependency on 298 beyond registry hygiene. |
+| Planning governance | 298 | closed | `plans/implementation/planning-governance/298-planning-control-surface-reconciliation.md` | Done; closure: `plans/closure/planning-governance/298-planning-control-surface-reconciliation.md`. Bootstrap retired; agent pointers durable. |
+| Direct H1 runtime | 299 | closed | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | Done; closure: `plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md`. F3 wire repair landed; no publication. |
 
 ## Blocked work
 
-No blocked milestones. Plans 298 and 299 are dependency-ready.
+No blocked milestones. Plans 298 and 299 are closed.
 
 ## Closure work and current control points
 
@@ -59,7 +59,7 @@ No blocked milestones. Plans 298 and 299 are dependency-ready.
 | Post-convergence maintenance (251–258) | closed | `release/plan-256-post-convergence-maintenance-interop-closure.md`; `release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`. |
 | Docs architecture overview + deep dives (293) | closed | `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md` (docs-only; overview index + all 23 deep dives refreshed). |
 | Direct application-server polish (294–297) | closed | `plans/closure/direct-h1-runtime/294-direct-tower-footprint-baseline.md`; `295-direct-tower-hotpath-optimization.md`; `296-direct-profile-footprint-capability-split.md`; `297-direct-application-server-qualification-closure.md`. P1/P2/WP-A retained; file/tunnel splits NO-GO; publication deferred. |
-| Response-trailer F3 | open / planned | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` owns the separate H1 wire correctness repair discovered by 294 and reaffirmed by 295/297. |
+| Response-trailer F3 | closed | `plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` (wire repair landed; deferred Tower rendezvous untouched; no publication). |
 
 ## Legacy trace pointer
 

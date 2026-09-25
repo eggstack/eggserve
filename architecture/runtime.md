@@ -209,7 +209,11 @@ no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100).
 The final head commits once the service returns
 `Ok(Response)` and the runtime normalizes it (marking interim committed).
 Response trailers stream as one terminal block after body completion (no data
-after, `HEAD`/body-forbidden never poll). There is never a second
+after, `HEAD`/body-forbidden never poll). H1 wire delivery additionally
+requires a head-time `TrailerDeclaration` (Plan 299: the runtime synthesizes
+the owned `Trailer` head field and omits conflicting `Content-Length` so
+Hyper selects chunked framing; undeclared H1 sources are suppressed before
+polling; actual fields must be a declared subset). There is never a second
 HTTP error after commitment: producer/body/trailer failures after commitment
 close (H1) or reset the stream (H2/H3, siblings survive) with sanitized diagnostics only.
 Peer/shutdown/timeout/transport failure cancels the `RequestLifecycle`

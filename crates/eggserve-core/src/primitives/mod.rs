@@ -133,8 +133,9 @@ pub use response::{
 };
 pub use response_stream::MAX_RESPONSE_STREAM_CHUNK_BYTES;
 pub use trailers::{
-    is_forbidden_trailer_field, trailer_block_bytes, validate_trailers, TrailerLimits,
-    TrailerValidationError, Trailers, DEFAULT_MAX_TRAILER_BYTES, DEFAULT_MAX_TRAILER_FIELDS,
+    is_forbidden_trailer_field, trailer_block_bytes, validate_trailers, TrailerDeclaration,
+    TrailerLimits, TrailerValidationError, Trailers, DEFAULT_MAX_TRAILER_BYTES,
+    DEFAULT_MAX_TRAILER_FIELDS,
 };
 pub use tunnel::{
     ProtocolName, TunnelCapability, TunnelError, TunnelIo, TunnelKind, TunnelRequest,

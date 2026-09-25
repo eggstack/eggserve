@@ -62,7 +62,7 @@ use eggserve_primitives::request_head::RequestHead;
 use eggserve_primitives::request_lifecycle::RequestLifecycle;
 use eggserve_primitives::request_target::{RequestTarget, RequestTargetError};
 use eggserve_primitives::response_stream::ResponseStreamError;
-use eggserve_primitives::trailers::{TrailerLimits, Trailers};
+use eggserve_primitives::trailers::{TrailerDeclaration, TrailerLimits, Trailers};
 use eggserve_primitives::version::{HttpVersion, HttpVersionError};
 
 /// Errors from `http` interoperability conversions.
@@ -631,12 +631,35 @@ where
         .map_err(|_| ResponseConstructionError::InvalidStatus(parts.status.as_u16()))?;
     let mut headers = header_map_to_block(&parts.headers)
         .map_err(|_| ResponseConstructionError::InvalidHeader(HeaderError::InvalidValue))?;
+    // Plan 299 Tower declaration bridge: treat an ecosystem `Trailer`
+    // header as a validated declaration request only. It is stripped from
+    // ordinary headers and the runtime regenerates the final wire field;
+    // malformed/forbidden declarations fail before commitment.
+    let declaration = {
+        let values: Vec<String> = headers
+            .iter()
+            .filter(|f| f.name.as_str().eq_ignore_ascii_case("trailer"))
+            .filter_map(|f| f.value.to_str().ok().map(str::to_owned))
+            .collect();
+        if values.is_empty() {
+            None
+        } else {
+            let combined = values.join(",");
+            Some(
+                TrailerDeclaration::parse_header_value(&combined).map_err(|_| {
+                    ResponseConstructionError::InvalidHeader(HeaderError::InvalidValue)
+                })?,
+            )
+        }
+    };
     // EggServe is the framing authority: strip application framing so
     // normalization recomputes it from the actual adapted body. This also
     // avoids `ForbiddenFramingHeader` on 205 and stale lengths elsewhere.
+    // `Trailer` is runtime-owned and regenerated from the declaration.
     headers.retain(|f| {
         !f.name.as_str().eq_ignore_ascii_case("content-length")
             && !f.name.as_str().eq_ignore_ascii_case("transfer-encoding")
+            && !f.name.as_str().eq_ignore_ascii_case("trailer")
     });
 
     // Fast path: empty bodies stay empty (known 0) so framing stays exact
@@ -776,11 +799,20 @@ where
         }
     };
 
-    let stream = match known_len {
-        Some(len) => {
+    let stream = match (known_len, declaration) {
+        (Some(len), Some(decl)) => ResponseStream::with_known_length_and_declared_trailers(
+            data_stream,
+            len,
+            decl,
+            trailer_future,
+        ),
+        (Some(len), None) => {
             ResponseStream::with_known_length_and_trailers(data_stream, len, trailer_future)
         }
-        None => ResponseStream::with_trailers(data_stream, trailer_future),
+        (None, Some(decl)) => {
+            ResponseStream::with_declared_trailers(data_stream, decl, trailer_future)
+        }
+        (None, None) => ResponseStream::with_trailers(data_stream, trailer_future),
     };
     let mut response = Response::builder()
         .status(status)

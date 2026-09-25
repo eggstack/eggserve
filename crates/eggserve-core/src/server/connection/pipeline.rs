@@ -30,7 +30,6 @@ use super::request::{
 };
 use super::response::{
     apply_http1_disposition, body_error_disposition, body_error_to_response, contain_service_panic,
-    normalize_then_convert,
 };
 
 fn finish_response(
@@ -423,6 +422,11 @@ where
     // Capture trailer policy + interim + tunnel commitment/lifecycle before the
     // request moves into the service.
     let trailer_allowed = h1_trailers_allowed(request.head());
+    let request_is_h1 = matches!(
+        request.head().version(),
+        crate::primitives::version::HttpVersion::Http10
+            | crate::primitives::version::HttpVersion::Http11
+    );
     let interim = request.context().interim().cloned();
     let tunnel_shared = tunnel.as_ref().map(|inv| inv.shared.clone());
     let tunnel_sidecar = tunnel.as_ref().map(|inv| inv.sidecar.clone());
@@ -442,16 +446,45 @@ where
     }
     match result {
         Ok(Ok(mut canonical)) => {
-            if canonical.has_response_trailers() && !trailer_allowed {
-                ops.emit(
-                    crate::ops::Event::new(
-                        crate::ops::Severity::Debug,
-                        crate::ops::EventKind::ResponseTrailerSuppressed,
-                        "response trailers suppressed by H1 policy",
-                    )
-                    .connection_id(conn_id),
-                );
-                canonical.strip_response_trailers();
+            // Plan 299: H1 requires a head-time declaration for wire
+            // delivery; H2/H3 keep protocol-native behavior without one.
+            let mut synthesize_trailer_head = false;
+            if canonical.has_response_trailers() {
+                let status_permits = canonical.status().permits_payload_body();
+                let has_declaration = canonical.response_trailer_declaration().is_some();
+                if is_head || !status_permits {
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ResponseTrailerSuppressed,
+                            "response trailers suppressed for HEAD/body-forbidden response",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    canonical.strip_response_trailers();
+                } else if !trailer_allowed {
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ResponseTrailerSuppressed,
+                            "response trailers suppressed by H1 policy",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    canonical.strip_response_trailers();
+                } else if request_is_h1 && !has_declaration {
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ResponseTrailerSuppressed,
+                            "response trailers suppressed without head-time declaration",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    canonical.strip_response_trailers();
+                } else if request_is_h1 && has_declaration {
+                    synthesize_trailer_head = true;
+                }
             }
             // Tunnel acceptance (Plan 217 direct authority): when the service
             // consumed the capability, the sidecar holds exactly one staged
@@ -511,9 +544,10 @@ where
                     }
                 }
             }
-            normalize_then_convert(
+            super::response::normalize_then_convert_with_h1_trailer_head(
                 canonical,
                 is_head,
+                synthesize_trailer_head,
                 file_stream_semaphore,
                 stream_chunk_size,
                 error_policy,

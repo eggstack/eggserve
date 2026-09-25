@@ -91,17 +91,31 @@ Initial headers, trailers, interim responses, and final responses are distinct:
   only from protocol trailer frames; repeated/data-after-trailers fail).
 - **Response trailers** attach as one terminal source:
   `ResponseStream::with_trailers(stream, future)` /
-  `with_known_length_and_trailers` (known length counts data only). Exactly one
-  block, no data after (adapter polls bytes to completion, then the future
-  once, then ends). `HEAD`/body-forbidden never poll either producer.
-  Cancellation/drop is deterministic. Adapters map without buffering the body.
+  `with_known_length_and_trailers` (known length counts data only; H2/H3
+  protocol-native paths keep working without further metadata) or the
+  declaration-aware `with_declared_trailers(stream, declaration, future)` /
+  `with_known_length_and_declared_trailers` (Plan 299: H1 wire delivery
+  requires anticipated names). Exactly one block, no data after (adapter
+  polls bytes to completion, then the future once, then ends).
+  `HEAD`/body-forbidden never poll either producer. Cancellation/drop is
+  deterministic. Adapters map without buffering the body. Actual terminal
+  fields must be a subset of the declared set; violation after commitment
+  fails closed (truncated close, sanitized diagnostics, no second response).
 - **H1 policy**: application code never sets `Transfer-Encoding`/`Trailer`
   (runtime-owned, stripped). Response trailers emit only when the request
-  signals `TE: trailers`; otherwise suppressed with diagnostics. `Trailer`
-  header naming is omitted when not knowable (allowed). HTTP/1.0 never carries
-  trailers (suppressed). Trailer producer failure after commitment truncates
-  (H1 close / H2 stream reset / H3 stream reset, siblings survive), never a
-  second HTTP error.
+  signals `TE: trailers` **and** the response carries a valid head-time
+  `TrailerDeclaration`; otherwise suppressed before polling with diagnostics
+  (including legacy `with_trailers` sources without a declaration, which stay
+  H2/H3-capable). The runtime synthesizes the single wire `Trailer` head
+  field and omits conflicting `Content-Length` (Hyper selects legal chunked
+  framing; internal known-length byte-count validation still applies).
+  HTTP/1.0 never carries trailers (suppressed). Trailer producer failure
+  after commitment truncates (H1 close / H2 stream reset / H3 stream reset,
+  siblings survive), never a second HTTP error.
+- **Tower bridge**: an ecosystem `Trailer` response header is treated as a
+  validated declaration request only (stripped, then regenerated under
+  EggServe authority); malformed/forbidden declarations fail before
+  commitment and application `Transfer-Encoding` stays ignored.
 - **H2/H3**: terminal HEADERS / terminal field section via protocol-native
   frames, same canonical validator. Failures are stream-local, never widen to
   siblings.
