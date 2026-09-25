@@ -1,6 +1,6 @@
 # Direct H1 Runtime Roadmap
 
-Status: closed
+Status: active
 
 Long-term references:
 
@@ -51,7 +51,7 @@ Consumes: `primitives` only; never static/core. `http2`/`tls` are inert compatib
 
 ## 4. Current state
 
-Core capability closure remains complete through `eggserve-server 0.3.1`. Milestones 294–297 are closed as a bounded direct-Tower/application-server polish campaign, and Milestone 299 is closed as the scoped H1 response-trailer wire-correctness repair for the F3 gap discovered by 294; neither reopens the completed performance/footprint campaign. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
+Core capability closure remains complete through `eggserve-server 0.3.1`. Milestones 294–297 are closed as a bounded direct-Tower/application-server polish campaign, and Milestone 299 is closed as the scoped H1 response-trailer wire-correctness repair for the F3 gap discovered by 294; neither reopens the completed performance/footprint campaign. Milestone 300 (Plan 300) is the active operational publication of that qualified state as the 0.4.0 line plus wheel 0.2.4; it ships no further production behavior. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
 
 ## 5. Target architecture
 
@@ -165,6 +165,30 @@ Dependencies: Milestones 5/6 for retained changes (hard); registry publication o
 
 Exit conditions: allocation/CPU/latency/tail/RSS/dependency/binary evidence, full correctness/security verification, exact keep/revert/defer decisions, and publication strategy recorded.
 
+### Milestone 9 — 0.4.0 release publication
+
+Class: polish
+
+Objective: publish the 0.4.0 Rust line (primitives 0.2.2;
+server/static/h3/core 0.4.0; bin 0.2.2) plus wheel 0.2.4 with
+registry-only consumer proof, tag `v0.4.0`, and a GitHub Release. No
+production behavior beyond closed 297/299 work; versions, requirements,
+lockfiles, and release metadata only.
+
+Dependencies: Milestones 1–8 (hard, closed); live crates.io/PyPI state at
+execution (operational); maintainer crates.io token and `pypi` environment
+approval (operational).
+
+Deliverable boundary: manifests/lockfiles/docs-only diff; layered package
+proof; serial index-gated publication with checksums; registry-only
+consumer ancestry; tag + release; TestPyPI→PyPI wheel path.
+
+User or operator value: the qualified 0.4.0 line (tower feature edge +
+H1 trailer wire delivery) becomes consumable from the registries.
+
+Exit conditions: Plan 300 closure with per-crate checksums, consumer
+proof, tag/release links, and wheel run evidence.
+
 ### Milestone 8 — H1 response-trailer wire correctness
 
 Class: invariant
@@ -213,3 +237,4 @@ The capability milestones 1–3 remain closed and the 294–297 polish campaign 
 | 6 | closed | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | `plans/closure/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | — |
 | 7 | closed | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | — |
 | 8 | closed | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | `plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | — |
+| 9 | active | `plans/implementation/direct-h1-runtime/300-release-0-4-0-publication.md` | — | crates.io token + `pypi` approval (operational) |

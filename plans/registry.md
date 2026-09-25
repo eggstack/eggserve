@@ -30,7 +30,7 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Subsystem | Status | Roadmap | Current milestone | Dependencies or blockers |
 |---|---|---|---|---|
 | Static confinement + static service | closed | `plans/subsystems/static-confinement-roadmap.md` | All milestones closed (sole authority in `eggserve-static`) | None. Trace: legacy Plans 002/007/219/224/245 + `release/plan-225-compatibility-facade-closure.md`. |
-| Direct H1 runtime + service contract | closed | `plans/subsystems/direct-h1-runtime-roadmap.md` | 299 closed (H1 response-trailer wire correctness) | 294–297 polish campaign closed; 299 F3 repair closed (`plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md`). No broader adapter/performance reopening. |
+| Direct H1 runtime + service contract | active | `plans/subsystems/direct-h1-runtime-roadmap.md` | 300 0.4.0 release publication | 294–297 polish campaign closed; 299 F3 repair closed. Plan 300 publishes the 0.4.0 line + wheel 0.2.4 (versions/metadata only). |
 | Planning governance | closed | `plans/subsystems/planning-governance-roadmap.md` | 298 closed (planning control-surface reconciliation) | Plan 292 bootstrap retired without rewriting immutable legacy plans; stale 294–297 status reconciled (`plans/closure/planning-governance/298-planning-control-surface-reconciliation.md`). |
 | Docs architecture (overview index + deep dives) | closed | `plans/subsystems/docs-architecture-roadmap.md` | 293 closed (overview + all deep dives refreshed) | Trace: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. |
 
@@ -45,10 +45,11 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Direct H1 runtime | 297 | closed | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | Done; closure: `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md`. Campaign complete; no publication (next server release minor when cut). |
 | Planning governance | 298 | closed | `plans/implementation/planning-governance/298-planning-control-surface-reconciliation.md` | Done; closure: `plans/closure/planning-governance/298-planning-control-surface-reconciliation.md`. Bootstrap retired; agent pointers durable. |
 | Direct H1 runtime | 299 | closed | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | Done; closure: `plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md`. F3 wire repair landed; no publication. |
+| Direct H1 runtime | 300 | active | `plans/implementation/direct-h1-runtime/300-release-0-4-0-publication.md` | Operational publication: 0.4.0 line (primitives 0.2.2; server/static/h3/core 0.4.0; bin 0.2.2) + wheel 0.2.4; tag `v0.4.0`; TestPyPI→PyPI. |
 
 ## Blocked work
 
-No blocked milestones. Plans 298 and 299 are closed.
+No blocked milestones. Plans 298 and 299 are closed; Plan 300 is active (operational needs: crates.io token present, `pypi` environment approval by maintainer at dispatch time).
 
 ## Closure work and current control points
 
