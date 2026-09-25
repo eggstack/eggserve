@@ -7,8 +7,8 @@ eggserve supports TLS via rustls, enabled through the `tls` feature flag. TLS is
 | Feature | Crate | Purpose |
 |---------|-------|---------|
 | `http2` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/2 server path, bounded H2 prior knowledge and protocol config; see [HTTP/2 qualification](http2.md) |
-| `http3` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/3/QUIC server path; enables `tls`, h3 ALPN, and same-port UDP lifecycle; see [HTTP/3 boundary](http3.md) |
-| `tls` | `eggnet-tls`, `eggserve-core`, `eggserve-bin` | Neutral rustls identity/trust policy plus EggServe async TLS transport |
+| `http3` | `eggserve-h3` (sole QUIC owner), `eggserve-core` (facade + `dep:eggserve-h3`), `eggserve-bin` | Experimental HTTP/3/QUIC server path; enables `tls`, h3 ALPN, and same-port UDP lifecycle (`http3 = ["tls", "dep:eggserve-h3"]` in `crates/eggserve-core/Cargo.toml`); see [HTTP/3 boundary](http3.md) |
+| `tls` | `eggserve-core`, `eggserve-bin` (downstream gates) + neutral `eggnet-tls` policy | Neutral rustls identity/trust policy plus EggServe async TLS transport. Note: `eggnet-tls` exposes an `http2` feature, not a `tls` feature; `tls` is a downstream (`eggserve-core`/`eggserve-bin`) gate |
 
 ## Dependencies
 
@@ -25,7 +25,11 @@ When `tls` is enabled in `eggserve-core`:
 assembly remains in the compatibility module.
 
 The `http3` feature builds a separate Quinn rustls configuration from the
-PEM identity supplied through `ServerBuilder::http3_identity`. It restricts
+PEM identity supplied through `ServerBuilder::http3_identity`. The authority
+is `eggserve-h3::load_quic_server_config` (`crates/eggserve-h3/src/quic.rs`);
+`eggserve_core::tls::load_quic_server_config` (`crates/eggserve-core/src/tls.rs`)
+is a thin delegate with no second QUIC/TLS implementation. See
+[the H3 boundary](eggserve-h3.md). It restricts
 QUIC TLS to TLS 1.3, advertises only `h3`, and sets early data to zero. The
 TCP rustls `ServerConfig` is never reused for QUIC because its ALPN and
 protocol configuration are transport-specific.
@@ -65,7 +69,8 @@ The function:
 
 ### Error Types
 
-**Location:** `eggnet_tls::TlsError` (facade: `eggserve-core::tls`)
+**Location:** `eggnet_tls::TlsError` (facade: `eggserve-core::tls`) —
+selected variants below; see `eggnet_tls::TlsError` for the full list.
 
 | Variant | Meaning |
 |---------|---------|
@@ -77,6 +82,16 @@ The function:
 | `NoPrivateKeyFound` | PEM file contains no valid private key |
 | `MultiplePrivateKeysFound` | PEM file contains multiple private keys |
 | `InvalidKey` | Key does not match certificate or is invalid |
+| `InvalidSniName` | SNI identity fails DNS validation |
+| `DuplicateIdentity` | Duplicate TLS identity name |
+| `TooManyIdentities` | Identity count exceeds `MAX_TLS_IDENTITIES` (64) |
+| `NoIdentities` | No TLS identities configured |
+| `InvalidTrustRoots` | Trust-root PEM invalid |
+| `TooManyTrustRoots` | Trust roots exceed `MAX_TRUST_ROOTS` (256) |
+| `InvalidCrl` | CRL PEM invalid |
+| `TooManyCrls` | CRLs exceed `MAX_CRLS` (16) |
+| `TrustRootsRequired` | Client auth requires at least one trust root |
+| `InvalidAlpn` | ALPN protocols exceed 16 × 255 bounds or are empty |
 
 ### CLI Usage
 

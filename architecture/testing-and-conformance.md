@@ -22,8 +22,12 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Python boundary hardening | `crates/eggserve-python/tests/test_boundary_hardening.py` | Security hardening and namespace boundaries | current suite |
 | Python public API | `crates/eggserve-python/tests/test_public_api.py` | Supported namespace and demotion checks | focused |
 | Python parity matrix | `crates/eggserve-python/tests/test_parity_matrix.py` | Real-socket Rust/Python parity | current suite |
+| Python low-level runtime | `crates/eggserve-python/tests/test_lowlevel_runtime.py` | Low-level substrate throughput/backpressure/shutdown | current suite |
+| Python async bridge | `crates/eggserve-python/tests/test_async_bridge.py`, `test_async_lifecycle.py`, `test_async_suppressed_lifetime.py` | Experimental async lifecycle/streaming/suppressed-body permit parity | current suite |
+| Python ASGI fixture | `crates/eggserve-python/tests/asgi_fixture.py` | Test-only ASGI handler fixture (not a test file) | fixture |
+| Python typing smoke | `crates/eggserve-python/tests/typing_smoke.py` (via `scripts/check-python-types.py`, `mypy --strict`) | Installed-wheel stub fidelity | focused |
 | Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 11 targets |
-| Conformance corpora | `conformance/*.json` + `conformance/*.toml` | Shared Rust/Python test data + normative matrices | 2 corpora + 2 matrices |
+| Conformance corpora | `conformance/*.json` + `conformance/*.toml` | Shared Rust/Python test data + normative matrices | 2 corpora + 3 matrices |
 | Executable examples | `examples/`, `crates/eggserve-core/examples/` | Canonical CLI/Python/Rust product demonstrations | current |
 
 The installed-wheel script is the authoritative Python test entry point; its count changes with the compatibility façade and is intentionally not duplicated here.
@@ -85,6 +89,29 @@ shutdown; the process harness uses only Python's standard library.
 `trusted_proxy.rs` | — | Plan 202: PROXY protocol + Forwarded provenance, fail-closed |
 `listener_ownership.rs` | — (Unix-only socket case) | Plan 201: prebound TCP/Unix/systemd/H3-UDP parity |
 | `streaming_buffer_qualification.rs` | — | Exact range boundaries, chunk-crossing, buffer isolation, zero-length files, client disconnect release, forced shutdown release, concurrent exhaustion (503), HEAD non-acquisition, configurable chunk sizes |
+
+Further authority/parity fixtures:
+
+| File | Location | Focus |
+|------|----------|-------|
+| `auto_h1_delegation.rs` | `crates/eggserve-core/tests/` | Plan 249 compatibility `Auto` H1 delegation to the direct driver |
+| `direct_h1_parity.rs` | `crates/eggserve-core/tests/` | Plan 215/249 direct-vs-compatibility H1 parity |
+| `direct_service_convergence.rs` | `crates/eggserve-core/tests/` | Plan 217 one direct `Service` over direct H1 + compatibility H2 |
+| `static_authority_conformance.rs` | `crates/eggserve-core/tests/` | Plan 219/245 static authority conformance (core wrapper vs `eggserve-static`) |
+| `tower_compatibility.rs` | `crates/eggserve-core/tests/` | Core Tower compatibility re-export shim |
+| `interop_http_tower.rs` | `crates/eggserve-server/tests/` | Plans 200/276 server-owned `http`/`http-body`/Tower adapters |
+| `axum_tower_qualification.rs` | `crates/eggserve-server/tests/` | Plan 275 Axum 0.8 direct-server qualification |
+| `downstream_embedding.rs` | `crates/eggserve-server/tests/` | Direct-server downstream embedding qualification |
+| `per_runtime_observability.rs` | `crates/eggserve-core/tests/` | Per-runtime `OpsContext` observability |
+| `response_streaming.rs` | `crates/eggserve-core/tests/` | Response streaming framing/lifecycle |
+| `response_privacy.rs` | `crates/eggserve-core/tests/` | Response privacy/fingerprint goldens |
+| `transport_driver.rs` | `crates/eggserve-core/tests/` | Caller-owned transport driver parity |
+| `transport_benchmark.rs` | `crates/eggserve-core/tests/` | Transport benchmark harness |
+| `plan227_body_benchmark.rs` | `crates/eggserve-core/tests/` | Plan 227 body benchmark harness |
+| `production_controls.rs` | `crates/eggserve-core/tests/` | Production admission/timeout controls |
+| `request_target_conformance.rs` | `crates/eggserve-core/tests/` | Request-target classification conformance |
+| `runtime_config_authority.rs` | `crates/eggserve-core/tests/` | Runtime config single-authority checks |
+| `log_sink_recursion.rs` | `crates/eggserve-core/tests/` | Log-sink recursion containment |
 
 ## Plans 243–258 suite inventory
 
@@ -224,11 +251,11 @@ evidenced by deterministic suites (not absolute-timing gates):
 
 | Track | Evidence |
 |-------|----------|
-| A — Streaming correctness under load | `tests/response_streaming.rs` (framing, `Send + !Sync` producer acceptance, HEAD/body-forbidden never poll, mismatch teardown, panic containment, cancellation, keep-alive reuse), `tests/streaming_buffer_qualification.rs` (range boundaries, disconnect/shutdown permit release, 503 exhaustion, HEAD non-acquisition), `tests/request_body_*` (ingestion, timeouts, cancellation) |
-| B — Transport-neutral parity | `tests/transport_driver.rs` (duplex driver, TCP parity, no fabricated addresses), `tests/production_controls.rs` (duplex admission/timeout shaping), example `caller_owned_stream.rs` |
-| C — Parser/admission hostile load | `tests/http_wire_correctness.rs` (raw wire: smuggling corpus, framing ambiguity, lifecycle), `tests/production_controls.rs` (limits, saturation/recovery, idle/write/total deadlines), `tests/fault_injection.rs`, `tests/stateful_fuzz_replay.rs`, `tests/corpus_replay.rs` |
+| A — Streaming correctness under load | `crates/eggserve-core/tests/response_streaming.rs` (framing, `Send + !Sync` producer acceptance, HEAD/body-forbidden never poll, mismatch teardown, panic containment, cancellation, keep-alive reuse), `crates/eggserve-core/tests/streaming_buffer_qualification.rs` (range boundaries, disconnect/shutdown permit release, 503 exhaustion, HEAD non-acquisition), `crates/eggserve-core/tests/request_body_*` (ingestion, timeouts, cancellation) |
+| B — Transport-neutral parity | `crates/eggserve-core/tests/transport_driver.rs` (duplex driver, TCP parity, no fabricated addresses), `crates/eggserve-core/tests/production_controls.rs` (duplex admission/timeout shaping), example `caller_owned_stream.rs` |
+| C — Parser/admission hostile load | `crates/eggserve-core/tests/http_wire_correctness.rs` (raw wire: smuggling corpus, framing ambiguity, lifecycle), `crates/eggserve-core/tests/production_controls.rs` (limits, saturation/recovery, idle/write/total deadlines), `crates/eggserve-core/tests/fault_injection.rs`, `crates/eggserve-core/tests/stateful_fuzz_replay.rs`, `crates/eggserve-core/tests/corpus_replay.rs` |
 | D — Python low-level qualification | `crates/eggserve-python/tests/test_lowlevel_runtime.py` (buffered/streaming throughput paths, backpressure, saturation, GIL behavior, exceptions, shutdown churn), example `examples/python_lowlevel_service.py` |
-| E — Privacy/fingerprint goldens | `tests/response_privacy.rs` (Server/Date/denylist/error/static-metadata behavior over TCP/TLS/non-socket, no version strings); threat statement: absence of selected gratuitous identifiers, not un-fingerprintability |
+| E — Privacy/fingerprint goldens | `crates/eggserve-core/tests/response_privacy.rs` (Server/Date/denylist/error/static-metadata behavior over TCP/TLS/non-socket, no version strings); threat statement: absence of selected gratuitous identifiers, not un-fingerprintability |
 | F — Soak and failure recovery | `tests/soak/` (repo-level), repeated saturation/recovery cycles in `production_controls.rs`, TLS churn in `tls_abuse.rs`/`request_body_tls.rs` |
 | G — CGI/FastCGI | Closed as no-go (Plan 167): no in-tree adapters, no adapter evidence owed; downstream matrix in `docs/extension-contract.md` |
 
@@ -317,7 +344,7 @@ manual evidence rather than CI thresholds.
 
 ## Plan 207 cross-protocol conformance
 
-One normative inventory (`conformance/app_server_conformance.toml`: 55 scenarios, 47 routine) drives application-server qualification across H1 TCP/TLS/prebound/Unix, H2 prior/TLS/prebound, H3 QUIC, and caller-owned duplex with native/`http`/Tower/async-Python/ASGI consumers. The routine deterministic subset lives in `crates/eggserve-core/tests/cross_protocol_conformance.rs` (H1 + prebound + Unix + caller-owned + H2/Tower-gated, 17–18 tests); H1 TLS, H2 TLS, H3, `http-interop`, async Python, and the ASGI fixture are owned by their existing suites (`tls_identity.rs`, `http2_runtime.rs`, `http3_runtime.rs`, `interop_http_tower.rs`, `test_async_bridge.py`) and referenced from the inventory rather than duplicated. `scripts/verify-conformance-matrix.py` validates both the static matrix (51 entries) and the app-server inventory. Expensive two-client/browser/soak/impairment/perf evidence stays manual and fail-closed (`qualify-http2.sh`/`qualify-http3.sh`, `release/plan-207-cross-protocol-conformance.md`). No tier promotion follows; H2/H3 stay experimental. Plan 208 decides promotion.
+One normative inventory (`conformance/app_server_conformance.toml`: 55 scenarios, 47 routine, 8 manual) drives application-server qualification across H1 TCP/TLS/prebound/Unix, H2 prior/TLS/prebound, H3 QUIC, and caller-owned duplex with native/`http`/Tower/async-Python/ASGI consumers. The routine deterministic subset lives in `crates/eggserve-core/tests/cross_protocol_conformance.rs` (H1 + prebound + Unix + caller-owned + H2/Tower-gated, 19 tests); H1 TLS, H2 TLS, H3, `http-interop`, async Python, and the ASGI fixture are owned by their existing suites (`tls_identity.rs`, `http2_runtime.rs`, `http3_runtime.rs`, `interop_http_tower.rs`, `test_async_bridge.py`) and referenced from the inventory rather than duplicated. `scripts/verify-conformance-matrix.py` validates the static matrix (51 entries in `conformance/conformance_matrix.toml`), the app-server inventory (55 scenarios, 47 routine), and the H3 inventory (17 scenarios in `conformance/http3_qualification.toml`); together the two corpora (`corpus.json`, `body_corpus.json`) plus three matrices are the shared conformance data. Expensive two-client/browser/soak/impairment/perf evidence stays manual and fail-closed (`qualify-http2.sh`/`qualify-http3.sh`, `release/plan-207-cross-protocol-conformance.md`). No tier promotion follows; H2/H3 stay experimental. Plan 208 decides promotion.
 
 ## HTTP/2 qualification
 
@@ -353,6 +380,31 @@ interoperability, QUIC abuse/resource measurement, and platform evidence stay
 manual; `bash scripts/qualify-http3.sh` records the available evidence and
 `release/plan-188-http3-qualification.md` records the current experimental
 decision.
+
+## Plans 263–269 wheel qualification
+
+`release/wheel-matrix.toml` owns the wheel target set: 10 required targets
+plus 3 candidates (`scripts/wheel-matrix.py` validates, `scripts/check-release-wheel-set.py`
+enforces the 10-wheel aggregate, `scripts/check-release-workflow.py` guards
+the release graph). Plan 268 splits Track A (the `manylinux` baseline vs
+`compatibility` policy controls) from Track B (deferred native-qualifier
+smoke: AArch64 glibc direct, AArch64 musl via Alpine container,
+Windows-ARM64, ARMv7 QEMU userspaces). The same wheel bytes prove
+GIL-enabled CPython 3.11–3.15 ABI compatibility (build-once/test-many) via
+`scripts/abi_smoke.py` with `MODE=abi-smoke` / `WHEEL_PATH`; per-target
+execution owns `scripts/qualify-python-wheel-target.sh`.
+
+## Plans 270–286 direct-server / embedding
+
+Supervisory lifecycle (`ServerHandle::into_parts()` with cloneable
+`ServerControl` plus cancellation-safe `ServerCompletion::wait()`),
+server-owned `http-interop`/Tower extraction (core forwards; direct H1 +
+Tower graph stays free of `eggserve-static`/PHF), and the Plan 284 tunnel
+A/B KEEP decision with its manual harness
+(`tunnel::tests::tunnel_transport_ab_qualification`, `#[ignore]`, not a CI
+gate) feed the embedding-contract closures: downstream/Axum qualification
+(`downstream_embedding.rs`, `axum_tower_qualification.rs`) and registry-only
+fixtures under `release/fixtures/plan-286-*` (Plan 286 publication).
 
 ## See Also
 

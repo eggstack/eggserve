@@ -1,7 +1,9 @@
 # eggserve-python — Deep Dive
 
 The Python wheel is built by maturin and contains a PyO3 extension plus the
-Python façade. The supported programming surface is `eggserve.server`; advanced
+Python façade. It targets `abi3-py311` (GIL-enabled CPython 3.11–3.15,
+build-once/test-many) and ships typed stubs (`server.pyi`, `lowlevel.pyi`,
+`subprocess.pyi`, `__init__.pyi`, `_native.pyi`) plus `py.typed`. The supported programming surface is `eggserve.server`; advanced
 primitives and subprocess lifecycle helpers are kept in separate namespaces.
 The wheel includes an `eggserve` console script backed by the native extension
 (no separate bundled binary).
@@ -155,7 +157,7 @@ are explicit Plan 225 blockers: the extended `Server`/`ServerHandle`/
 `validate_static_metadata`, and static listing budgets — confined to
 `runtime.rs`, `static_responder.rs`, `lifecycle.rs`, and one listing call.
 The extension-backed CLI stays via `eggserve_bin::run_cli` (confirmed used,
-not removed).
+not removed; narrow CLI contract, not a general Rust embedding API).
 
 The canonical executable facade demonstrations are
 [`examples/python_http_server_static.py`](../examples/python_http_server_static.py)
@@ -186,12 +188,21 @@ crates/eggserve-python/
 │       └── async_handler.rs   # pointer to Python-side Plan 204 asyncio bridge
 └── python/eggserve/
     ├── __init__.py     # small supported top-level namespace
+    ├── __init__.pyi    # top-level stubs
     ├── _bin.py         # CLI entry point via native _run_cli
     ├── __main__.py     # python -m eggserve support
     ├── server.py       # six-class Rust-runtime compatibility façade (plus subprocess compat re-exports)
+    ├── server.pyi      # facade stubs
     ├── lowlevel.py     # advanced native exports + handler/runtime substrate
-    └── subprocess.py   # canonical subprocess/CLI convenience owner
+    ├── lowlevel.pyi    # low-level stubs
+    ├── subprocess.py   # canonical subprocess/CLI convenience owner
+    ├── subprocess.pyi  # subprocess stubs
+    ├── _native.pyi     # native extension stubs
+    └── py.typed        # PEP 561 typed-package marker
 ```
+
+The Python distribution stays at `0.2.3` (the Rust side tracks the `0.3.0`
+leaves); no new protocol is surfaced to Python — the facade remains H1-only.
 
 ## Security boundary
 

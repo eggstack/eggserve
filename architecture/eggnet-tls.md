@@ -56,11 +56,36 @@ still verified against the configured roots. Required authentication rejects
 clients without an acceptable certificate. No revocation checking is implied
 without explicitly configured CRLs.
 
+## ALPN defaults and bounds
+
+The `http2` feature controls the ALPN default: `load_tls_config` follows
+`cfg!(feature = "http2")` (`crates/eggnet-tls/src/lib.rs`), delegating
+through `load_tls_config_with_http2` to `http_alpn_protocols(http2)` (offers
+`h2` before `http/1.1` when enabled, `http/1.1` only otherwise). The neutral
+`alpn_protocols(..)` builder hook / `load_tls_config_with_alpn(..)` lets
+non-HTTP transports advertise their own identifiers (empty means no ALPN);
+an explicit override wins over the `http2(bool)` convenience (last call wins).
+
+Bounded inputs (`crates/eggnet-tls/src/lib.rs`):
+
+| Bound | Value | Source |
+|---|---|---|
+| Max SNI identities | 64 | `MAX_TLS_IDENTITIES` |
+| Max SNI name length | 253 chars | `MAX_SNI_LEN` |
+| Max trust roots | 256 | `MAX_TRUST_ROOTS` |
+| Max CRLs | 16 | `MAX_CRLS` |
+| Max ALPN protocols | 16 × 255 bytes | `MAX_ALPN_PROTOCOLS` / `MAX_ALPN_PROTOCOL_LEN` |
+| Max certificates per identity chain | 8 | `MAX_IDENTITY_CHAIN` |
+| Max trust/CRL PEM input | 1 MiB | `MAX_TRUST_PEM_BYTES` |
+
 ## Consumer contract
 
 EggServe re-exports the crate through `eggserve_core::tls` to preserve the
-existing 0.1 import path. Its accept loop remains responsible for
-`tokio-rustls`; its HTTP/3 adapter separately builds the TLS 1.3/`h3` QUIC
+existing 0.1 import path. `tokio-rustls` wrapping belongs to EggServe's
+accept loop and consumer transport adapters, not to this crate: the crate
+has no Tokio dependency (production dependencies are `rustls` +
+`rustls-pki-types` only per `crates/eggnet-tls/Cargo.toml`; Tokio appears
+solely in `dev-dependencies` for tests). Its HTTP/3 adapter separately builds the TLS 1.3/`h3` QUIC
 configuration from `eggnet-tls::load_identity`. `TlsReloadHandle` changes the
 configuration seen by new TCP handshakes; established sessions are unchanged.
 
@@ -96,8 +121,8 @@ repositories (eggserve never depends on either as a product).
   (`parse_identity_pem`, `parse_trust_roots_pem`, key/cert pairing) remain
   available if eggfetch later finds a genuine reduction, but no dependency
   is forced: client policy must not be absorbed into the shared crate.
-- **Version floors.** All three repositories resolve rustls 0.23.45 today,
-  but only eggserve manifests enforce the Plan 218 `0.23.45` caret floor
+- **Version floors.** At Plan 222 sign-off, all three repositories resolved
+  rustls 0.23.45, but only eggserve manifests enforce the Plan 218 `0.23.45` caret floor
   (RUSTSEC-2026-0285), including the excluded Python manifest. Eggress
   (`rustls = "0.23"`, tokio-rustls 0.26) and eggfetch-core
   (`rustls = "0.23"` optional, hyper-rustls 0.27, tokio-rustls 0.26) still

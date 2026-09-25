@@ -1,65 +1,90 @@
 # eggserve-bin — Deep Dive
 
-The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, signal handling, and graceful shutdown. Plan 221 names the canonical leaf crates directly for every neutral path: `eggserve-primitives` (policy types), `eggserve-server` (observability), `eggserve-static` (direct H1 tests), and `eggnet-tls` (neutral single-identity loading). The extended server orchestration — `ServeConfig`, `try_from_serve_config`, the full `Server` with TLS/H2/H3, the full `StaticService` with extra headers/error policy, and `Limits`/static-metadata validation with static budgets — stay compatibility-owned as documented orchestration under the Plan 225 facade closure. Uses a current-thread Tokio runtime.
+The static-only CLI binary crate (`eggserve-bin 0.2.1`). `main.rs` is a shim
+over `lib.rs` (`run`/`run_cli`); `args.rs` owns the manual grammar (no clap);
+`shutdown.rs` owns signal handling; `tls.rs` re-exports the neutral TLS
+substrate. Neutral policy/observability/static paths name the leaf crates
+directly (Plan 221); extended TLS/H2/H3 orchestration goes through the closed
+compatibility facade (Plan 225). Published alongside the `0.3.0` leaves via
+Plan 286 (lockfile-only `0.2.1` selection; no behavior change).
 
-## Module Map
+## Module map
 
 | Module | Purpose |
 |--------|---------|
-| `main.rs` | Thin `fn main()` → `eggserve_bin::run()` |
-| `lib.rs` | `run()` executable entrypoint and integration-only `run_cli(argv) -> i32`; delegates to core server |
-| `args.rs` | Manual argument parsing (no clap dependency) |
-| `shutdown.rs` | Signal handling (Ctrl+C, SIGTERM, SIGHUP) with broadcast channel |
-| `tls.rs` | Re-exports `eggnet-tls` directly (Plan 221; single-identity PEM loading lives in the neutral substrate) |
+| `main.rs` | Thin `fn main()` → `eggserve_bin::run()` (`src/main.rs:1-3`) |
+| `lib.rs` | `run()` (parse → exit code) and `run_cli(argv) -> i32` (same syntax, no `exit`); current-thread Tokio runtime; dual `cfg(tls)` orchestration paths |
+| `args.rs` | Manual `[OPTIONS] [PORT] [DIRECTORY]` grammar, `require_value` flag-guard, `--header=NAME=VALUE` expansion, `validate_static_metadata` gate |
+| `shutdown.rs` | Ctrl+C / SIGTERM / SIGHUP → `broadcast::Sender<()>` graceful-stop relay |
+| `tls.rs` | Re-export of `eggnet_tls::*` (Plan 221; single-identity PEM loading lives in the neutral substrate) |
 
-## Entry Points
+## Entrypoints
 
 ```rust
-// lib.rs
-pub fn run()  // calls run_cli with std::env::args, then std::process::exit
-pub fn run_cli(argv: Vec<String>) -> i32  // Python integration entrypoint
+pub fn run()                          // `std::env::args` → `run_cli` → `process::exit`
+pub fn run_cli(argv: Vec<String>) -> i32  // extension-backed CLI plumbing
 ```
 
-`run_cli()` parses the same arguments as the executable, constructs
-`ServeConfig`, starts the server, and returns an exit code without calling
-`std::process::exit()`. This narrowly supports the Python extension's
-extension-backed CLI without terminating the host process. It is not a
-general Rust embedding API; Rust applications should use `eggserve-core`.
-`run()` is the executable wrapper that calls `run_cli` and exits with the
-returned code.
+`run_cli` parses `argv`, builds `ServeConfig` + `Limits`, inits the global
+`Logger` once via `try_init`, loads optional TLS identity, projects
+`try_from_serve_config`, builds `Server`, holds a broadcast receiver across
+`start()`, logs `ListenerReady`, waits for the first signal (closed channel =
+fail-safe shutdown), then `shutdown()` + `timeout(grace, handle.wait())`.
+Dirty stops (`Err` or timeout) return `1`. It exists for the wheel's native
+`_run_cli` (`eggserve-python/src/lib.rs`) / `python -m eggserve`; it is not a
+general Rust embedding API — Rust applications use `eggserve-core` facades or
+the direct leaves (see `crates/eggserve-bin/src/lib.rs:27-34`).
 
-When built with `http3`, `--http3` requires the manual TLS certificate/key
-identity, enables the core QUIC endpoint beside TCP, and enables the
-runtime-owned same-port `Alt-Svc` advertisement. The Python compatibility
-facade does not expose this flag as a protocol feature.
+## Args grammar (`args.rs`, no clap)
 
-The binary crate calls `run()` from `main.rs`. The Python package calls
-`run_cli()` via the native `_run_cli` PyO3 binding, and `ServerProcess`
-launches `python -m eggserve` as a subprocess.
+Canonical grammar is `[OPTIONS] [PORT] [DIRECTORY]` (normative flags in
+`docs/cli.md`; timeout semantics in `docs/timeout-reference.md`):
 
-1. Parses CLI arguments
-2. Constructs `ServeConfig`
-3. Prints startup summary (bind address, root, policy)
-4. Binds TCP listener
-5. Enters accept loop
-6. Handles shutdown signal → graceful drain
+* `--directory DIR` occupies DIRECTORY; `.` default. `--bind HOST[:PORT]`
+  (host-only leaves PORT free), `--port PORT`, `--addr HOST:PORT` (cannot
+  combine with `--bind`); `:PORT` means `0.0.0.0:PORT` (still needs
+  `--public`). Hostnames resolve once; wildcard results still need `--public`.
+* Two logical slots: PORT then DIRECTORY. Explicit port sources occupy PORT;
+  the next positional after occupied PORT is DIRECTORY verbatim (even numeric).
+  `--directory` occupying DIRECTORY leaves a later numeric positional free for
+  PORT. Excess positionals rejected; padded/signed/out-of-range numerics
+  rejected as ports (verbatim only once PORT is occupied); `--` ends options.
+* Every non-repeatable flag errors on repeat; value flags never swallow a
+  following flag (`--bind requires an argument (found flag ...)`); bare `-`
+  is a literal value.
+* Policy: `--directory-listing`, `--follow-symlinks`, `--allow-dotfiles`
+  (all default deny/off). Metadata: `--content-type`, repeatable
+  `-H/--header NAME VALUE` (also `--header=NAME=VALUE`); ordered, validated by
+  `validate_static_metadata`, final-200-only, runtime/hop-by-hop rejected.
+* Limits/timeouts/parser ceilings: `--max-connections`, `--max-file-streams`,
+  `--max-in-flight-requests`, `--max-requests-per-connection` (`0` =
+  unlimited), `--header-timeout`, `--connection-total-timeout` (`0` opts out
+  of only the hard total lifetime per Plans 270–271), `--handler-timeout`,
+  `--body-read-timeout`, `--keep-alive-idle-timeout`,
+  `--response-write-timeout`, `--max-buf-size`, `--max-headers`,
+  `--max-header-bytes`, `--max-request-target-bytes`.
+* Output: `--log-format text|json|none`, `--quiet` (warn/error filter),
+  `-h/--help`, `-V/--version`.
+* TLS (feature `tls`): `--tls-cert PATH` (+ optional `--tls-key PATH`;
+  omitted key falls back to cert path for combined PEM). H3 (feature `http3`):
+  `--http3` requires TLS identity, enables the same-port QUIC endpoint and
+  `Alt-Svc` advertisement.
 
-## Accept Loop Architecture
+## Accept loop architecture
 
-The accept loop lives in `eggserve-core::server` (`accept_loop_multi`, Plan 201).
-Both TLS and non-TLS paths use `Server::builder()` → `Server::start()`.
-Per Plan 249, compatibility `Auto` classification resolves before any Hyper
-service exists: every H1 path delegates the replayable stream to the direct
-`eggserve-server` H1 driver (`connection::serve_http1_connection`), while core
-executes H2 only (see
+The accept loop lives in `eggserve-core::server` (`accept_loop_multi`,
+Plan 201). Both TLS and non-TLS paths use `Server::builder()` →
+`Server::start()`. Per Plan 249, compatibility `Auto` classification resolves
+before any Hyper service exists: every H1 path delegates the replayable
+stream to the direct `eggserve-server` H1 driver
+(`connection::serve_http1_connection`), while core executes H2 only (see
 `../release/plan-250-h1-authority-lifetime-corrective-closure.md`).
-When `RuntimeConfig.tls_config` or `tls_reload_handle` is set (Plan 203 reload
-handle wins atomically), the accept loop performs a per-connection TLS handshake
-via `tokio_rustls::TlsAcceptor` (order `TCP → PROXY → TLS deadline → ALPN → HTTP`)
-before dispatching to the HTTP connection handler. CLI remains single-identity;
-Rust `TlsServerConfig` provides SNI/mTLS/reload.
-
-### Unified accept loop (core server)
+When `RuntimeConfig.tls_config` or `tls_reload_handle` is set (Plan 203
+reload handle wins atomically), the accept loop performs a per-connection TLS
+handshake via `tokio_rustls::TlsAcceptor` (order
+`TCP → PROXY → TLS deadline → ALPN → HTTP`) before dispatching to the HTTP
+connection handler. CLI remains single-identity; Rust `TlsServerConfig`
+provides SNI/mTLS/reload.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -81,95 +106,60 @@ Rust `TlsServerConfig` provides SNI/mTLS/reload.
 └─────────────────────────────────────────────┘
 ```
 
-When the semaphore is exhausted, new connections are dropped immediately (connection limit enforcement).
+When the semaphore is exhausted, new connections are dropped immediately
+(connection limit enforcement).
 
-## CLI Arguments (`args.rs`)
+## TLS loading
 
-Manual parsing — no clap. Arguments:
+Behind `tls` (`eggserve-core/tls`). `tls.rs` is `pub use eggnet_tls::*`;
+loading/validation (bounded PEM, PKCS#1/8/SEC1, exactly-one-key,
+`keys_match`, no key-material logging) lives once in `eggnet-tls`. CLI stays
+single-identity; SNI/mTLS/reload is Rust-first (`TlsServerConfig`). The
+`tls`-built binary still serves plaintext when no cert is given (logged
+`scheme` is `http` vs `https`). `--http3` additionally calls
+`http3_identity(cert, key)` on the builder; H3 keeps its separate TLS
+1.3/QUIC identity (TCP reload does not rotate H3).
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--directory` | `.` | Root directory to serve |
-| `--bind` | `127.0.0.1` | Bind host, hostname, or host:port |
-| `--port` | `8000` | Port number |
-| `--addr` | — | Full socket address (HOST:PORT); cannot combine with `--bind` |
-| `--public` | off | Bind to `0.0.0.0` or `::` (requires explicit opt-in) |
-| `--directory-listing` | off | Enable directory listing |
-| `--follow-symlinks` | off | Follow symbolic links |
-| `--allow-dotfiles` | off | Serve dotfiles |
-| `--log-format` | `text` | Log format (`text`, `json`, or `none`) |
-| `--quiet` | off | Wrap log sink with warn/error filter |
-| `--max-connections` | `64` | Connection limit |
-| `--max-file-streams` | `32` | File stream limit |
-| `--header-timeout` | `10s` | Header read timeout |
-| `--connection-total-timeout` | `60s` | Total connection lifetime timeout |
-| `--handler-timeout` | `30s` | Handler invocation timeout |
-| `--body-read-timeout` | `30s` | Request body read timeout |
-| `--tls-cert` | — | TLS certificate PEM path (feature-gated: `tls`) |
-| `--tls-key` | — | TLS private key PEM path (feature-gated: `tls`) |
-| `--content-type` | `application/octet-stream` | Fallback MIME type for unknown extensions |
-| `-H` / `--header` | — | Repeatable safe header for final 200 static responses |
+## Shutdown (`shutdown.rs` + `lib.rs`)
 
-Positional parsing has two logical slots: `PORT` and `DIRECTORY` (in that
-order). An explicit port in `--bind`, `--addr`, or `--port` occupies PORT;
-host-only `--bind` leaves PORT available. The next positional token after an
-occupied PORT is DIRECTORY verbatim, even when it is numeric. `--directory`
-occupies DIRECTORY and leaves a positional numeric token available for PORT.
-Once both slots are occupied, additional positionals are rejected. A single
-valid numeric positional remains PORT for compatibility. `--bind` and `--addr`
-may not be combined. Hostnames are resolved once before the native listener
-starts. Static metadata headers are ordered and validated against runtime-owned
-and hop-by-hop fields. With TLS enabled, omitting `--tls-key` makes
-`--tls-cert` serve as both PEM paths for a combined file.
+`broadcast::channel(1)` receiver is created before the signal task and held
+through `start()` so a signal during startup is buffered, not lost. Handled:
+Ctrl+C (all), SIGTERM/SIGHUP (Unix; SIGHUP = graceful stop, not terminate).
+Only the first signal acts; further signals during drain are consumed without
+escalation. After the signal: log `ShutdownRequested` with the grace period,
+`handle.shutdown()`, then `timeout(grace, handle.wait())` → log
+`ShutdownComplete` (`Clean` → `0`; `Err`/timeout → warn/error + return `1`).
 
-## Signal Handling (`shutdown.rs`)
+## Plan 221 leaf naming (closed facade)
 
-Uses `tokio::sync::broadcast` channel. On Ctrl+C (all platforms), SIGTERM (Unix),
-or SIGHUP (Unix):
-
-1. Signal handler sends shutdown message
-2. Accept loop receives message → breaks
-3. In-flight connections get `graceful_shutdown_timeout` to complete
-4. Server exits
-
-SIGHUP is treated as a graceful stop rather than its default immediate-terminate
-action, matching daemon-management expectations. Only the first Ctrl+C, SIGTERM,
-or SIGHUP is acted on. Additional signals received during graceful shutdown are
-consumed but do not escalate; use the platform's normal external termination
-mechanism if a stuck process must be stopped.
-
-## TLS Support
-
-Behind the `tls` feature flag. Uses `rustls` + `tokio-rustls`.
-
-`bin/src/tls.rs` is a one-line re-export (`pub use eggnet_tls::*`, Plan 221).
-Single-identity PEM loading lives once in the neutral substrate;
-`eggserve-core` adds only its HTTP/3-specific QUIC assembly for the
-compatibility orchestration path:
-
-- Loads PEM certificate chain and private key
-- Supports PKCS#1, PKCS#8, and SEC1 key formats
-- Validates exactly one private key is present
-- Handshake timeout enforced per connection
+Binary neutral paths name leaves directly: `eggserve-primitives` (policy),
+`eggserve-server` (ops/logging, shared limits), `eggserve-static` (direct-H1
+unit tests: leaf `Server` + leaf `StaticService`, no core import),
+`eggnet-tls` (loading). Compatibility-owned orchestration (the closed Plan
+225 set): `ServeConfig`/`try_from_serve_config`, full `Server` (TLS/H2/H3),
+full `StaticService` (extra headers/error policy), `Limits`/static-metadata
+validation with static budgets. Do not reintroduce core indirection on neutral
+paths; core removal needs a separate migration plan.
 
 ## Dependencies
 
 | Dependency | Purpose |
 |------------|---------|
-| `eggserve-core` | Extended server orchestration only: `ServeConfig`, `try_from_serve_config`, full `Server` (TLS/H2/H3), full `StaticService`, `Limits`/static-metadata validation (blockers for Plan 225) |
-| `eggserve-primitives` | Neutral policy types (Plan 221) |
-| `eggserve-server` | Observability, shared limit authority (Plan 221) |
-| `eggserve-static` | Direct H1 static tests (Plan 221) |
-| `eggnet-tls` | Neutral single-identity TLS loading (Plan 221) |
-| `tokio` | Async runtime |
+| `eggserve-core` | Closed extended orchestration only (see above) |
+| `eggserve-primitives` / `eggserve-server` / `eggserve-static` / `eggnet-tls` | Direct neutral authorities (Plan 221) |
+| `eggserve-h3` (optional, `http3`) | Same-port QUIC endpoint assembly via core orchestration |
+| `tokio` | Current-thread runtime + signal/broadcast/time |
 
-`eggserve-h3` stays optional behind `http3`. The minimal CLI build pulls no
-H3/Tower/Python-only dependencies. Unit tests in `src/lib.rs` prove the
-direct architecture: leaf `Server` + leaf `StaticService` with no
-compatibility import; the `production_path` integration tests keep covering
-the compatibility orchestration path.
+Minimal build pulls no H3/Tower/Python-only deps. `cargo test -p eggserve-bin`
+covers grammar + direct-H1 proofs; `verify.sh full` adds TLS/H2/H3-gated
+suites.
 
-## See Also
+## See also
 
-- [eggserve-core.md](eggserve-core.md) — Core library (request handling)
-- [architecture/overview.md](overview.md) — Data flow diagram
+* `docs/cli.md` — normative flag/grammar contract
+* `docs/timeout-reference.md` — timeout semantics
+* [eggserve-core.md](eggserve-core.md) — closed compatibility facade
+* [crate-topology.md](crate-topology.md) — Plan 221/225/249/276 gates
+* [security-model.md](security-model.md) — safe defaults behind the flags
+* [overview.md](overview.md) — crate map and request lifecycle
+* `release/plan-286-embedding-contract-publication-closure.md` — `0.2.1` publication evidence

@@ -20,7 +20,8 @@ After path validation, filesystem confinement resolves the validated path agains
 
 | Module | File | Purpose |
 |--------|------|---------|
-| `mod.rs` | `eggserve-static/src/fs/mod.rs` | `PinnedRoot` (pinned root identity), `RootGuard`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory` |
+| `mod.rs` | `eggserve-static/src/fs/mod.rs` | Crate-internal `PinnedRoot` (pinned root identity), `RootGuard`, and internal `ResolvedResource`/`ResolvedFile`/`ResolvedDirectory` |
+| `secure_root.rs` | `eggserve-static/src/secure_root.rs` | Public `ResolvedResource`/`ResolvedFile`/`ResolvedDirectory` capability wrappers (`SecureRoot:381`, `resolve:403`, `resolve_uri:409`, `resolve_and_plan:439`) over the crate-internal `fs::` types |
 | `unix.rs` | `eggserve-static/src/fs/unix.rs` | Descriptor-relative traversal (statat + openat) |
 | `windows.rs` | `eggserve-static/src/fs/windows.rs` | Handle-relative traversal (NtOpenFile, NtQueryDirectoryFile), reparse-point denial, directory buffer parsing (Windows only) |
 
@@ -52,7 +53,7 @@ pub(crate) struct RootGuard<'a> {
 }
 ```
 
-Created once per request. Borrowing the pinned root ensures the request resolves against the same root identity that was opened at startup.
+Created per `resolve*` call. Borrowing the pinned root ensures the request resolves against the same root identity that was opened at startup.
 
 ### `ResolvedResource`
 
@@ -77,6 +78,11 @@ Each variant carries enough information for the response layer to proceed. `Deni
 
 A pre-opened file handle. No re-opening by absolute path.
 
+The sketch below is the crate-internal `fs::ResolvedFile`
+(`eggserve-static/src/fs/mod.rs`); the public capability wrapper is
+`secure_root::ResolvedFile`, which holds the internal type as a private
+`inner` field:
+
 ```rust
 pub(crate) struct ResolvedFile {
     pub(crate) file: std::fs::File,                  // pre-opened handle
@@ -94,6 +100,12 @@ The public `primitives::ResolvedFile` exposes extraction methods (`into_std_file
 ### `ResolvedDirectory`
 
 A directory handle for listing and child resolution.
+
+The sketch below is the crate-internal `fs::ResolvedDirectory`
+(`eggserve-static/src/fs/mod.rs`; `dir_fd` is `#[cfg(unix)]`,
+`dir_handle` is `#[cfg(windows)]`); the public capability wrapper is
+`secure_root::ResolvedDirectory`, which holds the internal type as a
+private `inner` field:
 
 ```rust
 pub(crate) struct ResolvedDirectory {
@@ -164,12 +176,12 @@ This is explicitly documented as outside the descriptor-relative hardening guara
 ## `RootGuard` Lifecycle
 
 1. `ServeState` pins the configured root once during static-service construction
-2. Each static request creates a `RootGuard` from that pinned root
+2. Each `resolve*` call borrows the pinned root per resolution call (`RootGuard::new(&pinned)`; see `docs/secure-root.md`: "Creates a `RootGuard` that borrows from the pinned root for each resolution call")
 3. `RootGuard` borrows the pinned root; the resolver duplicates the root fd on Unix or uses the retained root handle directly on Windows for request-scoped traversal
 4. Resolution uses that request-scoped authority without reopening the configured root pathname
 5. The request-scoped guard is dropped after planning; any file handle retained by the canonical response follows its own streaming lifetime
 
-One pinned root per static service. One request-scoped `RootGuard` per static request. The guard borrows the pinned root identity established at startup. No root reopening or re-canonicalization occurs per request.
+One pinned root per static service. One request-scoped `RootGuard` per `resolve*` call, borrowing the pinned root identity established at startup. No root reopening or re-canonicalization occurs per request.
 
 ## Security Properties
 
@@ -179,7 +191,7 @@ One pinned root per static service. One request-scoped `RootGuard` per static re
 4. **No TOCTOU** — `statat` + `openat` with `O_NOFOLLOW` prevents symlink-swap attacks (Unix). `FILE_FLAG_OPEN_REPARSE_POINT` suppresses reparse following at every level (Windows).
 5. **Kernel-enforced** — Symlink rejection is enforced by the kernel via `O_NOFOLLOW` (Unix) or `FILE_ATTRIBUTE_REPARSE_POINT` checks from `GetFileInformationByHandleEx` (Windows).
 6. **Pre-opened handles** — `ResolvedFile` carries a `File` handle. The file is never re-opened by path.
-7. **Per-request isolation** — Each request gets its own `RootGuard` (borrowing the pinned root). The resolver duplicates the root fd on Unix; on Windows, the retained root handle is used directly for ordinary traversal.
+7. **Per-request isolation** — Each `resolve*` call gets its own `RootGuard` (borrowing the pinned root). The resolver duplicates the root fd on Unix; on Windows, the retained root handle is used directly for ordinary traversal.
 
 ## Resolution-Path Audit
 
@@ -197,9 +209,9 @@ This section traces every path from HTTP request target to response body, provin
 | 5. fd-relative traversal (Unix) | `fs/unix.rs: resolve_fd_relative` | Per component: dotfile check → `statat(AT_SYMLINK_NOFOLLOW)` symlink check → `openat(O_NOFOLLOW)`. Intermediate: `O_DIRECTORY\|O_NOFOLLOW`. Final: `O_RDONLY\|O_NONBLOCK\|O_NOFOLLOW`. Previous fd dropped. | Per-component fds opened and dropped; final fd → `ResolvedFile.file` |
 | 5b. handle-relative traversal (Windows) | `fs/windows.rs: resolve_to_resource` | Per component: dotfile check → `NtOpenFile` (via `open_directory_relative` or `open_file_relative`). Intermediate dir check via `get_file_standard_info`. Reparse check via `deny_all_reparse_check` / `GetFileInformationByHandleEx`. Previous handle dropped. | Per-component handles opened and dropped; final handle → `ResolvedFile.file` or retained in `ResolvedDirectory` |
 | 6. Fallback resolution | `fs/mod.rs: resolve_fallback` | Component-wise `symlink_metadata` checks → `fs::canonicalize` → `starts_with(canonical_root)` → `fs::metadata` → open | Final `File` → `ResolvedFile.file` |
-| 7. Response plan | `server/static_service.rs` → `primitives/planner.rs` | `plan_file_response_with_preconditions_and_metadata()` produces `StaticResponsePlan` (status, headers, `BodyPlan`) | No handles opened |
+| 7. Response plan | `eggserve-static/src/lib.rs` (`StaticService::file_response` → `planner::plan_file_response_with_preconditions_and_metadata`) | Produces `StaticResponsePlan` (status, headers, `BodyPlan`) | No handles opened |
 | 8. Body conversion | `fs/mod.rs: ResolvedFile::into_body` | Consumes `self.file` into `BodySource::FileFull` or `BodySource::FileRange` | `file` moved into `BodySource` |
-| 9. Streaming | Runtime canonical transport conversion (`eggserve-server::adapters::file_body` via `to_hyper_response`) | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires the server-wide semaphore permit, computes the planner-owned full/range `chunk_len`, and reads through a bounded `AsyncReadExt::take` view | `tokio::fs::File` + semaphore permit owned by stream closure |
+| 9. Streaming | Runtime streaming via the `eggserve-server` adapters (`eggserve-static/src/lib.rs: response_from_plan` → runtime Hyper conversion) | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires the server-wide semaphore permit, computes the planner-owned full/range `chunk_len`, and reads through a bounded `AsyncReadExt::take` view | `tokio::fs::File` + semaphore permit owned by stream closure |
 
 ### Key invariant
 
@@ -222,8 +234,8 @@ Evidence:
 | `windows::resolve_child_relative` | Single child `NtOpenFile` handle | `fs/windows.rs:1001-1005` | Handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
 | `windows::list_directory_handle` | `NtQueryDirectoryFile` on retained handle | `fs/windows.rs:1079` | Buffer owned by call; no handle transfer |
 | `ResolvedFile::into_body` | No new open | `fs/mod.rs:43-79` | Moves `self.file` into `BodySource` |
-| canonical runtime transport conversion | No new open | `server/connection/response.rs` | `file` → `tokio::fs::File::from_std()` |
-| `file_response` / `file_response_range` | No new open | `response.rs:93,143` | File + semaphore permit owned by stream unfold closure |
+| canonical runtime transport conversion | No new open | `eggserve-static/src/lib.rs: response_from_plan` → runtime Hyper conversion boundary in `eggserve-server` | `file` → `tokio::fs::File::from_std()` |
+| `file_response` / `file_response_range` | No new open | `eggserve-static/src/lib.rs` (`StaticService::file_response`, `response_from_plan`) | File + semaphore permit owned by stream unfold closure |
 
 ### Non-regular file rejection
 

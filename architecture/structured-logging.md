@@ -6,16 +6,17 @@ eggserve uses structured JSON Lines logging for machine-consumable operational e
 
 ## Module layout (Plan 206 Track H)
 
-`eggserve-core::ops/` — the public observability module:
+Implementation authority is `eggserve-server::ops`
+(`crates/eggserve-server/src/ops/`); `eggserve-core::ops/` keeps a
+compatibility facade re-export with unchanged public import paths
+(`ops::OpsContext`, `ops::Event`, `ops::Severity`, etc.):
 
-| Module | File | Purpose |
-|--------|------|---------|
-| `mod.rs` | `ops/mod.rs` | `OpsContext` authority (sink + counters + correlation IDs), context-local sink-failure accounting |
-| `events.rs` | `ops/events.rs` | `Severity`, `EventKind`, `Field`, `Event`, sanitization, JSON rendering |
-| `sinks.rs` | `ops/sinks.rs` | `LogSink` implementations (`NopLogSink`, `FilteredLogSink`, `CompositeLogSink`) |
-| `counters.rs` | `ops/counters.rs` | `OpsCounters`, `Snapshot` |
-
-Public import paths (`ops::OpsContext`, `ops::Event`, `ops::Severity`, etc.) resolve unchanged through the `mod.rs` facade.
+| Module | File (direct authority) | Purpose |
+|--------|-------------------------|---------|
+| `mod.rs` | `eggserve-server/src/ops/mod.rs` | `OpsContext` authority (sink + counters + correlation IDs), context-local sink-failure accounting |
+| `events.rs` | `eggserve-server/src/ops/events.rs` | `Severity`, `EventKind`, `Field`, `Event`, sanitization, JSON rendering |
+| `sinks.rs` | `eggserve-server/src/ops/sinks.rs` | `LogSink` implementations (`NopLogSink`, `FilteredLogSink`, `CompositeLogSink`) |
+| `counters.rs` | `eggserve-server/src/ops/counters.rs` | `OpsCounters`, `Snapshot` |
 
 ## Ownership: per-runtime contexts with a process-global default
 
@@ -30,9 +31,11 @@ Live server/connection execution resolves observability through an explicit
   CLI/compatibility construction). The accept loop, caller-owned driver,
   connection pipeline, deferred-body supervision, and lifecycle cancellation
   all resolve events, counters, and correlation IDs through it.
-- `ServerBuilder::ops_context(..)` attaches a context to a TCP/TLS server;
-  the built-in `StaticService` is wired to the same context. `ServerHandle`
-  retains it for inspection.
+- `ServerBuilder::ops_context(..)` attaches a context to a direct TCP-only
+  H1 server; the built-in `StaticService` is wired to the same context.
+  `ServerHandle` retains it for inspection. TLS/Unix/systemd/H3 event
+  detail (`tls_handshake_*`, `protocol_negotiated h2`, Alt-Svc
+  advertisement) is core/`eggserve-h3` compatibility-owned, not direct.
 - Connection IDs start at 1 per context and are coherent within the owning
   runtime; explicit caller-supplied IDs (`serve_http1_connection_with_id`)
   still take precedence.
@@ -81,9 +84,9 @@ Every operational event has:
 ### Connection
 - `connection_accepted` — new TCP connection accepted with correlation ID
 - `connection_rejected` — connection admission limit reached
-- `tls_handshake_success/failure/timeout` — TLS events (feature-gated)
-- `protocol_negotiated` — selected wire protocol (`http/1.1` or experimental
-  `h2`); emitted once per connection without client pseudo-header values
+- `tls_handshake_success/failure/timeout` — TLS events (feature-gated, core-owned)
+- `protocol_negotiated` — selected wire protocol (`http/1.1` direct, or experimental
+  `h2` on the core path); emitted once per connection without client pseudo-header values
 - `header_timeout` — HTTP header read timeout (also idle keep-alive gaps when shorter than the idle timeout)
 - `body_read_timeout` — request body read timeout (buffer mode)
 - `parser_rejection` — HTTP framing rejection (incl. Hyper parser-limit parse failures)
@@ -144,6 +147,9 @@ Every operational event has:
 - Query strings are omitted by default
 - Sensitive headers (Authorization, Cookie) are never logged
 - Absolute filesystem paths are startup-only diagnostics
+- Absolute-form dispatch (when `OriginOrAbsolute` is enabled) is visible
+  only as categorical `target_form=absolute` — never raw URI, Host,
+  credentials, or query content
 
 ## Python Server Logging
 
@@ -180,6 +186,14 @@ process-global default's set, and `RuntimeState::ops_snapshot()` /
 - `listener_errors` — accept loop errors (all classifications)
 - `dropped_log_events` — events dropped due to sink failures
 
+Externally owned admission gates (Plans 271/281) skip internal saturation
+accounting (no `connections_rejected` / `service_admission_rejected`
+events or counters for externally owned gates). A disabled total lifetime
+(`connection_total_timeout = ZERO`) emits no `connection_total_timeout`
+events and no `connection_total_timeouts` counts; independent
+idle/request/write/shutdown bounds still report (Plan 283 presenter-path
+rejections keep their own categorical events).
+
 ## Listener Error Classification
 
 Accept errors are classified by `io::ErrorKind`:
@@ -187,8 +201,11 @@ Accept errors are classified by `io::ErrorKind`:
 - **Resource exhaustion** (EMFILE/ENFILE) → Error severity, rate-limited retry
 - **Persistent** (unknown errors) → Error severity, no backoff
 
-Backoff uses bounded exponential: 1ms → 2ms → 4ms → 8ms → 50ms cap.
-Backoff is interruptible by shutdown via `tokio::select!`.
+Backoff is per path and interruptible by shutdown via `tokio::select!`:
+- **Direct** `eggserve-server` accept loop: fixed 10 ms sleep on accept errors.
+- **Core** compatibility `accept_loop_multi`: bounded exponential backoff
+  starting at 1 ms (`BACKOFF_MS` ramp, via `classify_accept_error()`),
+  shared across the `tcp-0` / `unix-0` listener families.
 
 ## Log Sink Failure Behavior
 
@@ -211,7 +228,7 @@ Backoff is interruptible by shutdown via `tokio::select!`.
 ## Example Events
 
 ```json
-{"schema_version":1,"severity":"INFO","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.2.0 starting","fields":[{"version":"0.2.0"},{"bind":"127.0.0.1:8000"},{"root":"./public"},{"symlinks":"denied"},{"dotfiles":"denied"}]}
+{"schema_version":1,"severity":"INFO","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.3.0 starting","fields":[{"version":"0.3.0"},{"bind":"127.0.0.1:8000"},{"root":"./public"},{"symlinks":"denied"},{"dotfiles":"denied"}]}
 ```
 
 ```json

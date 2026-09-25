@@ -4,10 +4,11 @@ eggserve uses a layered policy system to control what can be served. Policies ar
 
 ## Policy Types
 
-### `StaticPolicy` (`policy.rs`)
+### `StaticPolicy` (`eggserve-primitives/src/primitives/policy.rs`)
 
 The top-level composite policy. Aggregates filesystem sub-policies plus the
-static validator policy.
+static validator policy. (The parse-level `PathPolicy`/`DotfilePolicy` live
+separately in `eggserve-static/src/path/policy.rs`; see below.)
 
 ```rust
 pub struct StaticPolicy {
@@ -41,10 +42,11 @@ bytes for runtime-generated errors. Application `Ok` 4xx/5xx bodies are never
 rewritten; only runtime-constructed errors are affected. `HEAD` suppression
 remains correct.
 
-### `ResponsePolicy` (`server/response_policy.rs`, Plan 165)
+### `ResponsePolicy` (`crates/eggserve-server/src/response_policy.rs`, Plan 165)
 
 Final-boundary origin policy applied after service/static construction and
-canonical normalization but before bytes are emitted. No service/frontend may
+canonical normalization but before bytes are emitted. This is the
+`eggserve-server` crate path — not core `server/`. No service/frontend may
 bypass it with raw Hyper responses. Fields:
 
 ```text
@@ -111,10 +113,10 @@ Controls whether dotfiles (paths containing components starting with `.`) are se
 
 This is a critical architectural detail:
 
-| Type | Location | Controls | When Checked |
-|------|----------|----------|--------------|
-| `path::DotfilePolicy` | `path/policy.rs` | Whether dotfile paths are *accepted* during parsing | Path validation stage |
-| `policy::DotfilePolicy` | `policy.rs` | Whether dotfiles are *served* in responses | Response stage |
+| Type | Location | Variants | Controls | When Checked |
+|------|----------|----------|----------|--------------|
+| `path::DotfilePolicy` | `eggserve-static/src/path/policy.rs` | `{Denied, Allow}` | Whether dotfile paths are *accepted* during parsing | Path validation stage |
+| `policy::DotfilePolicy` | `eggserve-primitives/src/primitives/policy.rs` | `{Denied, Serve}` | Whether dotfiles are *served* in responses | Response stage |
 
 Both must agree for dotfiles to be served. This double-check ensures:
 1. Dotfile paths are rejected early (before filesystem access) if path-level policy denies them
@@ -188,6 +190,22 @@ All fields default to `False` (most restrictive).
 3. **Layered enforcement** — Policies are checked at multiple stages (path, filesystem, response)
 4. **No silent overrides** — Security defaults cannot be overridden without user intent
 5. **Double dotfile check** — Path-level and serving-level dotfile policies must both agree
+
+## External Deadline/Ceiling Ownership (Plans 280/282/283)
+
+Application-facing H1 deadlines and semantic ceilings carry explicit
+ownership in `eggserve-server/src/config.rs`: `PolicyOwner::{EggServe,
+External}` per knob (`H1PolicyOwnership`: handler/request-body/keep-alive-
+idle/response-write-progress deadlines plus global body and target
+ceilings). Each direct connection consumes a narrow `H1ConnectionPolicy`
+projection built via `RuntimeConfig::h1_connection_policy()` (listener,
+pool, and TLS-handshake settings intentionally absent). Runtime rejections
+are presented, not formatted, by downstream code: the presentation-only
+`RuntimeRejectionPresenter` in `eggserve-server/src/rejection.rs` maps a
+`RuntimeRejection` (kind + status facts only, no request/transport/error
+text) to an optional bounded `RuntimeErrorPresentation` (application
+headers + ≤64 KiB body); "status/disposition/framing/privacy stay
+EggServe-owned; parser buffer/header-count mandatory."
 
 ## See Also
 

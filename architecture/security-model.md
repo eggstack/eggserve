@@ -80,7 +80,10 @@ validated path component passes through `ConfinedPath::from_path_component()`
 before touching the filesystem. `ConfinedPath::parse()` remains the public
 raw-target compatibility adapter:
 
-1. **Request-target parsing** — only origin-form (`/path`) accepted; absolute/authority/asterisk forms rejected
+1. **Request-target parsing** — origin-form (`/path`) accepted by default
+   (`OriginOnly`, Plan 278); absolute-form is opt-in per service, and static
+   serving still rejects absolute-form targets pre-resolution.
+   Absolute/authority/asterisk forms are otherwise rejected
 2. **Single-pass percent decoding** — `%XX` decoded exactly once; double-encoded traversal (`%252e%252e`) becomes literal `%2e%2e`, not `..`
 3. **Normalization** — `//` collapsed, trailing slashes trimmed; `.` and `..` rejected by validation
 4. **Component splitting** — path split into segments
@@ -145,12 +148,26 @@ See [filesystem-confinement.md](filesystem-confinement.md) for the full traversa
 | Resource | Default | Effect |
 |----------|---------|--------|
 | Max connections | 64 | TCP accept semaphore; new connections dropped when exhausted |
+| Max in-flight requests | 64 | Concurrent service executions (503 on exhaustion) |
 | Max file streams | 32 | Concurrent file streaming; 503 when exhausted |
+| Max requests per connection | 0 (unlimited) | Completed requests per connection |
+| Max buf size | 64 KiB | HTTP/1 parser/read buffer ceiling (min 8192) |
+| Max headers | 100 | Request header field count (Hyper answers 431) |
+| Max header bytes | 32 KiB | Aggregate header name+value bytes (431 pre-service) |
+| Max request-target bytes | 8192 | Request-target length (414 pre-service) |
+| Max listing entries / response bytes | 4096 / 1 MiB | Directory listing enumeration/response ceilings |
+| Stream chunk size | 128 KiB | File streaming read chunk size (64 B–1 MiB) |
 | Header read timeout | 10s | Slowloris protection |
-| Connection total timeout | 60s | Slow response protection (wraps entire Hyper connection future) |
+| Connection total timeout | 60s | Slow response protection (wraps entire Hyper connection future); `ZERO` opts out of only this hard lifetime |
+| Handler timeout | 30s | Per-request timeout for service processing |
+| Body read timeout | 30s | Total deadline for body consumption |
+| Keep-alive idle timeout | 60s | Idle keep-alive close after inactivity (resets on activity) |
+| Response write timeout | 30s | Response no-progress timeout (steady progress never trips) |
 | Graceful shutdown timeout | 10s | Drain period after SIGTERM |
 | Request body size | 0 (rejected) | No bodies processed by default |
-| Handler timeout | 30s | Per-request timeout for service processing |
+
+Full CLI flag names live in `docs/cli.md`; full timeout semantics in
+`docs/timeout-reference.md`.
 
 ### 6. Response Normalization
 
@@ -189,6 +206,12 @@ An attacker can:
 - Malicious operator-provided root directory
 - Full reverse-proxy threat model (a compromised edge proxy outside the explicit Plan 202 trust set remains untrusted; trusted-proxy mode only narrows the inbound metadata boundary, never forwards requests upstream)
 - TLS certificate lifecycle automation
+
+Adapter ownership and seam scope: the optional `http-interop`/Tower
+adapters are server-owned (`eggserve-server`; core forwards as
+compatibility re-exports), and the CONNECT/tunnel seam is inbound-only —
+EggServe accepts server-side tunnel requests but performs no proxy
+routing/forwarding (Plan 223 holds).
 
 ## Platform Security
 

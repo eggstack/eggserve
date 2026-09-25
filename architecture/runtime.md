@@ -37,33 +37,49 @@ intentionally not routers or application frameworks.
 
 ## Components
 
-### Server
+### Server (direct `eggserve-server`: TCP-only H1)
 
-The main entry point. Created via `Server::builder()`, configured with a
-`RuntimeConfig`, then started with the built-in static service via `.start()` or
-with a custom service via `.start_with_service(service)`. The start call
-transitions the server from Created → Starting → Running through the lifecycle
-state machine. Double-start is prevented by atomic state guards and returns
-`ServerError::AlreadyStarted`.
+The main entry point for the **direct** crate. Created via
+`eggserve-server::Server::builder()`, configured with a `RuntimeConfig`,
+then started with a custom service via `.start_with_service(service)` —
+the only start entry on the direct server, which binds (or adopts) a TCP
+listener and drives every accepted connection through the direct H1
+driver. The direct server has NO `start()` / `serve_config` /
+`static_service()`, NO `from_unix_listener` / `from_systemd_*` /
+`http3_socket`, and NO `LifecycleState` / `ready()` / `force_shutdown()` /
+`endpoints()` / `tcp_local_addr()` — those are `eggserve-core`
+compatibility orchestration (Unix/TLS/H3/listener composition) documented
+as core below.
 
-### ServerBuilder
+### ServerBuilder (direct scope + core extensions)
 
-Configures and constructs a `Server` via a fluent builder API:
+Direct `eggserve-server::ServerBuilder` (TCP-only H1) exposes:
 
 - `runtime(config)` — set the `RuntimeConfig`
+- `bind(addr)` — override the bind address; the server will bind to this address on start
+- `ops_context(ops)` — attach an explicit per-runtime `OpsContext` (sink, counters, correlation IDs); unset clones the process-global default so CLI/compatibility construction needs no new configuration (experimental)
+- `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after start, and nonblocking mode is normalized automatically.
+- `from_std_listener(std_listener)` (Plan 201) — same as above from a standard-library TCP listener; nonblocking normalized, other socket options preserved, no duplicate bind. Returns `Result` (failed conversion closes the passed socket)
+- `build()` — validate configuration and construct the server.
+
+The following are **`eggserve-core` compatibility `ServerBuilder`
+extensions only** (same accept/admission/pipeline underneath, plus
+listener/TLS/H3 composition) — not present on the direct builder:
+
 - `serve_config(config)` — compatibility convenience for `start()`; it is
   consumed into one `StaticService` during `build()` and is ignored by
   `start_with_service()` custom-service startup
-- `bind(addr)` — override the bind address; the server will bind to this address on `start()`
-- `ops_context(ops)` — attach an explicit per-runtime `OpsContext` (sink, counters, correlation IDs); unset clones the process-global default so CLI/compatibility construction needs no new configuration (experimental)
-- `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically. The runtime owns TCP acceptance, using strict HTTP/1 by default or the feature-gated H1/H2 selector when `http2` is enabled. With `http3`, it also binds a same-port UDP/QUIC endpoint after resolving the TCP address; `http3_identity` supplies its separate TLS 1.3/`h3` identity. Caller-owned streams use the corresponding connection entry points
-- `from_std_listener(std_listener)` (Plan 201) — same as above from a standard-library TCP listener; nonblocking normalized, other socket options preserved, no duplicate bind. Returns `Result` (failed conversion closes the passed socket)
+- `from_listener` on core additionally fronts the H1/H2 selector when
+  `http2` is enabled (strict HTTP/1 by default). With `http3`, core also
+  binds a same-port UDP/QUIC endpoint after resolving the TCP address;
+  `http3_identity` supplies its separate TLS 1.3/`h3` identity.
+  Caller-owned streams use the corresponding connection entry points
 - `from_unix_listener(listener)` / `from_std_unix_listener(std_listener)` (Plan 201, Unix only) — serve HTTP over a pre-bound Unix-domain listener through the same accept/admission/pipeline (`ConnectionContext::for_unix()`, truthful `None` IP endpoints). Filesystem path creation/removal stays with the caller (never unlinked); abstract-namespace sockets need no cleanup. Unix is plaintext (TCP TLS is not implicitly enabled) and H3 is unavailable over Unix streams
 - `from_systemd_index(i)` / `from_systemd_name(name)` (Plan 201, Unix only) — adopt an explicit socket-activation descriptor (`LISTEN_PID`/`LISTEN_FDS`/`LISTEN_FDNAMES`, never silent fd 3; `SOCK_STREAM` + `SO_ACCEPTCONN` + `AF_INET`/`AF_INET6`→TCP / `AF_UNIX`→Unix via `rustix::net`; datagram/connected-socket rejection; failure never closes). Returns `Result`; no supervision/notification in core (`clear_systemd_activation_env` is explicit)
 - `http3_socket(std_socket)` (Plan 201, `http3` only) — prebound UDP for the QUIC endpoint, wrapped in Quinn (`TokioRuntime`) at startup with no Quinn types in the public contract; ports must match the resolved TCP port (same-port TCP+UDP), and a supplied socket with H3 disabled fails closed
-- `build()` — validate configuration and construct the built-in `StaticService`
+- `build()` on core additionally constructs the built-in `StaticService`
   once when `serve_config()` was supplied; invalid static roots fail here
-- `static_service(root)` — convenience: create a `StaticService` rooted at the given path
+- `static_service(root)` — compatibility convenience: create a `StaticService` rooted at the given path
 
 ### RuntimeConfig
 
@@ -113,12 +129,27 @@ pub trait Service: Send + Sync + 'static {
         &self,
         request: Request,
     ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>;
+
+    // Additive tunnel-aware entry (default drops the capability and runs
+    // `call`, so ordinary services deny with ordinary HTTP unchanged).
+    fn call_with_tunnel(
+        &self,
+        request: Request,
+        tunnel: Option<TunnelCapability>,
+    ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>> {
+        let _ = tunnel;
+        self.call(request)
+    }
 }
 ```
 
+Tunnel-aware services implement `Service::call_with_tunnel` directly or
+via `service_fn_with_tunnel` / `TunnelServiceFn` (see
+`crates/eggserve-server/src/service.rs`).
+
 - `request_body_policy()` declares the service's body policy per request head; default is `Reject` (safe static default). The runtime enforces the hard `max_request_body_bytes` ceiling — services may lower it, never raise it
 - Receives canonical `Request` envelope (RequestHead + RequestBody + `RequestContext`)
-- Returns canonical `Response` or `ServiceError` — Plan 197 Track C keeps this shape (no `ServiceOutcome`); Plan 198 implements trailers in the message-body abstraction (`ResponseStream::with_trailers`) and interim via the request-scoped `InterimSender`, tunnel deferred to Plan 199
+- Returns canonical `Response` or `ServiceError` — Plan 197 Track C keeps this shape (no `ServiceOutcome`); Plan 198 implements trailers in the message-body abstraction (`ResponseStream::with_trailers`) and interim via the request-scoped `InterimSender`. Tunnels landed in Plans 199/216/217 via the additive `Service::call_with_tunnel` entry (see Tunnel handoff below); Plan 284 keeps the direct `TunnelIo` transport (`TunnelIoInner::Direct` in `crates/eggserve-server/src/tunnel.rs`)
 - Must be `Send + Sync` for sharing across connections; no `poll_ready` — Tower readiness belongs in `eggserve-server::tower` (`TowerToEggserve` per-request clones, `EggserveToTower` adapter-local ready; Plans 200/276), native admission stays runtime-owned and deterministic (Plan 197 Track E)
 - Panics caught at tokio task boundary
 
@@ -127,8 +158,10 @@ pub trait Service: Send + Sync + 'static {
 `eggserve_core::primitives::RequestContext` is the single deliberate
 attachment point for transport-authenticated metadata and opaque
 capabilities. It owns `ConnectionInfo` + `RequestLifecycle` +
-bounded `InterimSender` (`interim()`); tunnel capabilities (Plan 199) attach
-there when that plan lands. Cloning is cheap (`ConnectionInfo`
+bounded `InterimSender` (`interim()`); tunnel capabilities (Plans
+199/216/217, landed) arrive via `Service::call_with_tunnel` with cloneable
+validated intent at `RequestContext::tunnel_request()` (the 0.1
+compatibility `take_tunnel()` slot was removed by Plan 217). Cloning is cheap (`ConnectionInfo`
 value + `Arc`-backed lifecycle/interim) and never clones the one-shot
 `RequestBody`. There is no generic type map: downstream state belongs in
 the service wrapper, Tower/framework maps belong in the `http-interop`/`tower`
@@ -165,7 +198,8 @@ Plan 175 common path.
 
 Seven ordered stages (not started → interim emitted → final head
 committed → body streaming → terminal trailers emitted → complete /
-cancelled / failed → tunnel-transition deferred); later stages never
+cancelled / failed; tunnel handoff is a staged transport acceptance
+observed out-of-band by the pipeline, never a revisited stage); later stages never
 revisit earlier ones. Interim 1xx are bounded via `InterimSender` (only 1xx,
 no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100).
 The final head commits once the service returns
@@ -272,6 +306,14 @@ unfinished `ServerCompletion` requests graceful shutdown. See the
 
 Control handle returned by `Server::start()`. Not `Clone` — there is exactly one handle per server instance.
 
+The following `LifecycleState` / `ready()` / `force_shutdown()` /
+`endpoints()` / `tcp_local_addr()` surface is the **core compatibility
+handle** (multi-listener orchestration), not the direct
+`start_with_service` handle (direct supervisors use
+`ServerHandle::into_parts()` + `ServerControl` + typed
+`ServerCompletion::wait()`, which surfaces `ServerError::Terminal` per
+Plan 270; legacy `wait()` discards that terminal detail):
+
 - `local_addr()` — bound address (useful for port-zero discovery)
 - `tcp_local_addr()` (Plan 201) — `Some` TCP address, or `None` for Unix-only servers (never fabricated); `local_addr()` panics there with a pointer to `endpoints()`
 - `endpoints()` (Plan 201) — all adopted listeners as `BoundEndpoint` with stable IDs (`tcp-0`, `unix-0`), not positions; readiness means every entry was adopted and protocol config validated
@@ -300,7 +342,13 @@ Control handle returned by `Server::start()`. Not `Clone` — there is exactly o
 - `ServiceError` — per-request errors (Internal, Rejected, Panic, Timeout)
 - `ShutdownResult` — outcome of a shutdown operation: `Clean`, `Timeout`, or `Forced`
 
-## Lifecycle State Machine
+## Lifecycle State Machine (core compatibility handle)
+
+The Created → Starting → Running → Draining → Stopped/Failed machine and
+the `AlreadyStarted` / `NotStarted` double-start guards below describe the
+core `ServerHandle` orchestration, not direct `start_with_service` (whose
+typed completion reports `ServerError::Terminal` via
+`ServerCompletion::wait()`, Plan 270).
 
 ```text
 Created → Starting → Running → Draining → Stopped
@@ -334,7 +382,14 @@ Race safety: state is stored in an `AtomicU8` with `compare_exchange` for all tr
 
 ## Listener Error Classification
 
-Listener errors are classified by `io::ErrorKind` into transient, resource-exhaustion, and persistent categories. Transient errors use bounded exponential backoff (1ms to 50ms cap). All errors emit structured log events via `classify_accept_error()`.
+Listener errors are classified by `io::ErrorKind` into transient, resource-exhaustion, and persistent categories. All errors emit structured log events.
+
+- **Direct** `eggserve-server` accept loop: fixed 10 ms sleep on accept
+  errors (`Duration::from_millis(10)` in `crates/eggserve-server/src/lib.rs`).
+- **Core** compatibility `accept_loop_multi`: bounded exponential backoff
+  starting at 1 ms (`BACKOFF_MS` ramp in
+  `crates/eggserve-core/src/server/accept.rs`, via
+  `classify_accept_error()`), shared across families.
 
 Plan 201 runs one `accept_loop_multi` over every adopted listener (TCP plus,
 on Unix, UDS) through the same admission/backoff/pipeline — not a second
@@ -418,10 +473,15 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 
 ## Connection Pipeline
 
-Three entry paths converge on the same canonical service pipeline. The strict
-`serve_http1_connection` entry remains HTTP/1-only; the feature-gated
-`serve_http_connection` entry and the TCP/TLS accept loop select HTTP/1 or
-HTTP/2 without changing request, response, or lifecycle ownership:
+Direct `eggserve-server` is H1-only: it exposes
+`serve_http1_connection` (+ `_with_id` for explicit correlation IDs, `+_with_policy`
+for a pre-projected `H1ConnectionPolicy`) and nothing else — there is no
+direct `serve_http_connection`. The feature-gated `serve_http_connection`
+entry, the H2 prior-knowledge/TLS-ALPN selector, and H3 lifecycle are
+`eggserve-core` / `eggserve-h3` compatibility paths that delegate H1 work
+to the direct driver (Plan 249: compatibility `Auto` classifies before any
+Hyper service exists; core executes H2 only). Three entry paths converge
+on the same canonical service pipeline:
 
 1. TCP accept with connection permit → optional TLS handshake (feature-gated)
 2. TLS accept with connection permit → TLS handshake completed by caller
@@ -430,11 +490,15 @@ HTTP/2 without changing request, response, or lifecycle ownership:
 
 All paths then share the same steps:
 
-4. Protocol selection and connection setup via Hyper: HTTP/1 uses the explicit
-   `Http1Config` projection of the compatibility `max_buf_size`/`max_headers`
-   parser policy; HTTP/2 uses the validated `Http2Config` projection. Cleartext
-   H2 uses bounded prior-knowledge detection; TLS uses ALPN (`h2` before
-   `http/1.1`). There is no HTTP/1 `Upgrade: h2c` path.
+4. Protocol selection and connection setup via Hyper: direct H1 uses the
+    Plan 282 `H1ConnectionPolicy` projection of the runtime config
+    (`RuntimeConfig::h1_connection_policy()`, projected once at the
+    accept loop; see `crates/eggserve-server/src/config.rs`). The narrow
+    projection excludes bind/TLS-handshake/listener/file-stream settings.
+    HTTP/2 on the core compatibility path uses the validated `Http2Config`
+    projection. Cleartext
+    H2 uses bounded prior-knowledge detection; TLS uses ALPN (`h2` before
+    `http/1.1`). There is no HTTP/1 `Upgrade: h2c` path.
 5. Request conversion to canonical types (EggServe `max_request_target_bytes` → 414, `max_header_bytes` → 431, pre-service)
 6. Body ingestion (policy selection, Content-Length preflight, transfer decoding; Stream creates a shared lifecycle + `RequestLifecycle` and registers for cancellation)
 7. Shared service admission (`max_in_flight_requests`; 503 on exhaustion) and
@@ -812,6 +876,18 @@ shutdown) is handled by the Python subprocess wrapper, not the Rust server.
 ## Maintainability convergence notes (Plans 243–258)
 
 - Plan 243: durable direct-server shutdown with runtime-owned JoinSet task draining; see [`release/plan-248-maintainability-convergence-closure.md`](../release/plan-248-maintainability-convergence-closure.md).
+- Plans 280–286 (`0.3.0` line): external `PolicyOwner`/`H1PolicyOwnership`
+  (six deadlines/ceilings) and `AdmissionOwnership` (service + tunnel gates)
+  with the narrow `H1ConnectionPolicy` projection (Plans 280–282), the
+  `RuntimeRejectionPresenter` hook (Plan 283), opt-in `OriginOrAbsolute`
+  absolute-form dispatch (Plan 278, core projects `OriginOnly`), direct
+  opaque `TunnelIo` transport kept (`TunnelIoInner::Direct`, Plan 284),
+  the `0.3.0` breaking embedding contract (Plan 285), and registry fixtures
+  (Plan 286); see [`release/plan-280-external-policy-ownership-closure.md`](../release/plan-280-external-policy-ownership-closure.md),
+  [`release/plan-282-h1-connection-policy-projection-closure.md`](../release/plan-282-h1-connection-policy-projection-closure.md),
+  [`release/plan-283-typed-runtime-rejection-closure.md`](../release/plan-283-typed-runtime-rejection-closure.md),
+  [`release/plan-284-tunnel-transport-ab-qualification.md`](../release/plan-284-tunnel-transport-ab-qualification.md),
+  and [`release/plan-286-embedding-contract-publication-closure.md`](../release/plan-286-embedding-contract-publication-closure.md).
 - Plans 244/249–250: single H1 authority — compatibility `Auto` classifies before any Hyper service exists and core executes H2 only, with structured per-connection shutdown; see [crate-topology.md](crate-topology.md) and [`release/plan-250-h1-authority-lifetime-corrective-closure.md`](../release/plan-250-h1-authority-lifetime-corrective-closure.md).
 - Plan 245: `eggserve-static::StaticService` owns static request planning/rendering; core keeps a delegating wrapper; see the Plan 248 closure record above.
 - Plan 253: every core/server connection overlap is classified (no second H1 implementation); see the ledger in [crate-topology.md](crate-topology.md).

@@ -17,6 +17,12 @@ the core static service is a delegating wrapper.
 
 ## Key Types
 
+> **Value/function split.** Planning value types (`StaticResponsePlan`,
+> `ResponseStatus`, `HeaderMapPlan`, `ResponseHeader`, `BodyPlan`,
+> `FileRange`) live in `eggserve-primitives` (`src/primitives/response.rs`);
+> planner *functions* (`plan_file_response*`, `evaluate_*`, `generate_etag`)
+> live in `eggserve-static` (`src/planner.rs`).
+
 ### `StaticResponsePlan`
 
 The output of response planning. A pure value object:
@@ -370,29 +376,23 @@ file-backed variants into streams and acquires the server-wide
 
 ## Unified Service-Layer Entry Point
 
-Direct-file and directory-index routes share one planning function, so
+Direct-file and directory-index routes share one planning path, so
 conditional and range headers cannot diverge between the routes.
 
-### `planned_file_response()`
+### Converged service (`eggserve-static/src/lib.rs`)
 
-Defined in `server/static_service.rs`, this function bundles the method and
-conditional/range headers (`if_match`, `if_unmodified_since`,
-`if_none_match`, `if_modified_since`, `range`, `if_range`) for both routes:
-
-```rust
-fn planned_file_response(
-    file: ResolvedFile, // eggserve-static capability via the primitives facade
-    config: &ServeConfig,
-    method: ReadOnlyMethod,
-    if_match: Option<&str>,
-    if_unmodified_since: Option<&str>,
-    if_none_match: Option<&str>,
-    if_modified_since: Option<&str>,
-    range: Option<&str>,
-    if_range: Option<&str>,
-    is_head: bool,
-) -> Result<CanonicalResponse, ServiceError>
-```
+Post-Plan-245 the converged service is `StaticService` in
+`eggserve-static/src/lib.rs`: the private `respond(request: Request)` entry
+fans out to `file_response(file, method, &request)` for direct files (and
+directory-index hits) and `directory_response(directory, method)` for
+listings, with `response_from_plan(plan, source, is_head)` converting each
+planner output into a canonical `Response` via `normalize_response`. There
+is no `server/static_service.rs::planned_file_response` and no separate
+`canonical_response()` adapter; the old
+`planned_file_response(file, config: &ServeConfig, method, if_match, ...,
+is_head) -> Result<CanonicalResponse, ServiceError>` shape is a stale
+core-compatibility signature — the static service takes `&Request` (headers
+read via `conditional_headers()`) and returns `Response`.
 
 Both direct-file and directory-index routes construct these arguments
 identically from the canonical request, ensuring conditional and range
@@ -415,14 +415,15 @@ whether reached via a direct path or a directory index lookup
 
 This guarantees that `/directory/index.html` and `/directory/` (resolving to the same file) share identical metadata, validators, conditional handling, range handling, content headers, and streaming behavior.
 
-### Track D: one-way adapter (Plan 206)
+### Track D: one-way conversion (Plan 206, converged)
 
-`StaticService` in `server/static_service.rs` owns an explicit one-way
-`canonical_response()` adapter that converts the pure planner output into a
-canonical `Response` and applies `normalize_response`. The planner remains
-pure (no duplicate validation, no canonical types dependency). The adapter is
-the single place where `StaticResponsePlan` meets `StatusCode`/`ResponseHead`/`ResponseBody`;
-this boundary is intentionally not shared with custom services.
+`response_from_plan()` in `eggserve-static/src/lib.rs` is the explicit
+one-way conversion from pure planner output into a canonical `Response`,
+applying `normalize_response`. The planner remains pure (no duplicate
+validation, no canonical types dependency). The conversion is the single
+place where `StaticResponsePlan` meets `StatusCode`/`ResponseHead`/
+`ResponseBody`; this boundary is intentionally not shared with custom
+services.
 
 ## See Also
 

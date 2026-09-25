@@ -31,6 +31,14 @@ composition while executable H1 authority stays single-owned by
 `eggserve-server`; see the ledger in
 [`crate-topology.md`](crate-topology.md).
 
+H2/H3 asymmetry is intentional: H2 has no extraction crate — the Hyper
+driver plus core `Http2Config`/connection glue is the whole H2 transport,
+and the H2 feature graph must stay QUIC-free — while H3/QUIC is isolated in
+`eggserve-h3` (see [`eggserve-h3.md`](eggserve-h3.md) and
+[`http3.md`](http3.md)). The `http-interop`/`tower` split is orthogonal to
+H2 transport: adapters compose over the canonical `Service`, not over the
+wire driver.
+
 ## Implemented behavior checklist
 
 - H2 over TLS is selected by ALPN `h2`; H1-only TLS advertises only

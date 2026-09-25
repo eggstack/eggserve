@@ -92,7 +92,11 @@ Errors from server startup, lifecycle management, and shutdown. These are return
 **Error categories:**
 - **Startup errors** (`Bind`, `Config`, `TlsSetup`) — returned before listener is ready
 - **Lifecycle errors** (`AlreadyStarted`, `NotStarted`) — misuse of server handle
-- **Runtime errors** (`Accept`, `ShutdownTimeout`, `Terminal`) — logged, not returned to callers
+- **Runtime errors** (`Accept`, `ShutdownTimeout`) — logged, not returned to callers
+- **`Terminal`** — surfaced through the typed completion path only:
+  top-level runtime failure plus escaping runtime connection-task
+  panic/cancel (`ServerCompletion::wait() -> Result<ShutdownResult, ServerError>`,
+  Plan 270); the legacy `wait()` discards this terminal detail
 - **Transport errors** (`Transport`) — response normalization or body conversion failures
 
 ---
@@ -130,6 +134,30 @@ their status with a neutral empty body, and `HEAD`/`Empty`/body-forbidden
 final.
 
 **Safety:** Error messages are logged but never included in HTTP response bodies to prevent information leakage.
+
+---
+
+## `RuntimeRejection` — Typed runtime rejection presentation (Plan 283)
+
+**Location:** `eggserve-server::rejection` (see `crates/eggserve-server/src/rejection.rs`)
+
+Direct-H1 synchronous presentation hook for EggServe-selected runtime
+rejections. Status selection stays with the runtime; the presenter only
+supplies bounded body/application-header presentation.
+
+| Type | Shape | Meaning |
+|------|-------|---------|
+| `RuntimeRejectionKind` | 11 kinds (`#[non_exhaustive]`) | `RequestTargetTooLong`, `RequestHeadersTooLarge`, `RequestBodyRejected`, `RequestBodyTooLarge`, `RequestBodyTimeout`, `ServiceAdmissionSaturated`, `TunnelAdmissionSaturated`, `HandlerTimeout`, `ServicePanic`, `ServiceRejected`, `Internal` |
+| `RuntimeRejection` | kind + status only | No request, transport, or error text reaches the presenter (`new(kind, status)`, `kind()`, `status()`) |
+| `RuntimeErrorPresentation` | bounded headers + ≤64 KiB body | `headers: HeaderBlock` (framing, hop-by-hop, `Date`, `Server` ignored) + `body: Vec<u8>` capped at `MAX_RUNTIME_REJECTION_BODY_BYTES` (64 KiB) |
+| `RuntimeRejectionPresenter` | `present(&Rejection) -> Option<Presentation>` | `None` selects the configured generic representation; presenter panics and invalid/oversized output fall back to it |
+
+EggServe retains status, framing, privacy, and connection-disposition
+authority regardless of presenter output. Hyper parser failures raised
+before canonical request conversion remain outside the hook.
+
+Static absolute-form rejection (Plan 278) stays in the existing safe
+400/414 paths; it adds no new status authority.
 
 ---
 
@@ -173,9 +201,10 @@ Errors from request body reading. The runtime maps these to appropriate HTTP res
 ```
 PathRejection ──→ 400/403
 RequestValidationError ──→ 400/405/413
-ServerError ──→ process exit (startup) or log (runtime)
+ServerError ──→ process exit (startup) or log (runtime); Terminal ──→ typed completion only
 ServiceError ──→ 500/504
 RequestBodyError ──→ 400/408/413/499/500
+RuntimeRejection ──→ runtime status + presenter body ──→ generic fallback on panic/invalid/oversized/None
 ```
 
 ## Design Principles

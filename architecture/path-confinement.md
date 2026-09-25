@@ -86,7 +86,12 @@ Methods:
 - `components()` — Slice of path segments
 - `path_policy()` — The policy used during validation
 - `from_path_component()` — Apply path confinement after a canonical target
-  adapter has selected the path component
+  adapter has selected the path component. Fast path: a leading-`/` input
+  without `%` or `//` skips decode/normalize (`path/mod.rs:50-59`);
+  component validation is still mandatory (same defense-in-depth boundary).
+- `parse()` pre-checks (before classification): 8192-byte cap
+  (`TooLong`), NUL pre-reject (`NulByte`), then `RequestTarget::parse`
+  delegation with whitespace→`UnsupportedUriForm` (`path/mod.rs:20-40`).
 
 ## Rejection Types (`PathRejection`)
 
@@ -95,13 +100,13 @@ Methods:
 | Variant | Stage | Meaning |
 |---------|-------|---------|
 | `Empty` | parse | Empty request target |
-| `TooLong` | parse | Target exceeds maximum length |
+| `TooLong` | (reserved) | Target exceeds maximum length — reserved variant (`#[allow(dead_code)]` in `rejected.rs`; the 8192-byte `parse` pre-check currently returns it) |
 | `UnsupportedUriForm` | parse | Not origin-form (absolute or authority form) |
 | `MalformedPercentEncoding` | decode | Invalid `%XX` sequence |
 | `InvalidUtf8` | decode | Decoded bytes are not valid UTF-8 |
 | `NulByte` | decode, components | Decoded path contains NUL |
 | `ControlCharacter` | decode | Decoded path contains an ASCII control character |
-| `AbsolutePath` | (unused) | Path starts with `/` (after normalization) — reserved variant |
+| `AbsolutePath` | (reserved) | Path starts with `/` (after normalization) — reserved variant (`#[allow(dead_code)]` in `rejected.rs`) |
 | `ParentComponent` | components | `..` component found |
 | `CurrentComponent` | components | `.` component found |
 | `SeparatorAmbiguity` | decode, components | Encoded or literal `/` or `\` found |
@@ -114,7 +119,9 @@ Methods:
 
 ## Path Policy (`path::PathPolicy`)
 
-Controls path-level validation:
+Controls path-level validation. The parse-level dotfile variants are
+`DotfilePolicy::{Denied, Allow}` (`path/policy.rs:12-16`) — not `Serve`
+(`Serve` belongs to the serving-level `policy::DotfilePolicy` only):
 
 ```rust
 pub struct PathPolicy {

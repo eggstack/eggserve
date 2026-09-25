@@ -23,13 +23,14 @@ projection:
 
 | Module (`eggserve-h3`) | Owns |
 |--------|------|
-| `config.rs` | `Http3Config` authority (fields/defaults/validation) |
-| `quic.rs` | QUIC TLS assembly + endpoint construction + same-port validation |
-| `endpoint.rs` | `ActiveConnectionGuard`, close-reason classification |
-| `request.rs` | H3→canonical request conversion, declared-length checks, trailers, `invoke_service` |
-| `response.rs` | `runtime_error` construction, `response_write_timeout` watchdog, `send_*` trio (data, trailers, known-length) |
-| `tunnel.rs` | `kind_string`, `H3ActiveTunnelGuard`, `send_h3_tunnel_handshake` |
-| `adapter.rs` | `accept_loop` + connection/request dispatch + `apply_alt_svc` |
+| `src/lib.rs` | Crate surface: `accept_loop`/`Http3Config`/QUIC-helper re-exports, `H3_VERSION`/`H3_QUINN_VERSION`/`QUINN_VERSION` consts, doc-hidden transport types |
+| `src/config.rs` | `Http3Config` authority (fields/defaults/validation) |
+| `src/quic.rs` | QUIC TLS assembly + endpoint construction + same-port validation |
+| `src/endpoint.rs` | `ActiveConnectionGuard`, close-reason classification |
+| `src/request.rs` | H3→canonical request conversion, declared-length checks, trailers, `invoke_service` |
+| `src/response.rs` | `runtime_error` construction, `response_write_timeout` watchdog, `send_*` trio (data, trailers, known-length) |
+| `src/tunnel.rs` | `kind_string`, `H3ActiveTunnelGuard`, `send_h3_tunnel_handshake` |
+| `src/adapter.rs` | `accept_loop` + connection/request dispatch + `apply_alt_svc` |
 
 The shared service kernel stays single: generic body-policy, panic
 containment, canonical invocation, and canonical privacy finalization live
@@ -48,7 +49,7 @@ feature-gated core composition adapter.
 | H3 control/QPACK/request stream state | h3 | Internal adapter; no H3 types in `Service` |
 | Method, target, authority, ordinary headers, body policy | EggServe canonical adapter | `RequestHead`, `RequestBody`, and shared service kernel |
 | Service admission, panic containment, timeout, error status | EggServe runtime | Shared `RuntimeState` and canonical invocation helper |
-| Response privacy, `Date`, `Server`, `Alt-Svc` | EggServe finalization | Canonical response boundary plus Hyper adapter |
+| Response privacy, `Date`, `Server`, `Alt-Svc` | EggServe finalization | Canonical response boundary plus `eggserve-h3/response.rs` over the shared kernel (Hyper serves H1/H2 only) |
 | Static files, ranges, conditionals, listings | Static service | Unchanged `StaticService`/planner |
 
 ## Startup and listener lifecycle
@@ -176,6 +177,7 @@ regressions (H3 suite now 16 tests).
 Deterministic local coverage lives in the `http3` feature tests:
 
 ```sh
+cargo test -p eggserve-h3
 cargo clippy -p eggserve-core --features http3,tls --lib --tests -- -D warnings
 cargo test -p eggserve-core --features http3,tls
 cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
@@ -184,7 +186,11 @@ cargo tree -p eggserve-core --no-default-features
 bash scripts/qualify-http3.sh
 ```
 
-The no-feature tree must not contain h3, h3-quinn, or Quinn. The manual
+The no-feature tree must not contain h3, h3-quinn, or Quinn. Note:
+`conformance/http3_qualification.toml` response/trailer/malformed evidence
+paths still point at the pre-Plan-220 `server/http3/*.rs` layout (e.g.
+`crates/eggserve-core/src/server/http3/response.rs`) and must be repointed
+at `eggserve-h3/src/*.rs` (or the `server::http3` facade). The manual
 qualification script records dependency/client versions, proves same-port
 Alt-Svc and TCP fallback, and runs direct H3 semantic checks when curl has
 HTTP/3 support. Set `EGGSERVE_REQUIRE_H3_CLIENTS=1` or

@@ -5,9 +5,12 @@ owner, enforcement path, and cross-frontend mapping.
 
 Plan 179 canonical authority: shared runtime/transport defaults and
 scalar/cross-field validation live once in
-`crates/eggserve-core/src/runtime_limits.rs` (`SharedRuntimeValues` +
-`Violation`). `Limits::default()`, `RuntimeConfig::default()`, builders, and
-the `ServeConfig` bridge consume those values; `Limits::validate()` delegates
+`eggserve-server::runtime_limits` (`SharedRuntimeValues` +
+`Violation`; source: `crates/eggserve-server/src/runtime_limits.rs`).
+`eggserve-core::runtime_limits` is a compatibility facade over that
+kernel, not a second owner. `Limits::default()`,
+`RuntimeConfig::default()`, builders, and the `ServeConfig` bridge consume
+those values; `Limits::validate()` delegates
 shared checks to the kernel and appends static-only budgets;
 `RuntimeConfigBuilder::build()` builds the candidate shared group once and
 adapts kernel violations to `ServerError::Config`;
@@ -16,7 +19,12 @@ adapts kernel violations to `ServerError::Config`;
 single-source; the later feature-gated `Http2Config` is intentionally a
 protocol-owned namespace rather than a duplicate shared knob set.
 
-**Plan 206 Track E** splits the `server/config/` directory into submodules:
+**Plan 206 Track E** splits the compatibility `server/config/` directory
+(`crates/eggserve-core/src/server/config/`, facades over the direct
+authorities) into submodules. Canonical config ownership is
+`eggserve-server::config` (`crates/eggserve-server/src/config.rs`:
+`RuntimeConfig`, `H1ConnectionPolicy`, ownership types); the table below
+is the core-facing projection, not a second owner:
 
 | Module | Visibility | Purpose |
 |--------|-----------|---------|
@@ -37,7 +45,9 @@ listener alongside its same-port UDP endpoint.
 
 ## Ownership split
 
-**Runtime/transport** (canonical kernel in `runtime_limits.rs`):
+**Runtime/transport** (canonical kernel in `eggserve-server::runtime_limits`,
+config authority in `eggserve-server::config`; `eggserve-core::runtime_limits`
+and `server/config/` are facades):
 
 - Connection/file-stream concurrency, request-body ceiling, HTTP/1
   parser buffer/header/target limits, optional HTTP/2 stream/flow-control
@@ -114,6 +124,21 @@ breaking its current API.
 
 Hyper exposes no aggregate header-byte, request-target, or request-line knob: the request line is bounded jointly by the parser buffer and the target ceiling.
 
+### Direct H1 dispatch / ownership / presenter fields (`eggserve-server::config`)
+
+| Canonical name | Owner | Default | Enforcing path |
+|---|---|---|---|
+| `http1_request_target_mode` | `RuntimeConfig` (`Http1RequestTargetMode`) | `OriginOnly` | `OriginOnly` = origin-form dispatch; `OriginOrAbsolute` opts into proxy-shaped absolute-form dispatch (path/query exposed separately; static resolution stays origin-only). Core projects `OriginOnly` explicitly onto the direct config. |
+| `policy_ownership` | `RuntimeConfig` (`H1PolicyOwnership`, 6 subfields) | all `EggServe` | Per-deadline/ceiling owner: `handler_deadline`, `request_body_deadline`, `keep_alive_idle_deadline`, `response_write_progress_deadline`, `global_request_body_ceiling`, `request_target_ceiling` (`PolicyOwner::EggServe` \| `External`). |
+| `admission_ownership` | `RuntimeConfig` (`AdmissionOwnership`, 2 subfields) | all `EggServe` | Per-gate owner: `service_calls`, `tunnels` (`AdmissionOwner::EggServe` \| `External`); externally owned gates are absent from `RuntimeState` rather than approximated. |
+| `runtime_rejection_presenter` | `RuntimeConfig` (`Option<Arc<dyn RuntimeRejectionPresenter>>`) | `None` | Synchronous direct-H1 response-presentation hook: input is kind + runtime-selected status only; output is bounded headers + ≤64 KiB body and cannot choose status, framing, privacy, or disposition. Panics/invalid/oversized output fall back to the generic representation. |
+
+The Plan 282 `H1ConnectionPolicy` narrow projection
+(`RuntimeConfig::h1_connection_policy()`, projected once at the accept
+loop) carries the deadlines/ceilings/target-mode/ownership/presenter above
+but excludes bind/TLS-handshake/listener/file-stream settings (see
+`crates/eggserve-server/src/config.rs`).
+
 ### HTTP/2 transport limits (`http2` feature)
 
 `Http2Config` is opt-in and transport-owned. Its defaults are explicit and
@@ -153,6 +178,10 @@ The Rust direct and compatibility builders accept `Duration::ZERO` for
 timeout settings keep their defaults; the Python `Server` timeout parameter
 also maps zero to the same explicit opt-out. Header, handler, body, idle,
 response-write, admission, and shutdown limits continue to apply.
+Zero-total-lifetime composes with external ownership (Plans 271/280/285):
+an externally owned total is absent from the driver, and an enabled total
+wins as the hard ceiling over the remaining bounds. The inert `http2`/`tls`
+server features stay H1-irrelevant on the direct crate.
 
 Plan 243 keeps shutdown state durable: the direct server drains runtime-owned connection tasks under the graceful-shutdown deadline (see `../plans/243-direct-server-shutdown-lifecycle-corrective.md`).
 
@@ -162,7 +191,7 @@ Plan 243 keeps shutdown state durable: the direct server drains runtime-owned co
 |---|---|---|---|---|---|---|
 | `max_request_body_bytes` | `RuntimeConfig` | 0 | 0 (reject bodies) or <= 1073741824 (1 GiB) | N/A | `max_request_body_bytes` | Hard ceiling, no service can exceed |
 
-Body policy is service-declared via `Service::request_body_policy(&RequestHead)` (method-aware). The runtime only enforces the `max_request_body_bytes` ceiling. Incomplete body handling always closes the connection (hardcoded, not configurable).
+Body policy is service-declared via `Service::request_body_policy(&RequestHead)` (method-aware). The runtime only enforces the `max_request_body_bytes` ceiling. Incomplete body handling: an `Active` body delegated past service return defers reuse until `Complete` (no forced close); `Abandoned`/`Failed` closes the connection (hardcoded, not configurable).
 
 ### Network / binding
 

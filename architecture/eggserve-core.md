@@ -13,7 +13,9 @@ implementations and leftover dependencies are removed, and the topology
 gate rejects silent re-expansion (see
 `release/plan-225-compatibility-facade-closure.md`). Plan 226 executes
 the `0.2.0` version transition and the Rust 1.89 MSRV move with no
-ownership change.
+ownership change. The crate is now at `0.3.0`: additive `0.2.1` (Plan 272
+downstream embedding qualification), core-only `0.2.2` Tower repair (Plans
+274–275), and the `0.3.0` breaking embedding contract (Plans 285–286).
 
 Plans 243–258 continue as an API-preserving maintenance index with no
 ownership change: compatibility H1 entry points delegate to the single
@@ -71,7 +73,7 @@ streams, `caller_owned_stream` drives the canonical pipeline over a
 caller-owned stream without a listener, and `primitives` performs response
 planning without opening a socket. They are compiled by `scripts/verify.sh full`.
 
-## Composition role (Plan 226)
+## Composition role (closed facade, Plans 226/272–286)
 
 Keeping the extended orchestration in core is intentional for the current
 pre-1.0 line, not an implementation blocker:
@@ -88,6 +90,20 @@ pre-1.0 line, not an implementation blocker:
   migration plan with release notes; do not reclassify core as an
   implementation authority unless a future plan intentionally moves
   implementation back into it.
+
+## Feature table
+
+`crates/eggserve-core/Cargo.toml`:
+
+| Feature | Effect |
+|---|---|
+| `http2` | H2 transport glue (`hyper/http2`, `hyper-util/http2`, `eggnet-tls?/http2`) |
+| `tls` | Neutral TLS policy + transport TLS (`dep:eggnet-tls`, `dep:rustls`, `dep:tokio-rustls`) |
+| `http3` | H3 facade (`tls` + `dep:eggserve-h3`; QUIC owned by `eggserve-h3`) |
+| `http-interop` | Forwards to `eggserve-server/http-interop` (server-owned adapters; core re-export) |
+| `tower` | Forwards to `eggserve-server/tower` via `http-interop` (server-owned; core re-export) |
+| `python-bindings-internal` | Forwards to `eggserve-static/python-bindings-internal` (capability bridge) |
+| `windows-adversarial-qualification` | Windows adversarial filesystem qualification tests |
 
 ## Compatibility module map
 
@@ -324,11 +340,31 @@ Control handle returned by `Server::start()`:
 - `force_shutdown(deadline)` — trigger graceful shutdown and wait with a deadline; forcibly abort if deadline exceeded
 - `state()` — query current `LifecycleState`
 
+Plan 270 typed path: `ServerHandle::into_parts()` splits the legacy handle
+into a cloneable `ServerControl` (shutdown/observability, safe to retain)
+and a single-owner `ServerCompletion` whose `wait(&mut self)` is
+cancellation-safe (borrowed future: `select!` over it and await again);
+legacy `wait(self)` remains source-compatible and discards terminal detail.
+`connection_total_timeout == Duration::ZERO` opts out of only the hard
+total connection lifetime; the default stays 60s and independent
+request/idle/write/admission/shutdown limits remain active.
+
 ### Error Types
 
 - `ServerError` — startup/lifecycle errors (Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal; `#[non_exhaustive]`, match with wildcard)
 - `ServiceError` — per-request errors (Internal, Rejected, Panic, Timeout; struct with private kind, inspect via `is_panic`/`is_timeout`)
 - `ShutdownResult` — returned by shutdown operations, carries final `LifecycleState` (variants: `Clean`, `Timeout`, `Forced`)
+
+## Request-target and embedding seams (Plans 278–286)
+
+Plans 278–279: H1 request-target dispatch defaults to `OriginOnly`;
+absolute-form is opt-in per service, and static serving still rejects
+absolute-form targets pre-resolution. Plans 280–286 (embedding program):
+external policy/admission ownership with narrow projection, typed rejection
+presentation, tunnel transport decision (Plan 284 keeps the direct opaque
+`TunnelIo`), and registry-only embedding-contract qualification with
+fixtures under `release/fixtures/plan-286-*`; publication closes in Plan
+286 (`core 0.3.0` with compatible Tower API in `server 0.3.0`).
 
 ## Dependencies
 

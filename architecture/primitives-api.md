@@ -10,15 +10,19 @@ and retains compatibility-only transport adapters and legacy static exports.
 ## Module Location
 
 `eggserve-primitives/src/primitives/` — the canonical implementation. New
-consumers should use `eggserve-primitives`; `eggserve-core::layers` exposes it
-without requiring a second type system.
+consumers should use `eggserve-primitives` plus `eggserve-static` directly;
+`eggserve-core::layers` exposes them without requiring a second type system,
+and `eggserve_core::primitives` paths are compatibility facades.
+Post-Plan-219, `SecureRoot`/`resolve*`/`plan_file_response*` live in
+`eggserve-static` (`src/secure_root.rs`, `src/planner.rs`); primitives holds
+only planning *value* types (`src/primitives/response.rs`).
 
 ## Module Map
 
 | Module | File | Purpose |
 |--------|------|---------|
 | `mod.rs` | `primitives/mod.rs` | Re-exports all public types |
-| `secure_root.rs` | `primitives/secure_root.rs` | `SecureRoot`, `ResolvedFile`, `ResolvedDirectory`, `ResolvedResource` |
+| `secure_root.rs` | `eggserve-static/src/secure_root.rs` (facaded via `eggserve_core::primitives`) | `SecureRoot`, `ResolvedFile`, `ResolvedDirectory`, `ResolvedResource` |
 | `http.rs` | `primitives/http.rs` | `ReadOnlyMethod`, request validation functions (legacy) |
 | `method.rs` | `primitives/method.rs` | `Method`: validated HTTP method (standard + extension) |
 | `version.rs` | `primitives/version.rs` | Non-exhaustive `HttpVersion`: HTTP/1.0, HTTP/1.1, HTTP/2, HTTP/3 metadata |
@@ -27,11 +31,11 @@ without requiring a second type system.
 | `request_head.rs` | `primitives/request_head.rs` | `RequestHead`: canonical request head and effective authority with Hyper conversion |
 | `connection_info.rs` | `primitives/connection_info.rs` | `ConnectionInfo`, `SocketEndpoints`: raw transport metadata (optional endpoints) plus Plan 202 provenance-tagged effective layer (`proxy_source`/`proxy_destination`/`proxy_provenance`, `effective_client`/`effective_scheme`/`effective_authority`/`forwarded_provenance`; `effective_client_addr()`/`effective_scheme_value()`/`has_trusted_proxy_metadata()`) |
 | `proxy.rs` | `primitives/proxy.rs` | Plan 202 trusted-proxy policy and bounded parsers: `IpPrefix`, `ProxySourceKind`, `TrustedProxyConfig`/`ProxyProtocolConfig`/`ForwardedConfig`, `ProxyEndpoints`/`ProxyParseError`, `parse_proxy_v1_line`/`parse_proxy_v2_header`, `ForwardedEffective`/`ForwardedRejection`, `derive_forwarded_effective` |
-| `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
-| `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
+| `planner.rs` | `eggserve-static/src/planner.rs` (facaded via `eggserve_core::primitives::planner`) | Response planning functions (conditional, range, ETag) |
+| `response.rs` | `primitives/response.rs` | Planning value types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
 | `response_stream.rs` | `primitives/response_stream.rs` | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies with one terminal trailer source (`with_trailers`, `with_known_length_and_trailers`) |
-| `canonical.rs` | `primitives/canonical.rs` | Facade re-exporting submodules, preserving `primitives::canonical::X` and `primitives::X` paths (Plan 206 Track D); submodules: `status.rs` (`StatusCode`/`ResponseConstructionError`), `headers.rs` (`ResponseHead` + hop-by-hop), `response_body.rs` (`BodyLength`/`ResponseBody`), `response.rs` (`Response`/`Builder`/`NormalizeRequest`/`normalize_*`; body field `pub(super)` for adapters; `runtime_error_with_policy` `pub(crate)`), `adapters.rs` (`to_hyper_response` + semaphore overloads, opaque `Body`) |
+| `canonical.rs` | `primitives/canonical.rs` | Facade re-exporting submodules, preserving `primitives::canonical::X` and `primitives::X` paths (Plan 206 Track D); submodules (4 files only, no `adapters.rs`): `status.rs` (`StatusCode`/`ResponseConstructionError`), `headers.rs` (`ResponseHead` + hop-by-hop), `response_body.rs` (`BodyLength`/`ResponseBody`), `response.rs` (`Response`/`Builder`/`NormalizeRequest`/`normalize_*`; body field `pub(super)` for adapters; `runtime_error_with_policy` `pub(crate)`). Transport conversion is the `eggserve-server` adapter boundary, not a primitives submodule |
 | `request.rs` | `primitives/request.rs` | `Request` — canonical request envelope (head + body + `RequestContext`) |
 | `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body with terminal trailers (`trailers()`, `read_all_with_trailers()`, `from_bytes_with_trailers()`) |
 | `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |
@@ -41,11 +45,11 @@ without requiring a second type system.
 | `interim.rs` | `primitives/interim.rs` | `InterimSender`, `InterimLimits`, `InterimError`, `ExpectDecision` — bounded request-scoped 1xx (no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100) |
 | `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
 | `authority.rs` | `primitives/authority.rs` | `Authority` — validated effective host authority independent of Host/`:authority` spelling |
-| `interop.rs` | `eggserve_server::interop` (compatibility path: `primitives/interop.rs`) | `http-interop` adapters (Plans 200/276): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt` (including Plan 202 effective fields)/`AuthorityExt`/`LifecycleExt`, server-owned `HttpRequestBody` wrapper for canonical `RequestBody`, `response_from_http_body`. Plans 246 and 251–256 keep this boundary fidelity-only with no API, capability, or tier change; see [`release/plan-256-post-convergence-interop-closure.md`](../release/plan-256-post-convergence-interop-closure.md) |
+| `interop.rs` | `eggserve-server::interop` (no `primitives/interop.rs` exists) | `http-interop` adapters (Plans 200/276): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt` (including Plan 202 effective fields)/`AuthorityExt`/`LifecycleExt`, server-owned `HttpRequestBody` wrapper for canonical `RequestBody`, `response_from_http_body`. Plans 246 and 251–256 keep this boundary fidelity-only with no API, capability, or tier change; see [`release/plan-256-post-convergence-interop-closure.md`](../release/plan-256-post-convergence-interop-closure.md) |
 
 ## Public Types
 
-### `SecureRoot` (`secure_root.rs`)
+### `SecureRoot` (`eggserve-static/src/secure_root.rs`; facaded via `eggserve_core::primitives`)
 
 The primary entry point for filesystem resolution. Wraps a canonicalized root directory with a `StaticPolicy`.
 
@@ -61,7 +65,7 @@ Methods:
 - `resolve(&self, path: &ConfinedPath)` → `ResolvedResource`
 - `resolve_uri(&self, uri: &str)` → `Result<ResolvedResource, PathRejection>` (convenience: parse + resolve)
 
-### `ResolvedResource` (`secure_root.rs`)
+### `ResolvedResource` (`eggserve-static/src/secure_root.rs`; facaded via `eggserve_core::primitives`)
 
 ```rust
 pub enum ResolvedResource {
@@ -87,7 +91,7 @@ pub enum ResourceDeniedReason {
 }
 ```
 
-### `ResolvedFile` (`secure_root.rs`)
+### `ResolvedFile` (`eggserve-static/src/secure_root.rs`; facaded via `eggserve_core::primitives`)
 
 A capability object — no public constructor. Obtained only through `SecureRoot::resolve()`. Wraps the static authority's internal `fs::ResolvedFile` which holds the open file handle and metadata. (Plan 219: implemented once in `eggserve-static`; `eggserve_core::primitives` re-exports the type.)
 
@@ -102,7 +106,8 @@ Public methods:
 - `len()` → `u64`
 - `modified()` → `Option<SystemTime>`
 - `content_type()` → `&str`
-- `plan_response(method, if_match, if_unmodified_since, if_none_match, if_modified_since, range_header, if_range)` → `StaticResponsePlan`
+- `plan_response(method, if_match, if_unmodified_since, if_none_match, if_modified_since, range_header, if_range)` → `StaticResponsePlan` (originating-capability convenience; delegates to `plan_response_with_content_type` with the resolved content type, which calls the metadata-policy planner `plan_file_response_with_preconditions_and_metadata`)
+- `plan_response_with_content_type(method, ..., content_type)` → `StaticResponsePlan` (explicit content-type variant)
 - `into_body(&StaticResponsePlan)` → `Result<BodySource, BodySourceError>`
 - `into_range_body(start, end_inclusive)` → `Result<BodySource, BodySourceError>`
 - `safe_relative_components()` → `&[String]`
@@ -112,7 +117,7 @@ Extraction methods (behind `python-bindings-internal` feature only):
 - `into_parts()` → `(std::fs::File, std::fs::Metadata)`
 - `from_parts(file, metadata, safe_relative_components)` → `ResolvedFile`
 
-### `ResolvedDirectory` (`secure_root.rs`)
+### `ResolvedDirectory` (`eggserve-static/src/secure_root.rs`; facaded via `eggserve_core::primitives`)
 
 ```rust
 // Defined in eggserve-static/src/secure_root.rs; eggserve-core only re-exports it.
@@ -143,9 +148,10 @@ pub fn validate_request_target(target: &str) -> Result<(), RequestValidationErro
 
 `RequestValidationError` maps to HTTP status codes (405, 400, etc.).
 
-### Response Planning (`planner.rs`)
+### Response Planning (`eggserve-static/src/planner.rs`; facaded via `eggserve_core::primitives::planner`)
 
-Pure functions for response planning:
+Pure functions for response planning (planning value types live in
+`eggserve-primitives/src/primitives/response.rs`):
 
 ```rust
 pub fn plan_file_response(...) -> StaticResponsePlan
@@ -157,9 +163,10 @@ pub fn generate_etag(metadata: &Metadata) -> Option<String>
 pub fn plan_directory_listing(...) -> StaticResponsePlan
 ```
 
-### Response Types (`response.rs`)
+### Response Types (`eggserve-primitives/src/primitives/response.rs`)
 
-Framework-independent value objects:
+Framework-independent value objects (consumed by the `eggserve-static`
+planner functions above):
 
 ```rust
 pub struct StaticResponsePlan {
@@ -176,8 +183,12 @@ pub struct ResponseStatus(pub u16); // associated constants: OK(200), NOT_MODIFI
 
 ## Usage Pattern
 
+New consumers import the leaf crates directly (`eggserve_primitives`,
+`eggserve_static`); the `eggserve_core::primitives` paths below are
+source-compatible facades:
+
 ```rust
-use eggserve_core::primitives::{
+use eggserve_primitives::{
     SecureRoot, ConfinedPath, StaticPolicy,
     http::{validate_method, validate_request_target},
     planner::plan_file_response,
@@ -418,7 +429,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `ResponseStatus` | Rust | Implemented and stable-ish | Associated constants for common HTTP status codes | Status code mapping |
 | `Server` | Python | Implemented | Rust owns socket I/O, timeouts, file streaming; Python supplies optional handler callback | Dynamic server use in Python |
 | `Method` | Rust, Python | Implemented and stable | Validated HTTP method; standard + extension; token validation | Canonical method identity |
-| `HttpVersion` | Rust, Python | Implemented and stable | HTTP/1.0, HTTP/1.1 | Canonical version identity |
+| `HttpVersion` | Rust, Python | Implemented and stable | Non-exhaustive `Http10`/`Http11`/`Http2`/`Http3` | Canonical version identity |
 | `HeaderBlock` | Rust, Python | Implemented and stable | Ordered Vec of HeaderField; case-insensitive lookup; duplicate preservation; octet-preserving values (`as_bytes`/`to_str`, `push_bytes`) | Canonical header collection |
 | `RequestTarget` | Rust, Python | Implemented and stable | Validated origin-form target (path + query; `raw_bytes`/`path_bytes`/`query_bytes`; empty query → `None`) | Canonical request target |
 | `RequestHead` | Rust, Python | Implemented and stable | Canonical request head with `try_from_hyper()` conversion | Transport-independent request inspection |

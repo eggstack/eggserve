@@ -56,6 +56,15 @@ capability, or tier change (see
 `release/plan-256-post-convergence-maintenance-interop-closure.md` and
 `release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`).
 
+Plans 270–286 continue through publication and embedding: Plan 272 publishes
+the additive `0.2.1` Rust patch (Plan 273 records downstream smoke);
+Plans 274–275 repair the Tower body boundary and publish the core-only
+`0.2.2`; Plan 277's standalone `0.2.3` folds into the Plan 286
+embedding-contract publication with the compatible Tower API in `server
+0.3.0`; Plans 278–279 add the opt-in absolute-form seam; Plans 280–286 run
+the embedding program (external ownership, typed rejection, tunnel
+decision, registry fixtures).
+
 ```text
 eggnet-tls             (neutral rustls identity/trust/reload substrate)
 
@@ -132,14 +141,17 @@ validation without reducing complexity (see
 `eggserve-core` is the compatibility and composition umbrella for EggServe's
 direct primitives, runtime, static-serving, TLS, and optional protocol
 adapters. Plan 226 executes the `0.2.0` version transition and the Rust
-1.89 MSRV move with no ownership change.
+1.89 MSRV move with no ownership change; the line now stands at `0.3.0`
+leaves / `0.2.1` bin / `0.2.3` wheel (Plans 272–286).
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
 and legacy configuration; request/service/tunnel/canonical types are facades
 over the direct authorities (no second envelope, taxonomy, normalization, or
 state machine), and static/path/filesystem types are facades over the
 `eggserve-static` authority (no second parser, resolver, planner, or MIME
 table; `src/fs`, `src/path`, and `src/mime.rs` are deleted and the
-topology gate rejects their return). H2 dispatches through the single contract as transport glue,
+topology gate rejects their return). The current line is the `0.3.0` leaves
+/ `0.2.1` bin / `0.2.3` wheel (Plan 226 executed the original `0.2.0`
+transition; never publish this line as `0.1.x`). H2 dispatches through the single contract as transport glue,
 and `server/connection/tunnel.rs` stays deleted. The `eggserve_core::layers` module exposes
 the direct crates for migration; new consumers should name the direct leaf
 crate they need. The downstream fixture

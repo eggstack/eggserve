@@ -1,51 +1,62 @@
 # eggserve-static
 
-`eggserve-static` is the static-serving specialization. Since Plan 214 it
-has owned the extracted `SecureRoot`, descriptor/handle-relative traversal,
-dotfile/symlink policy, MIME selection, response planner, and `StaticService`
-implementation that composes with `eggserve-server`. Plan 219 collapsed the
-remaining duplication: the crate is now the **sole implementation authority**
-for static path parsing (`path`: `ConfinedPath`/`PathPolicy`/`PathRejection`
-plus decode/component/platform helpers), the pinned root and Unix/Windows
-traversal (`fs`, crate-internal), resolved file/directory capabilities,
-MIME selection, conditional/range planning, and directory listing
-construction. `eggserve-core` keeps compatibility facades only
-(`primitives::{SecureRoot, ConfinedPath, ...}` re-export the static types;
-`src/fs`, `src/path`, and `src/mime.rs` are deleted), so security fixes land
-once. The `python-bindings-internal` feature carries the narrow capability
-bridge (`ResolvedFile::from_parts`/`into_parts`/`into_std_file`), which moves
-an already-opened handle without reconstructing provenance; raw fd/handle
-internals are never exposed.
+`eggserve-static` is the sole static/path/filesystem authority (Plans 214,
+219, 224-NO-GO, 245). It owns path parsing, secure-root resolution,
+descriptor/handle-relative confinement, MIME selection, pure response
+planning glue, and `StaticService` request-to-response rendering over
+`eggserve-server::Service`. `eggserve-core` keeps facades only
+(`src/fs`, `src/path`, `src/mime.rs` deleted); security fixes land once
+(authority fixture:
+`crates/eggserve-core/tests/static_authority_conformance.rs`).
 
-Plan 245 assigns `StaticService` request planning and rendering to this
-crate: `StaticService` resolves, plans (conditional/range), renders
-file/directory responses, and normalizes eagerly, while
-`eggserve-core::server::StaticService` is a compatibility wrapper projecting
-`ServeConfig`/`ServeState` into the direct service with no second renderer
-(see `release/plan-248-maintainability-convergence-closure.md` and
-`plans/245-static-service-authority-convergence.md`).
+> Guard: `scripts/check-crate-topology.py`. No `eggserve-capfs` crate
+> (Plan 224 NO-GO). No pathname check-then-open fallback.
 
-The generic runtime has no edge to this crate. Applications that only need a
-custom service can depend on `eggserve-server` and
-`eggserve-primitives`; static serving is an explicit addition. The direct crate
-is the hardened static implementation for new Rust consumers. Plan 221 makes
-the first-party frontends consume it directly: the binary's unit tests drive
-leaf `StaticService`, and the Python bridge resolves/plans through the leaf
-(including the capability bridge) — with the extended static orchestration
-(extra headers/error policy, listing budgets, `ServeConfig` validation)
-staying compatibility-owned as documented orchestration under the Plan 225
-facade closure. Behavior is covered by the existing qualification
-suites plus the authority conformance fixture
-(`crates/eggserve-core/tests/static_authority_conformance.rs`). No
-pathname-based fallback is exposed by the direct static service.
+## Manifest
 
-Plan 224 evaluated extracting the platform confinement machinery into a
-neutral `eggserve-capfs`/`eggcapfs` crate and closed NO-GO: the resolver
-consumes `ConfinedPath`/`StaticPolicy`, returns `BodySource` with MIME
-planning, intentionally duplicates parse-level validation as defense in
-depth, already isolates production unsafe to `fs/windows.rs`, and has no
-second consumer. A new crate would leak eggserve policy, mostly re-export
-internal types, and split the audited validation without reducing
-complexity. `eggserve-static` therefore remains the single confinement
-authority with no new dependency, feature flag, or versioned API (see
-`release/plan-224-capability-filesystem-evaluation.md`).
+- Deps (`Cargo.toml`): `eggserve-primitives`, `eggserve-server`,
+  `httpdate`, `phf{macros}`; Unix-only `rustix{fs,net}`. Feature:
+  `python-bindings-internal` (capability bridge only).
+- Modules (`src/`): `path/` (public), `fs/` + `secure_root.rs` + `mime.rs`
+  + `planner.rs` (crate-private, re-exported at root per `lib.rs`).
+
+## Module inventory
+
+| Area | Contents |
+|------|----------|
+| `path/` (`mod`/`components`/`decode`/`platform`/`policy`/`rejected`) | `ConfinedPath::{parse, from_path_component, as_str, components, path_policy}`, `PathPolicy{dotfiles, reject_backslash}`, parse-level `DotfilePolicy::{Denied, Allow}`, 17-variant `PathRejection` |
+| `secure_root.rs` + `fs/{mod,unix,windows}` | `SecureRoot::{new, policy, root_path, resolve, resolve_uri}`, `resolve_and_plan`, `ResolvedResource::{File, Directory, NotFound, Denied, IoError}`, `ResourceDeniedReason`, `ResolvedFile::{len, modified, metadata, content_type, plan_response, into_body, into_range_body}` (+ gated `into_std_file`/`into_parts`/`from_parts`), `ResolvedDirectory::{components, list, resolve_child}`; internal `PinnedRoot`/`RootGuard`; Unix `statat` + `openat(O_NOFOLLOW)`, Windows handle-relative opens |
+| `mime.rs` | crate-private `mime_for_path` over a `phf::Map`, case-insensitive fallback, `application/octet-stream` default; keyed by `safe_relative_components` only |
+| `planner.rs` | pure `plan_file_response`, `plan_file_response_with_preconditions`, `plan_file_response_with_preconditions_and_metadata`, conditional/range/ETag/listing helpers; no Hyper types |
+| `lib.rs` service | `StaticService::{builder, from_root, root}` + `StaticServiceBuilder::{policy, default_content_type, extra_response_headers, error_policy, listing_limits, build}` (defaults: safe policy, `application/octet-stream`, `Minimal`, 4096 entries / 1 MiB); `impl Service` with `RequestBodyPolicy::Reject` |
+
+## Service behavior (owned here)
+
+Absolute-form → 400; non-GET/HEAD → 405 with `Allow: GET, HEAD`;
+directory without trailing `/` → 301 preserving query; `index.html` /
+`index.htm` lookup; `NotFound` → 404, `Denied` → 403, `IoError` → 404; path
+rejections map malformed → 400 else 403; `default_content_type` applies only
+when detection yields octet-stream; `extra_response_headers` attach to final
+200 only and never override planned headers; error bodies follow
+`ErrorRepresentationPolicy` (`Minimal` fixed text vs `Empty`); every response
+passes `normalize_response`. Listing (when enabled) is bounded with escaped
+HTML + percent-encoded hrefs.
+
+## Ownership boundaries
+
+- Consumes `ConfinedPath`/`StaticPolicy`, returns handle-carrying
+  `BodySource`; duplicates parse-level validation as defense in depth.
+- `safe_relative_components` feeds MIME only — never file access.
+  Extraction (`from_parts`/`into_parts`/`into_std_file`) ends confinement;
+  prefer `into_body`/`into_range_body`.
+- Runtime owns framing/admission/streaming (`ResponsePolicy`,
+  `max_file_streams` permit, `Date`); server-owned embedding policies
+  (Plans 280/282/283) do not move static settings into connection policy.
+- Plan 278: `ConfinedPath`/static stays origin-only and rejects
+  absolute-form pre-resolution even when the H1 driver opts into
+  `OriginOrAbsolute`.
+
+## See also
+
+- [path-confinement](path-confinement.md), [filesystem-confinement](filesystem-confinement.md), [response-planning](response-planning.md), [policy-system](policy-system.md), [primitives-api](primitives-api.md).
+- Normative: [docs/secure-root.md](../docs/secure-root.md), [docs/http-response-planning.md](../docs/http-response-planning.md), [docs/http-primitives.md](../docs/http-primitives.md).
