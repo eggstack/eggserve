@@ -180,8 +180,9 @@ Seven workspace crates plus one excluded Python packaging crate:
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3 0.29.2, Plan 221: neutral bridge on leaf crates + confirmed-used `eggserve_bin::run_cli`; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
-`plans/` (historical design/implementation records plus the `ROADMAP.md` and
-`RELEASE-READINESS-ROADMAP.md` roadmap files),
+`plans/` (planning hierarchy: `README.md` + `registry.md` + `000`–`003` canonical docs +
+`subsystems/`/`implementation/`/`closure/`/`adrs/`/`archive/`; legacy flat `NNN-*.md`
+plus the `ROADMAP.md` and `RELEASE-READINESS-ROADMAP.md` files are archived in place),
 `examples/` (canonical CLI/Python examples plus Cargo examples and tiny
 fixtures), `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
 plus package/release checks). The example index is `examples/README.md`.
@@ -191,7 +192,7 @@ plus package/release checks). The example index is `examples/README.md`.
 1. **Safe defaults** — loopback bind, no symlinks, no dotfiles, no directory listing. Every unsafe behavior requires explicit opt-in via CLI flag.
 2. **No serving outside root** — path traversal and symlink escape denied at library level. On Unix with safe defaults, descriptor-relative traversal via `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`.
 3. **No broad dependencies** — every dependency must have an explicit purpose. See `docs/dependency-policy.md`.
-4. **Plan-driven development** — every change must be traced to a plan in `plans/`. No ad-hoc feature additions.
+4. **Plan-driven development** — every change must be traced to a plan: new work (293+) registers in `plans/registry.md` with a subsystem roadmap and a bounded `plans/implementation/<subsystem>/` handoff plan closed by a `plans/closure/<subsystem>/` record (`plans/README.md`, `plans/003-planning-process.md`); legacy flat plans + `release/` records are archived in place. No ad-hoc feature additions.
 
 Keep detailed Python deviations in `docs/python-http-server-compatibility.md`
 and detailed Rust ownership in `architecture/runtime.md`; plans record change

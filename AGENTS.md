@@ -16,7 +16,7 @@ proxy/TLS-identity/async-Python remain experimental.
 - **Safe defaults are not defaults if they can be overridden silently.** Loopback bind, no symlinks, no dotfiles, no directory listing unless the user explicitly opts in. See `docs/security-policy.md`.
 - **No serving outside the configured root.** Traversal/symlink escape denied at library level (Unix safe defaults: `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`). See `docs/threat-model.md`.
 - **No broad dependencies.** Every dependency needs an explicit purpose. See `docs/dependency-policy.md`.
-- **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc features. If a change crosses a current non-goal (`docs/non-goals.md`), update `docs/non-goals.md` + `docs/threat-model.md` in the same PR.
+- **Plan-driven development.** Every change must be backed by a plan: new work (293+) registers in `plans/registry.md` with a subsystem roadmap and a bounded `plans/implementation/<subsystem>/` handoff plan closed by a `plans/closure/<subsystem>/` record (see `plans/README.md` + `plans/003-planning-process.md`); legacy flat `plans/NNN-*.md` + `release/plan-*.md` are archived in place and immutable. No ad-hoc features. If a change crosses a current non-goal (`docs/non-goals.md`), update `docs/non-goals.md` + `docs/threat-model.md` in the same PR.
 - **Unsafe Rust denied by default.** Only the reviewed Windows FFI, systemd descriptor-adoption, and test-fixture boundaries in `docs/unsafe-code-policy.md` are allowed.
 
 ## Layout
@@ -31,7 +31,7 @@ crates/
 ├── eggserve-core/       # compatibility/composition umbrella (facades only, no second implementation)
 ├── eggserve-bin/        # CLI binary; real logic in lib.rs/args.rs (main.rs is a shim)
 └── eggserve-python/     # Python wheel (maturin) — EXCLUDED from workspace, own Cargo.lock
-architecture/ docs/ plans/ (change-trace records, NOT normative) release/
+architecture/ docs/ plans/ (hierarchy: README + registry + 000-003 + subsystems/implementation/closure/adrs/archive; legacy flat + release/ archived in place, NOT normative) release/
 conformance/ benchmarks/ examples/ (index: examples/README.md) fuzz/ scripts/ tests/
 ```
 
@@ -157,5 +157,7 @@ directory). Start at `architecture/overview.md` (indexes all subsystem
 pages); normative user contracts live in `docs/` (`security-policy`,
 `threat-model`, `python-http-server-compatibility`, `cli`, `python-api`,
 `http-primitives`, `deployment`, `timeout-reference`, `ops-logging`,
-`migration-guide`). `plans/` + `plans/ROADMAP.md` are change-trace records, not API
+`migration-guide`). `plans/` hierarchy (`README.md` + `registry.md` + `000`-`003` +
+subsystems/implementation/closure/adrs/archive; legacy flat files + `plans/ROADMAP.md`
+archived in place) are change-trace records, not API
 docs — when docs conflict with config/scripts, trust the executable source.

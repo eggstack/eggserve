@@ -11,7 +11,7 @@ Open issues on the GitHub repository. Use the appropriate template:
 ## Pull requests
 
 - Keep PRs small and focused on a single change
-- All changes must be backed by a plan in `plans/`
+- All changes must be backed by a plan (see `plans/README.md`): new work registers in `plans/registry.md` with a subsystem roadmap and a bounded `plans/implementation/<subsystem>/` plan; legacy flat `plans/NNN-*.md` + `release/plan-*.md` are archived in place
 - Do not make broad changes without updating the relevant plan first
 - Ensure `./scripts/verify.sh fast` passes (or manually: `cargo fmt --all -- --check`, `cargo clippy --workspace --lib --bins --tests -- -D warnings`, `cargo test --workspace`)
 
@@ -25,4 +25,4 @@ See [docs/dependency-policy.md](docs/dependency-policy.md) before adding any dep
 
 ## Roadmap
 
-The project milestone sequence is documented in [plans/ROADMAP.md](plans/ROADMAP.md). Changes should align with the current milestone.
+The project milestone sequence is documented in [plans/ROADMAP.md](plans/ROADMAP.md) (history) with the live control surface in [plans/registry.md](plans/registry.md). Changes should align with the current milestone.

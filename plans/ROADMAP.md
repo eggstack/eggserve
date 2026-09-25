@@ -1,5 +1,8 @@
 # eggserve roadmap
 
+> Live control surface: `plans/registry.md` (CodeGG-style hierarchy per Plan 292).
+> This file plus the flat `plans/NNN-*.md` files are immutable history below this notice.
+
 ## Purpose
 
 eggserve is a hardened, auditable, Rust-backed replacement for the common `python -m http.server` use case and a reusable set of safe HTTP/static-serving primitives. Static serving remains the primary end-user product. EggServe is not itself an application server, ASGI/WSGI runtime, reverse proxy, framework, CDN, or Granian-style general server; its Rust core also exposes a hardened, transport-owning HTTP runtime and canonical service boundary that separate downstream application-server projects may embed. Its core value is a small, predictable, security-oriented substrate that gives Python users standard-library-like ergonomics with production-grade defaults.
