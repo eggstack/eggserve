@@ -251,8 +251,8 @@ fn hyper_to_header_block(
 }
 
 /// Convert a Hyper request to a canonical [`RequestHead`], enforcing the
-/// EggServe-owned request-target and aggregate header ceilings before any
-/// service work.
+/// EggServe-owned request-target and optional aggregate-header ceilings
+/// before any service work.
 ///
 /// Hyper enforces `max_buf_size` (parse buffer) and `max_headers` (field
 /// count, answered with 431 by Hyper itself) during parsing; those rejections
@@ -262,7 +262,8 @@ fn hyper_to_header_block(
 ///
 /// - request targets longer than `max_target_bytes` fail with 414;
 /// - aggregate post-parse header name+value bytes above `max_header_bytes`
-///   fail with 431.
+///   fail with 431 when a ceiling is supplied; `None` transfers only this
+///   semantic ceiling to a direct-H1 embedder.
 ///
 /// There is no separate request-line knob: the request line is bounded
 /// jointly by the parser buffer (raw bytes) and this target-length ceiling
@@ -272,7 +273,7 @@ pub(crate) fn convert_request_head(
     req: &Request<Incoming>,
     max_target_bytes: Option<usize>,
     target_mode: crate::config::Http1RequestTargetMode,
-    max_header_bytes: usize,
+    max_header_bytes: Option<usize>,
     expected_scheme: eggserve_primitives::connection_info::Scheme,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
@@ -453,7 +454,8 @@ pub(crate) fn convert_request_head(
         header_bytes = header_bytes
             .saturating_add(name.as_str().len())
             .saturating_add(value.len());
-        if header_bytes > max_header_bytes {
+        if max_header_bytes.is_some_and(|limit| header_bytes > limit) {
+            let max_header_bytes = max_header_bytes.expect("checked above");
             ops.counters()
                 .header_bytes_rejected
                 .fetch_add(1, Ordering::Relaxed);

@@ -10,7 +10,7 @@ use bytes::Bytes;
 use eggserve_primitives::request_body_policy::RequestBodyPolicy;
 use eggserve_server::interop::HttpRequestBody;
 use eggserve_server::TowerToEggserve;
-use eggserve_server::{RuntimeConfig, Server};
+use eggserve_server::{PolicyOwner, RuntimeConfig, Server};
 use futures_util::StreamExt;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
@@ -103,6 +103,72 @@ async fn cancellation_stream(State(gate): State<Arc<StreamGate>>) -> Response {
         },
     );
     Response::new(Body::from_stream(stream))
+}
+
+async fn metadata_response() -> Response {
+    let body =
+        futures_util::stream::iter(vec![Ok::<_, Infallible>(Bytes::from_static(b"metadata"))]);
+    let mut response = Response::new(Body::from_stream(body));
+    response
+        .headers_mut()
+        .insert("date", "Sun, 06 Nov 1994 08:49:37 GMT".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("server", "axum-app".parse().unwrap());
+    response
+        .headers_mut()
+        .append("x-repeat", "one".parse().unwrap());
+    response
+        .headers_mut()
+        .append("x-repeat", "two".parse().unwrap());
+    response
+}
+
+#[tokio::test]
+async fn direct_axum_response_metadata_survives_external_ownership() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let runtime = RuntimeConfig::default();
+    let policy = Arc::new(
+        runtime
+            .h1_connection_policy()
+            .unwrap()
+            .with_response_metadata_ownership(eggserve_server::ResponseMetadataOwnership {
+                date: PolicyOwner::External,
+                server: PolicyOwner::External,
+            }),
+    );
+    let state = Arc::new(eggserve_server::RuntimeState::try_new(&runtime).unwrap());
+    let shutdown = eggserve_server::ConnectionShutdown::new();
+    let server_shutdown = shutdown.clone();
+    let server_policy = policy.clone();
+    let server_state = state.clone();
+    let server = tokio::spawn(async move {
+        let (stream, peer) = listener.accept().await.unwrap();
+        let router = Router::new().route("/", get(metadata_response));
+        eggserve_server::serve_http1_connection_with_policy(
+            stream,
+            TowerToEggserve::with_policy(router, RequestBodyPolicy::Reject),
+            server_policy,
+            eggserve_server::ConnectionContext::for_tcp(address, peer, None),
+            server_state,
+            &server_shutdown,
+        )
+        .await
+    });
+    let mut socket = TcpStream::connect(address).await.unwrap();
+    socket
+        .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut wire = Vec::new();
+    socket.read_to_end(&mut wire).await.unwrap();
+    let response = String::from_utf8_lossy(&wire).to_ascii_lowercase();
+    assert!(response.contains("date: sun, 06 nov 1994 08:49:37 gmt\r\n"));
+    assert!(response.contains("server: axum-app\r\n"));
+    assert!(response.contains("x-repeat: one\r\nx-repeat: two\r\n"));
+    shutdown.shutdown();
+    let _ = server.await.unwrap();
 }
 
 #[tokio::test]

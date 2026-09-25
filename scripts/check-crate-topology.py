@@ -13,7 +13,9 @@ compatibility core is a classified facade/adapter layer with no leftover
 duplicate implementations or dependencies (Plan 225 closure). Direct H1 and
 static authority convergence, Python wheel typing artifacts, orphan Rust
 sources, and inert accepted compatibility features are checked structurally
-(Plans 243–247).
+(Plans 243–247); compatible direct-server patch releases may resolve through
+the existing core requirement without a synchronized core publication
+(Plan 291).
 """
 
 from __future__ import annotations
@@ -37,6 +39,24 @@ def check_forbidden_deps(
         print(f"{owner} leaks forbidden dependencies: {sorted(leaked)} ({why})", file=sys.stderr)
         return 1
     return 0
+
+
+def compatible_core_server_patch_line(
+    core_version: str, server_version: str, server_req: str | None
+) -> bool:
+    """Core's existing ^0.x.y dependency may resolve newer compatible patches."""
+    try:
+        core = tuple(int(part) for part in core_version.split("."))
+        server = tuple(int(part) for part in server_version.split("."))
+    except ValueError:
+        return False
+    return (
+        len(core) == 3
+        and len(server) == 3
+        and server_req == f"^{core_version}"
+        and server[:2] == core[:2]
+        and server[2] >= core[2]
+    )
 
 
 def _inventory_diff(
@@ -210,11 +230,16 @@ def main() -> int:
             (dep["req"] for dep in core_manifest.get("dependencies", []) if dep["name"] == "eggserve-server" and dep["kind"] is None),
             None,
         )
-        expected_server_req = f"^{server_package['version']}"
-        if server_req != expected_server_req:
+        core_package = packages["eggserve-core"]
+        expected_server_req = f"^{core_package['version']}"
+        compatible_patch_line = compatible_core_server_patch_line(
+            core_package["version"], server_package["version"], server_req
+        )
+        if not compatible_patch_line:
             print(
-                "eggserve-core must require its matching published server authority "
-                f"(expected {expected_server_req}, found {server_req!r})",
+                "eggserve-core must retain a compatible dependency on its server authority "
+                f"(expected {expected_server_req} and same compatible 0.x minor line, "
+                f"found {server_req!r} with server {server_package['version']})",
                 file=sys.stderr,
             )
             return 1
@@ -1934,6 +1959,14 @@ def run_self_tests() -> int:
     check(
         "forbidden-deps-fail",
         check_forbidden_deps("t", {"a", "hyper"}, {"hyper"}, "why") == 1,
+    )
+    check(
+        "core-server-compatible-patch-resolves",
+        compatible_core_server_patch_line("0.3.0", "0.3.1", "^0.3.0"),
+    )
+    check(
+        "core-server-incompatible-minor-rejected",
+        not compatible_core_server_patch_line("0.3.0", "0.4.0", "^0.3.0"),
     )
     check(
         "inventory-diff",

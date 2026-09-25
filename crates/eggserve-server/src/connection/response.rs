@@ -118,20 +118,25 @@ pub(crate) fn present_runtime_rejection(
 /// is idempotent so eagerly normalized static responses are preserved
 /// (HEAD equivalent-GET lengths, unknown-length omission). Conversion
 /// failures become generic 500/503 without leaking details.
-pub(crate) fn normalize_then_convert(
+pub(crate) fn normalize_then_convert_with_provenance(
     canonical: eggserve_primitives::canonical::Response,
     is_head: bool,
     file_stream_semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
     stream_chunk_size: usize,
     error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
     ops: Option<&crate::ops::OpsContext>,
-) -> hyper::Response<BoxBodyInner> {
+) -> (hyper::Response<BoxBodyInner>, ResponseProvenance) {
     let normalized = match eggserve_primitives::canonical::normalize_response(
         canonical,
         &eggserve_primitives::canonical::NormalizeRequest::new(is_head),
     ) {
         Ok(r) => r,
-        Err(_) => return crate::response::internal_error_with_policy(error_policy),
+        Err(_) => {
+            return (
+                crate::response::internal_error_with_policy(error_policy),
+                ResponseProvenance::Runtime,
+            )
+        }
     };
     match crate::adapters::to_hyper_response_with_file_stream_semaphore_and_chunk_size(
         normalized,
@@ -139,11 +144,15 @@ pub(crate) fn normalize_then_convert(
         stream_chunk_size,
         ops,
     ) {
-        Ok(r) => r,
-        Err(eggserve_primitives::canonical::ResponseConstructionError::FileStreamLimit) => {
-            crate::response::service_unavailable_with_policy(error_policy)
-        }
-        Err(_) => crate::response::internal_error_with_policy(error_policy),
+        Ok(r) => (r, ResponseProvenance::Service),
+        Err(eggserve_primitives::canonical::ResponseConstructionError::FileStreamLimit) => (
+            crate::response::service_unavailable_with_policy(error_policy),
+            ResponseProvenance::Runtime,
+        ),
+        Err(_) => (
+            crate::response::internal_error_with_policy(error_policy),
+            ResponseProvenance::Runtime,
+        ),
     }
 }
 
@@ -347,16 +356,24 @@ pub(crate) fn apply_http1_disposition(
 /// Order: strip denylisted application headers first (so applications cannot
 /// re-add stripped identifiers), then apply `Server` identification (a fixed
 /// value survives a `server` denylist entry as explicit operator intent),
-/// then apply `Date` policy as the sole authority (Hyper automatic `Date` is
-/// disabled in [`hyper_builder`]). Duplicates are all removed. Framing and
+/// then apply Date/Server ownership (Hyper automatic `Date` is disabled in
+/// [`hyper_builder`]). EggServe removes owned-field duplicates; explicitly
+/// external service metadata is preserved after validation. Framing and
 /// hop-by-hop headers are never stripped (rejected at validation).
 /// `Last-Modified` later than `Date` is dropped to preserve the RFC
 /// invariant. No transport peer metadata is copied into response headers.
 /// Client responses never contain log or service error text (callers pass
 /// only fixed generic bodies here).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResponseProvenance {
+    Service,
+    Runtime,
+}
+
 pub(crate) fn finalize_runtime_response(
     mut response: hyper::Response<BoxBodyInner>,
     config: &H1ConnectionPolicy,
+    provenance: ResponseProvenance,
 ) -> hyper::Response<BoxBodyInner> {
     let policy = &config.response_policy;
     // 1. Denylist after service construction.
@@ -366,21 +383,54 @@ pub(crate) fn finalize_runtime_response(
         // removes all occurrences.
         response.headers_mut().remove(name.as_str());
     }
-    // 2. Server identification: application values are always subordinate.
-    response.headers_mut().remove(hyper::header::SERVER);
-    if let Some(value) = &policy.server_identification {
-        if let Ok(value) = hyper::header::HeaderValue::from_str(value) {
-            response.headers_mut().insert(hyper::header::SERVER, value);
+    // 2. Server identification: application values are subordinate whenever
+    // EggServe owns this field; an explicit denylist was already applied.
+    let external_service_metadata = provenance == ResponseProvenance::Service;
+    if !external_service_metadata
+        || config.response_metadata_ownership.server == crate::config::PolicyOwner::EggServe
+    {
+        response.headers_mut().remove(hyper::header::SERVER);
+    }
+    if !external_service_metadata
+        || config.response_metadata_ownership.server == crate::config::PolicyOwner::EggServe
+    {
+        if let Some(value) = &policy.server_identification {
+            if let Ok(value) = hyper::header::HeaderValue::from_str(value) {
+                response.headers_mut().insert(hyper::header::SERVER, value);
+            }
         }
     }
-    // 3. Date: EggServe is the sole authority.
-    response.headers_mut().remove(hyper::header::DATE);
-    if let Some(now) = policy.date_policy.now() {
-        // `now()` already guarantees formattability; the `from_str` guard
-        // protects against a future formatting change.
-        let date_str = httpdate::fmt_http_date(now);
-        if let Ok(value) = hyper::header::HeaderValue::from_str(&date_str) {
-            response.headers_mut().insert(hyper::header::DATE, value);
+    // 3. Date: EggServe owns it unless a direct service response explicitly
+    // transfers this field to the embedding application.
+    let external_date = external_service_metadata
+        && config.response_metadata_ownership.date == crate::config::PolicyOwner::External;
+    if external_date {
+        let dates = response.headers().get_all(hyper::header::DATE);
+        let mut iter = dates.iter();
+        let first = iter.next();
+        let valid = iter.next().is_none()
+            && first.is_none_or(|value| {
+                value
+                    .to_str()
+                    .ok()
+                    .and_then(|text| httpdate::parse_http_date(text).ok())
+                    .is_some()
+            });
+        if !valid {
+            response = crate::response::internal_error_with_policy(policy.error_policy);
+            return finalize_runtime_response(response, config, ResponseProvenance::Runtime);
+        }
+    } else {
+        response.headers_mut().remove(hyper::header::DATE);
+    }
+    if !external_date {
+        if let Some(now) = policy.date_policy.now() {
+            // `now()` already guarantees formattability; the `from_str` guard
+            // protects against a future formatting change.
+            let date_str = httpdate::fmt_http_date(now);
+            if let Ok(value) = hyper::header::HeaderValue::from_str(&date_str) {
+                response.headers_mut().insert(hyper::header::DATE, value);
+            }
         }
     }
     // 4. Last-Modified must not be later than Date (RFC). When Date is
@@ -493,7 +543,11 @@ mod tests {
             hyper::header::SERVER,
             hyper::header::HeaderValue::from_static("spoofed"),
         );
-        let response = finalize_runtime_response(response, &config.h1_connection_policy().unwrap());
+        let response = finalize_runtime_response(
+            response,
+            &config.h1_connection_policy().unwrap(),
+            ResponseProvenance::Runtime,
+        );
         assert_eq!(
             response.headers().get(hyper::header::SERVER).unwrap(),
             "eggserve-test"
@@ -506,6 +560,171 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn external_service_metadata_is_preserved_per_response_and_absence() {
+        let config = RuntimeConfig::default();
+        let policy = config
+            .h1_connection_policy()
+            .unwrap()
+            .with_response_metadata_ownership(crate::config::ResponseMetadataOwnership {
+                date: crate::config::PolicyOwner::External,
+                server: crate::config::PolicyOwner::External,
+            });
+        let mut response = crate::response::not_found(false);
+        response.headers_mut().insert(
+            hyper::header::DATE,
+            hyper::header::HeaderValue::from_static("Sun, 06 Nov 1994 08:49:37 GMT"),
+        );
+        response.headers_mut().insert(
+            hyper::header::SERVER,
+            hyper::header::HeaderValue::from_static("alpha"),
+        );
+        let response = finalize_runtime_response(response, &policy, ResponseProvenance::Service);
+        assert_eq!(
+            response.headers()[hyper::header::DATE],
+            "Sun, 06 Nov 1994 08:49:37 GMT"
+        );
+        assert_eq!(response.headers()[hyper::header::SERVER], "alpha");
+
+        let response = crate::response::not_found(false);
+        let response = finalize_runtime_response(response, &policy, ResponseProvenance::Service);
+        assert!(response.headers().get(hyper::header::DATE).is_none());
+        assert!(response.headers().get(hyper::header::SERVER).is_none());
+    }
+
+    #[test]
+    fn invalid_external_service_date_falls_back_to_runtime_error_policy() {
+        let config = RuntimeConfig::default();
+        let policy = config
+            .h1_connection_policy()
+            .unwrap()
+            .with_response_metadata_ownership(crate::config::ResponseMetadataOwnership {
+                date: crate::config::PolicyOwner::External,
+                server: crate::config::PolicyOwner::External,
+            });
+        let mut response = crate::response::not_found(false);
+        response.headers_mut().insert(
+            hyper::header::DATE,
+            hyper::header::HeaderValue::from_static("not a date"),
+        );
+        response.headers_mut().insert(
+            hyper::header::SERVER,
+            hyper::header::HeaderValue::from_static("untrusted-server"),
+        );
+        let response = finalize_runtime_response(response, &policy, ResponseProvenance::Service);
+        assert_eq!(response.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(response.headers().get(hyper::header::DATE).is_some());
+        assert!(response.headers().get(hyper::header::SERVER).is_none());
+        assert_ne!(response.headers()[hyper::header::DATE], "not a date");
+    }
+
+    #[test]
+    fn duplicate_external_date_is_rejected_and_runtime_metadata_stays_owned() {
+        let config = RuntimeConfig::builder()
+            .stripped_response_headers(vec!["server".into()])
+            .build()
+            .unwrap();
+        let policy = config
+            .h1_connection_policy()
+            .unwrap()
+            .with_response_metadata_ownership(crate::config::ResponseMetadataOwnership {
+                date: crate::config::PolicyOwner::External,
+                server: crate::config::PolicyOwner::External,
+            });
+        let mut response = crate::response::not_found(false);
+        response.headers_mut().append(
+            hyper::header::DATE,
+            hyper::header::HeaderValue::from_static("Sun, 06 Nov 1994 08:49:37 GMT"),
+        );
+        response.headers_mut().append(
+            hyper::header::DATE,
+            hyper::header::HeaderValue::from_static("Mon, 07 Nov 1994 08:49:37 GMT"),
+        );
+        response.headers_mut().insert(
+            hyper::header::SERVER,
+            hyper::header::HeaderValue::from_static("service-value"),
+        );
+        let response = finalize_runtime_response(response, &policy, ResponseProvenance::Service);
+        assert_eq!(response.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            response
+                .headers()
+                .get_all(hyper::header::DATE)
+                .iter()
+                .count()
+                <= 1
+        );
+        assert!(response.headers().get(hyper::header::SERVER).is_none());
+
+        let mut runtime_response = crate::response::not_found(false);
+        runtime_response.headers_mut().insert(
+            hyper::header::SERVER,
+            hyper::header::HeaderValue::from_static("must-not-survive"),
+        );
+        let runtime_response =
+            finalize_runtime_response(runtime_response, &policy, ResponseProvenance::Runtime);
+        assert!(runtime_response
+            .headers()
+            .get(hyper::header::SERVER)
+            .is_none());
+        assert!(runtime_response
+            .headers()
+            .get(hyper::header::DATE)
+            .is_some());
+    }
+
+    #[test]
+    fn external_date_keeps_past_last_modified_but_drops_future_value() {
+        let config = RuntimeConfig::default();
+        let policy = config
+            .h1_connection_policy()
+            .unwrap()
+            .with_response_metadata_ownership(crate::config::ResponseMetadataOwnership {
+                date: crate::config::PolicyOwner::External,
+                server: crate::config::PolicyOwner::External,
+            });
+        let mut response = crate::response::not_found(false);
+        response.headers_mut().insert(
+            hyper::header::DATE,
+            hyper::header::HeaderValue::from_static("Sun, 06 Nov 1994 08:49:37 GMT"),
+        );
+        response.headers_mut().insert(
+            hyper::header::LAST_MODIFIED,
+            hyper::header::HeaderValue::from_static("Mon, 07 Nov 1994 08:49:37 GMT"),
+        );
+        let response = finalize_runtime_response(response, &policy, ResponseProvenance::Service);
+        assert!(response
+            .headers()
+            .get(hyper::header::LAST_MODIFIED)
+            .is_none());
+        assert_eq!(
+            response.headers()[hyper::header::DATE],
+            "Sun, 06 Nov 1994 08:49:37 GMT"
+        );
+    }
+
+    #[test]
+    fn external_server_ownership_cannot_restore_a_denylisted_server_field() {
+        let config = RuntimeConfig::builder()
+            .stripped_response_headers(vec!["server".into()])
+            .build()
+            .unwrap();
+        let policy = config
+            .h1_connection_policy()
+            .unwrap()
+            .with_response_metadata_ownership(crate::config::ResponseMetadataOwnership {
+                date: crate::config::PolicyOwner::External,
+                server: crate::config::PolicyOwner::External,
+            });
+        let mut response = crate::response::not_found(false);
+        response.headers_mut().insert(
+            hyper::header::SERVER,
+            hyper::header::HeaderValue::from_static("application"),
+        );
+        let response = finalize_runtime_response(response, &policy, ResponseProvenance::Service);
+        assert!(response.headers().get(hyper::header::SERVER).is_none());
     }
 
     #[test]

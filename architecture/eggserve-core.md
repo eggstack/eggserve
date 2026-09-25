@@ -203,9 +203,9 @@ Resource limits with safe defaults:
 | `max_requests_per_connection` | None | Completed requests per connection (`None` = unlimited) |
 | `response_write_timeout` | 30s | Response no-progress timeout (steady progress never trips) |
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
-| `max_buf_size` | 64 KiB | HTTP/1 parser/read buffer ceiling (min 8192) |
-| `max_headers` | 100 | Request header field count (Hyper answers 431) |
-| `max_header_bytes` | 32 KiB | Aggregate header name+value bytes (431 pre-service) |
+| `max_buf_size` | 64 KiB | HTTP/1 parser/read buffer ceiling (min 8192; larger explicit values increase per-connection exposure) |
+| `max_headers` | 100 | Request header field count (Hyper answers 431; larger explicit values increase per-request exposure) |
+| `max_header_bytes` | 32 KiB | Aggregate header name+value bytes (431 pre-service; direct H1 can explicitly externalize this check) |
 | `max_request_target_bytes` | 8192 | Request-target length (414 pre-service) |
 | `max_listing_entries` | 4096 | Maximum entries to enumerate in a directory listing |
 | `max_listing_response_bytes` | 1 MiB | Maximum size in bytes for a directory listing response body |
@@ -257,17 +257,17 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `max_requests_per_connection` | None | Completed requests per connection (`None` = unlimited) |
 | `response_write_timeout` | 30s | Response no-progress timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after shutdown signal |
-| `max_buf_size` | 64 KiB | HTTP/1 parser buffer ceiling, set explicitly on Hyper |
-| `max_headers` | 100 | Request header field count, set explicitly on Hyper |
-| `max_header_bytes` | 32 KiB | Aggregate header bytes (431 pre-service) |
+| `max_buf_size` | 64 KiB | HTTP/1 parser buffer ceiling, set explicitly on Hyper; only the 8192-byte minimum is a hard validator boundary |
+| `max_headers` | 100 | Request header field count, set explicitly on Hyper; must be positive |
+| `max_header_bytes` | 32 KiB | Aggregate header bytes (431 pre-service); direct H1 ownership override is narrow and opt-in |
 | `max_request_target_bytes` | 8192 | Request-target length (414 pre-service) |
-| `response_policy` | suppressed `Server`, system-clock `Date`, no denylist, minimal errors | Final-boundary privacy; Hyper auto-`Date` disabled, EggServe sole authority |
+| `response_policy` | suppressed `Server`, system-clock `Date`, no denylist, minimal errors | Default final-boundary privacy; Hyper auto-`Date` disabled. Direct H1 has opt-in successful service-response Date/Server ownership. |
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
 
 Note: shared runtime defaults/validation live once in `crate::runtime_limits`
 (Plan 179); `Limits` fields map onto `RuntimeConfig` by
 `try_from_serve_config()` via `RuntimeConfig::from_shared_runtime`.
-Hyper is currently 1.11.1; `max_buf_size`/`max_headers` are pinned explicitly so upgrades cannot silently widen parser memory. Migration from `server_header`: use `response_policy.server_identification` via `RuntimeConfigBuilder::server_header(..)`; see `docs/migration-guide.md`. Static validators are governed by `StaticPolicy.static_metadata` (`plan_file_response_with_preconditions_and_metadata`); see `response-planning.md`. Static-only listing/extra-header budgets stay outside the runtime kernel.
+Hyper is currently 1.11.1; `max_buf_size`/`max_headers` are pinned explicitly so upgrades cannot silently widen parser memory. The retained `MAX_MAX_BUF_SIZE` (4 MiB) and `MAX_MAX_HEADERS` (10,000) are conservative guidance, not hard validation maxima. Direct H1 may opt into aggregate-header ownership and successful service-response Date/Server ownership through `H1ConnectionPolicy`; runtime errors, framing, and denylist remain runtime-owned. Migration from `server_header`: use `response_policy.server_identification` via `RuntimeConfigBuilder::server_header(..)`; see `docs/migration-guide.md`. Static validators are governed by `StaticPolicy.static_metadata` (`plan_file_response_with_preconditions_and_metadata`); see `response-planning.md`. Static-only listing/extra-header budgets stay outside the runtime kernel.
 
 ### `RuntimeState`
 

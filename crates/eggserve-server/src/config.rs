@@ -77,6 +77,20 @@ pub struct AdmissionOwnership {
     pub tunnels: AdmissionOwner,
 }
 
+/// Ownership of Date and Server on successful service responses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ResponseMetadataOwnership {
+    /// When `External`, preserve valid Date metadata or intentional absence on
+    /// successful service responses. The origin is responsible for RFC 9110
+    /// Date generation requirements. Runtime-generated responses stay owned
+    /// by [`ResponsePolicy`].
+    pub date: PolicyOwner,
+    /// When `External`, preserve service Server metadata or intentional
+    /// absence on successful service responses. Runtime-generated responses
+    /// stay owned by [`ResponsePolicy`].
+    pub server: PolicyOwner,
+}
+
 impl AdmissionOwnership {
     /// Explicit all-EggServe admission profile.
     pub const fn eggserve_owned() -> Self {
@@ -188,6 +202,8 @@ pub struct H1ConnectionPolicy {
     pub(crate) max_request_target_bytes: usize,
     pub(crate) http1_request_target_mode: Http1RequestTargetMode,
     pub(crate) policy_ownership: H1PolicyOwnership,
+    pub(crate) request_header_bytes_owner: PolicyOwner,
+    pub(crate) response_metadata_ownership: ResponseMetadataOwnership,
     pub(crate) admission_ownership: AdmissionOwnership,
     pub(crate) keep_alive_idle_timeout: Duration,
     pub(crate) max_requests_per_connection: Option<u64>,
@@ -250,6 +266,8 @@ impl RuntimeConfig {
             max_request_target_bytes: self.max_request_target_bytes,
             http1_request_target_mode: self.http1_request_target_mode,
             policy_ownership: self.policy_ownership,
+            request_header_bytes_owner: PolicyOwner::EggServe,
+            response_metadata_ownership: ResponseMetadataOwnership::default(),
             admission_ownership: self.admission_ownership,
             keep_alive_idle_timeout: self.keep_alive_idle_timeout,
             max_requests_per_connection: self.max_requests_per_connection,
@@ -315,6 +333,28 @@ impl RuntimeConfig {
             .validate()
             .map_err(|e| ServerError::Config(format!("invalid trusted_proxy: {e}")))?;
         Ok(())
+    }
+}
+
+impl H1ConnectionPolicy {
+    /// Transfer only post-parse aggregate request-header byte enforcement.
+    /// Hyper's parser buffer and header-count bounds and all canonical request
+    /// validation remain active. Defaults to [`PolicyOwner::EggServe`].
+    pub fn with_request_header_bytes_owner(mut self, owner: PolicyOwner) -> Self {
+        self.request_header_bytes_owner = owner;
+        self
+    }
+
+    /// Select ownership of Date and Server on successful service responses.
+    /// Response framing and the stripped-header denylist remain runtime-owned;
+    /// runtime-generated errors continue using [`ResponsePolicy`]. Defaults
+    /// to all EggServe-owned metadata.
+    pub fn with_response_metadata_ownership(
+        mut self,
+        ownership: ResponseMetadataOwnership,
+    ) -> Self {
+        self.response_metadata_ownership = ownership;
+        self
     }
 }
 
@@ -735,6 +775,52 @@ mod tests {
         assert_eq!(config.max_requests_per_connection, None);
         assert_eq!(config.response_write_timeout, Duration::from_secs(30));
         assert_eq!(config.max_active_tunnels, 64);
+    }
+
+    #[test]
+    fn h1_policy_ownership_overrides_are_additive_and_default_to_eggserve() {
+        let policy = RuntimeConfig::default().h1_connection_policy().unwrap();
+        assert_eq!(policy.request_header_bytes_owner, PolicyOwner::EggServe);
+        assert_eq!(
+            policy.response_metadata_ownership,
+            ResponseMetadataOwnership::default()
+        );
+        let external = policy
+            .with_request_header_bytes_owner(PolicyOwner::External)
+            .with_response_metadata_ownership(ResponseMetadataOwnership {
+                date: PolicyOwner::External,
+                server: PolicyOwner::External,
+            });
+        assert_eq!(external.request_header_bytes_owner, PolicyOwner::External);
+        assert_eq!(
+            external.response_metadata_ownership.date,
+            PolicyOwner::External
+        );
+        assert_eq!(
+            external.response_metadata_ownership.server,
+            PolicyOwner::External
+        );
+    }
+
+    #[test]
+    fn parser_values_above_legacy_guidance_validate_and_zero_bounds_fail() {
+        let config = RuntimeConfig {
+            max_buf_size: rl::MAX_MAX_BUF_SIZE + 1,
+            max_headers: rl::MAX_MAX_HEADERS + 1,
+            ..RuntimeConfig::default()
+        };
+        config.validate().unwrap();
+        let below_minimum = RuntimeConfig {
+            max_buf_size: rl::MIN_MAX_BUF_SIZE - 1,
+            ..RuntimeConfig::default()
+        };
+        assert!(below_minimum.validate().is_err());
+        let zero_headers = RuntimeConfig {
+            max_buf_size: rl::MIN_MAX_BUF_SIZE,
+            max_headers: 0,
+            ..RuntimeConfig::default()
+        };
+        assert!(zero_headers.validate().is_err());
     }
 
     #[test]

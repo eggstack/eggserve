@@ -1,6 +1,6 @@
 # Plan 290 — Direct H1 boundary-ownership qualification and version decision
 
-Status: **PLANNED**; blocked on Plans 288 and 289 implementation.
+Status: **IMPLEMENTED; hosted CI qualification pending**.
 
 Program:
 `plans/288-291-direct-h1-boundary-ownership-followup-program.md`.
@@ -223,18 +223,18 @@ run for the proof-bearing source SHA.
 
 ## Acceptance criteria
 
-- [ ] real direct H1 works above former 4 MiB / 10,000 parser gates.
-- [ ] real direct H1 can externalize aggregate header-byte policy.
-- [ ] parser protections remain active independently.
-- [ ] per-response Date/Server A/B/C cases pass on one runtime.
-- [ ] invalid/duplicate external Date fails safely.
-- [ ] runtime errors retain runtime metadata authority.
-- [ ] Last-Modified invariant remains.
-- [ ] Tower/http-interop direct path passes.
-- [ ] default/high-level/core/H2/H3 regressions pass.
-- [ ] direct graph topology remains narrow.
-- [ ] public API compatibility is classified.
-- [ ] exact release version strategy is recorded.
+- [x] real direct H1 works above former 4 MiB / 10,000 parser gates.
+- [x] real direct H1 can externalize aggregate header-byte policy.
+- [x] parser protections remain active independently.
+- [x] per-response Date/Server A/B/C cases pass on one runtime.
+- [x] invalid/duplicate external Date fails safely.
+- [x] runtime errors retain runtime metadata authority.
+- [x] Last-Modified invariant remains.
+- [x] Tower/http-interop direct path passes.
+- [x] default/high-level/core/H2/H3 regressions pass.
+- [x] direct graph topology remains narrow.
+- [x] public API compatibility is classified.
+- [x] exact release version strategy is recorded.
 - [ ] proof-bearing SHA has green hosted CI.
 
 ## Non-goals

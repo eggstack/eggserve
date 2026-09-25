@@ -86,8 +86,21 @@ async fn caller_owned_tls_h1_stream_uses_direct_policy_api() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(server_config));
-    let runtime = RuntimeConfig::default();
-    let policy = Arc::new(runtime.h1_connection_policy().unwrap());
+    let runtime = RuntimeConfig::builder()
+        .max_buf_size(4 * 1024 * 1024 + 1)
+        .max_headers(10_001)
+        .build()
+        .unwrap();
+    let policy = Arc::new(
+        runtime
+            .h1_connection_policy()
+            .unwrap()
+            .with_request_header_bytes_owner(PolicyOwner::External)
+            .with_response_metadata_ownership(eggserve_server::ResponseMetadataOwnership {
+                date: PolicyOwner::External,
+                server: PolicyOwner::External,
+            }),
+    );
     let state = Arc::new(eggserve_server::RuntimeState::try_new(&runtime).unwrap());
     let shutdown = eggserve_server::ConnectionShutdown::new();
     let server_shutdown = shutdown.clone();
@@ -103,6 +116,10 @@ async fn caller_owned_tls_h1_stream_uses_direct_policy_api() {
             service_fn(|_request: Request| async {
                 Ok(Response::builder()
                     .status(StatusCode::OK)
+                    .header("date", "Sun, 06 Nov 1994 08:49:37 GMT")
+                    .unwrap()
+                    .header("server", "tls-embedder")
+                    .unwrap()
                     .body(ResponseBody::Bytes(b"ok".to_vec()))
                     .unwrap())
             }),
@@ -132,7 +149,195 @@ async fn caller_owned_tls_h1_stream_uses_direct_policy_api() {
     let mut response = Vec::new();
     client.read_to_end(&mut response).await.unwrap();
     assert!(response.starts_with(b"HTTP/1.1 200"), "{response:?}");
+    let response_text = String::from_utf8_lossy(&response).to_ascii_lowercase();
+    assert!(response_text.contains("date: sun, 06 nov 1994 08:49:37 gmt\r\n"));
+    assert!(response_text.contains("server: tls-embedder\r\n"));
     assert!(response.ends_with(b"ok"));
+    shutdown.shutdown();
+    let _ = server.await.unwrap();
+}
+
+#[tokio::test]
+async fn direct_h1_external_header_bytes_policy_reaches_service_above_default_ceiling() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let runtime = RuntimeConfig::builder()
+        .max_buf_size(5 * 1024 * 1024)
+        .max_headers(10_001)
+        .build()
+        .unwrap();
+    let policy = Arc::new(
+        runtime
+            .h1_connection_policy()
+            .unwrap()
+            .with_request_header_bytes_owner(PolicyOwner::External),
+    );
+    let state = Arc::new(eggserve_server::RuntimeState::try_new(&runtime).unwrap());
+    let shutdown = eggserve_server::ConnectionShutdown::new();
+    let server_shutdown = shutdown.clone();
+    let server_policy = policy.clone();
+    let server_state = state.clone();
+    let server = tokio::spawn(async move {
+        let (stream, peer) = listener.accept().await.unwrap();
+        eggserve_server::serve_http1_connection_with_policy(
+            stream,
+            service_fn(|_request: Request| async {
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(b"reached".to_vec()))
+                    .unwrap())
+            }),
+            server_policy,
+            eggserve_server::ConnectionContext::for_tcp(addr, peer, None),
+            server_state,
+            &server_shutdown,
+        )
+        .await
+    });
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    let mut request = String::with_capacity(5 * 1024 * 1024);
+    request.push_str("GET / HTTP/1.1\r\nHost: localhost\r\nx-large: ");
+    request.push_str(&"a".repeat(4 * 1024 * 1024 + 32));
+    request.push_str("\r\n");
+    for n in 0..9_998 {
+        request.push_str(&format!("x-{n}: a\r\n"));
+    }
+    request.push_str("Connection: close\r\n\r\n");
+    client.write_all(request.as_bytes()).await.unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).await.unwrap();
+    assert!(
+        response.starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&response[..response.len().min(256)])
+    );
+    assert!(response.ends_with(b"reached"));
+    shutdown.shutdown();
+    let _ = server.await.unwrap();
+}
+
+#[tokio::test]
+async fn external_header_bytes_policy_keeps_hyper_header_count_limit_active() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let runtime = RuntimeConfig::builder().max_headers(2).build().unwrap();
+    let policy = Arc::new(
+        runtime
+            .h1_connection_policy()
+            .unwrap()
+            .with_request_header_bytes_owner(PolicyOwner::External),
+    );
+    let state = Arc::new(eggserve_server::RuntimeState::try_new(&runtime).unwrap());
+    let shutdown = eggserve_server::ConnectionShutdown::new();
+    let server_shutdown = shutdown.clone();
+    let server_policy = policy.clone();
+    let server_state = state.clone();
+    let service_calls = Arc::new(AtomicUsize::new(0));
+    let calls = service_calls.clone();
+    let server = tokio::spawn(async move {
+        let (stream, peer) = listener.accept().await.unwrap();
+        eggserve_server::serve_http1_connection_with_policy(
+            stream,
+            service_fn(move |_request: Request| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async {
+                    Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .body(ResponseBody::Empty)
+                        .unwrap())
+                }
+            }),
+            server_policy,
+            eggserve_server::ConnectionContext::for_tcp(addr, peer, None),
+            server_state,
+            &server_shutdown,
+        )
+        .await
+    });
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    client
+        .write_all(
+            b"GET / HTTP/1.1\r\nHost: localhost\r\nx-extra: yes\r\nConnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).await.unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 431"), "{response:?}");
+    assert_eq!(service_calls.load(Ordering::SeqCst), 0);
+    shutdown.shutdown();
+    let _ = server.await.unwrap();
+}
+
+#[tokio::test]
+async fn direct_h1_external_response_metadata_is_per_response_and_preserves_absence() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let runtime = RuntimeConfig::default();
+    let policy = Arc::new(
+        runtime
+            .h1_connection_policy()
+            .unwrap()
+            .with_response_metadata_ownership(eggserve_server::ResponseMetadataOwnership {
+                date: PolicyOwner::External,
+                server: PolicyOwner::External,
+            }),
+    );
+    let state = Arc::new(eggserve_server::RuntimeState::try_new(&runtime).unwrap());
+    let shutdown = eggserve_server::ConnectionShutdown::new();
+    let server_shutdown = shutdown.clone();
+    let server_policy = policy.clone();
+    let server_state = state.clone();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let service_calls = calls.clone();
+    let server = tokio::spawn(async move {
+        let (stream, peer) = listener.accept().await.unwrap();
+        eggserve_server::serve_http1_connection_with_policy(
+            stream,
+            service_fn(move |_request: Request| {
+                let call = service_calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    let builder = Response::builder().status(StatusCode::OK);
+                    let builder = match call {
+                        0 => builder
+                            .header("date", "Sun, 06 Nov 1994 08:49:37 GMT")
+                            .unwrap()
+                            .header("server", "alpha")
+                            .unwrap(),
+                        1 => builder
+                            .header("date", "Mon, 07 Nov 1994 08:49:37 GMT")
+                            .unwrap()
+                            .header("server", "beta")
+                            .unwrap(),
+                        _ => builder,
+                    };
+                    Ok(builder.body(ResponseBody::Empty).unwrap())
+                }
+            }),
+            server_policy,
+            eggserve_server::ConnectionContext::for_tcp(addr, peer, None),
+            server_state,
+            &server_shutdown,
+        )
+        .await
+    });
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    client.write_all(b"GET /one HTTP/1.1\r\nHost: localhost\r\n\r\nGET /two HTTP/1.1\r\nHost: localhost\r\n\r\nGET /three HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").await.unwrap();
+    let mut wire = Vec::new();
+    client.read_to_end(&mut wire).await.unwrap();
+    let text = String::from_utf8_lossy(&wire).to_ascii_lowercase();
+    assert!(text.contains("date: sun, 06 nov 1994 08:49:37 gmt\r\n"));
+    assert!(text.contains("server: alpha\r\n"));
+    assert!(text.contains("date: mon, 07 nov 1994 08:49:37 gmt\r\n"));
+    assert!(text.contains("server: beta\r\n"));
+    let heads: Vec<_> = text
+        .split("\r\n\r\n")
+        .filter(|part| part.starts_with("http/1.1 "))
+        .collect();
+    assert_eq!(heads.len(), 3, "{text}");
+    assert!(!heads[2].contains("date:"));
+    assert!(!heads[2].contains("server:"));
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
     shutdown.shutdown();
     let _ = server.await.unwrap();
 }

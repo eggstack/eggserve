@@ -1,6 +1,6 @@
 # Plan 288 — Direct H1 parser range and aggregate-header ownership
 
-Status: **PLANNED**.
+Status: **IMPLEMENTED; qualification continues under Plan 290**.
 
 Program:
 `plans/288-291-direct-h1-boundary-ownership-followup-program.md`.

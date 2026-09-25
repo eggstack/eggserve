@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 — candidate (Plans 288–291)
+
+- Removed the EggServe hard validation maxima for H1 parser buffer size and
+  header count; the 8192-byte Hyper minimum and positive field count remain,
+  with defaults unchanged.
+- Added direct-H1 ownership controls for the post-parse aggregate request
+  header-byte ceiling and successful service-response Date/Server metadata.
+  Runtime errors, response framing, and the stripped-header denylist remain
+  runtime-owned. Publication and registry-only proof are pending Plan 291.
+
 ## 0.3.0 — published
 
 - Moved the optional HTTP interop and Tower adapter implementation to

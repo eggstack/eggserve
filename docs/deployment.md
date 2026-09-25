@@ -130,7 +130,7 @@ CPU frequency must be reported with any future claim.
 
 Final origin-response metadata is an explicit `ResponsePolicy`, applied after
 service construction at one Hyper boundary (Hyper automatic `Date` disabled;
-EggServe is the sole `Date` authority). Normal defaults stay RFC-compatible
+EggServe owns `Date` by default). Normal defaults stay RFC-compatible
 (suppressed `Server`, one system-clock `Date`, minimal generic errors).
 
 ```rust

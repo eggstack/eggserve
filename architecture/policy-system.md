@@ -59,12 +59,20 @@ ResponsePolicy
 
 - **Server:** suppressed by default; optional fixed value. Never emits crate,
   Rust, Hyper, OS, TLS, or Python versions. Application `Server` is
-  subordinate.
-- **Date:** EggServe is the sole authority; Hyper `auto_date_header(false)`.
+  subordinate by default.
+- **Date:** EggServe owns it by default; Hyper `auto_date_header(false)`.
   `SystemClock` preserves one-`Date` compatibility. `Custom(provider)` uses a
   caller-supplied trusted time value (EggServe owns formatting/validation).
   `Suppress` is an explicit RFC 9110 tradeoff (origin with a clock should send
   `Date` on 2xx/3xx/4xx). No fixed/stale or randomized dates.
+- **Direct H1 embedding override (Plans 288–289):** the projected
+  `H1ConnectionPolicy` can transfer Date and/or Server ownership for successful
+  service responses. External Date is preserved only when absent or exactly
+  one syntactically valid HTTP-date; invalid/duplicate values fail to a
+  generic runtime 500. Runtime-generated errors remain under `ResponsePolicy`,
+  and the explicit denylist still wins. Origins that own Date must follow RFC
+  9110 Date generation requirements. This override is opt-in and is not the
+  standalone default.
 - **Denylist:** validated names, removed after service construction (all
   duplicates). Framing/hop-by-hop/`date`/`content-range` cannot be denylisted;
   runtime-required headers cannot be removed when it would make the response

@@ -184,7 +184,12 @@ middleware, no custom parser solely for a finer request-line knob) are
 unchanged: Hyper still exposes no aggregate header-byte, request-target, or
 request-line knob, so those ceilings are enforced post-parse in
 `convert_request_head` (431/414 before service invocation) while
-`max_buf_size`/`max_headers` are set explicitly on every Hyper builder.
+`max_buf_size`/`max_headers` are set explicitly on every Hyper builder. The
+defaults remain 64 KiB / 100; 8192 bytes is Hyper's minimum parser buffer and
+header count must be positive. The legacy 4 MiB / 10,000 values are guidance,
+not validator maxima. Direct H1 callers may transfer only the aggregate
+post-parse header-byte check with `H1ConnectionPolicy`; this leaves parser
+limits and all canonical request validation in force.
 
 ## Interaction diagram
 

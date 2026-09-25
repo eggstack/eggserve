@@ -406,8 +406,11 @@ This is mechanically enforced by the planner: `ReadOnlyMethod::Head` produces `B
 Directory-listing HEAD responses retain the nonzero `Content-Length` of the
 equivalent GET representation while transmitting no body. Origin responses
 receive exactly zero or one runtime-generated IMF-fixdate `Date` header at
-finalization per `DatePolicy` (default one system-clock `Date`; EggServe is the
-sole authority with Hyper automatic `Date` disabled). `DatePolicy::Custom(provider)`
+finalization per `DatePolicy` (default one system-clock `Date`; Hyper
+automatic `Date` is disabled). Direct H1 may explicitly transfer Date
+ownership for successful service responses; runtime-generated errors stay
+under `DatePolicy`, and the embedder assumes the origin's RFC 9110 Date duty.
+`DatePolicy::Custom(provider)`
 uses a caller-supplied trusted time value; `Suppress` emits zero `Date` as an
 explicit RFC 9110 tradeoff. `Server` is suppressed by default with optional fixed
 value (never versions). See `docs/deployment.md` minimal-fingerprint profile.

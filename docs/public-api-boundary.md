@@ -102,7 +102,9 @@ The `primitives` module re-exports the following types:
 
 `server::response_policy::{ResponsePolicy, DatePolicy}` is experimental (Rust-only
 advanced privacy; CLI/Python keep standards defaults). `ResponsePolicy` is the
-sole `Date`/`Server`/denylist authority with Hyper automatic `Date` disabled.
+default `Date`/`Server`/denylist authority with Hyper automatic `Date` disabled.
+Direct H1 can explicitly transfer Date/Server ownership for successful service
+responses; runtime failures and framing remain runtime-owned.
 
 `ResponseStream` is a stable, Hyper-free one-shot producer boundary. Its
 constructors require `Stream<Item = Result<Bytes, ResponseStreamError>> + Send +

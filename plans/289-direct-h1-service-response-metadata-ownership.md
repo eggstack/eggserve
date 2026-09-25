@@ -1,6 +1,6 @@
 # Plan 289 — Direct H1 service-response metadata ownership
 
-Status: **PLANNED**.
+Status: **IMPLEMENTED; qualification continues under Plan 290**.
 
 Program:
 `plans/288-291-direct-h1-boundary-ownership-followup-program.md`.

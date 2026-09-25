@@ -12,8 +12,9 @@ pub type BoxBodyInner = UnsyncBoxBody<Bytes, std::io::Error>;
 ///
 /// This is the direct-primitives default (system clock). The server
 /// connection pipeline overrides per [`crate::response_policy::DatePolicy`]
-/// in `finalize_runtime_response`, which is the sole Date authority when a
-/// `RuntimeConfig` is present (Hyper automatic Date is disabled).
+/// in `finalize_runtime_response`, which owns Date by default when a
+/// `RuntimeConfig` is present (Hyper automatic Date is disabled); direct H1
+/// service-response ownership is an explicit projected-policy override.
 pub(crate) fn finalize_origin_headers(response: &mut Response<BoxBodyInner>, now: SystemTime) {
     response.headers_mut().remove(hyper::header::DATE);
     if let Ok(value) = hyper::header::HeaderValue::from_str(&httpdate::fmt_http_date(now)) {

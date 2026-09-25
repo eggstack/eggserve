@@ -134,10 +134,13 @@ HEAD responses use the same status and headers as GET, but with an empty body:
 - `206 Partial Content` with range headers but no body.
 - `416 Range Not Satisfiable` with `Content-Range` header but no body.
 
-All origin responses receive exactly zero or one runtime-owned `Date` header
+Origin responses receive exactly zero or one runtime-owned `Date` header
 during final response construction per `DatePolicy` (default one system-clock
-`Date`; `Suppress` emits zero as an explicit RFC tradeoff; EggServe is the sole
-authority with Hyper automatic `Date` disabled). Directory-listing HEAD
+`Date`; `Suppress` emits zero as an explicit RFC tradeoff; Hyper automatic
+`Date` is disabled). Direct H1 embedding may explicitly transfer successful
+service-response `Date` ownership; the embedder must then meet RFC 9110 origin
+requirements, while runtime-generated errors remain runtime-owned.
+Directory-listing HEAD
 preserves the GET representation's `Content-Length`.
 
 ## ETag generation

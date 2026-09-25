@@ -210,14 +210,6 @@ fn invalid_cases() -> Vec<(
             "max_buf_size",
         ),
         (
-            "buf above maximum",
-            Box::new(|l: &mut Limits| {
-                l.max_buf_size = eggserve_core::limits::MAX_MAX_BUF_SIZE + 1;
-            }),
-            Box::new(|b| b.max_buf_size(eggserve_core::limits::MAX_MAX_BUF_SIZE + 1)),
-            "max_buf_size",
-        ),
-        (
             "zero max headers",
             Box::new(|l: &mut Limits| l.max_headers = 0),
             Box::new(|b| b.max_headers(0)),

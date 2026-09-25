@@ -55,7 +55,8 @@ pub mod tunnel;
 
 pub use config::{
     AdmissionOwner, AdmissionOwnership, H1ConnectionPolicy, H1PolicyOwnership,
-    Http1RequestTargetMode, PolicyOwner, RuntimeConfig, RuntimeConfigBuilder,
+    Http1RequestTargetMode, PolicyOwner, ResponseMetadataOwnership, RuntimeConfig,
+    RuntimeConfigBuilder,
 };
 pub use connection::{
     serve_http1_connection, serve_http1_connection_with_id, serve_http1_connection_with_policy,

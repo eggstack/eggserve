@@ -179,7 +179,7 @@ timeouts); there are no per-IP/client/user token buckets, authentication
 quotas, or reputation logic anywhere in the core. Deploying this profile
 without that outer layer exposes the generic budgets directly to
 unbounded client populations. The minimal-fingerprint policy removes
-gratuitous identifiers (no `Server` versions, sole `Date` authority,
+gratuitous identifiers (no `Server` versions, runtime-owned `Date` by default,
 denylisted headers, fixed errors); it does not make the server
 un-fingerprintable against statistical traffic analysis.
 

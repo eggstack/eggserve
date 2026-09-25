@@ -255,7 +255,9 @@ Builder `.server_header(..)` keeps working. For struct literals, add
 `..Default::default()` / `..ServeConfig::default()` or the new fields
 explicitly. Hyper automatic `Date` is now disabled (`auto_date_header(false)`);
 EggServe `DatePolicy` (`SystemClock` default, `Custom(provider)`, `Suppress`)
-is the sole authority. `ResponsePolicy::minimal_fingerprint()` +
+is the runtime authority by default. Direct H1 callers can explicitly
+transfer successful service-response Date/Server ownership through
+`H1ConnectionPolicy`. `ResponsePolicy::minimal_fingerprint()` +
 `StaticMetadataPolicy::minimal_fingerprint()` is the generic
 minimal-fingerprint profile (minimizes signals, does not claim
 un-fingerprintability).

@@ -29,7 +29,7 @@ use super::request::{
 };
 use super::response::{
     apply_http1_disposition, body_error_disposition, body_error_to_response, contain_service_panic,
-    normalize_then_convert,
+    normalize_then_convert_with_provenance,
 };
 
 fn finish_response(
@@ -39,8 +39,36 @@ fn finish_response(
     conn_id: u64,
     disposition: LifecycleDisposition,
 ) -> hyper::Response<BoxBodyInner> {
-    let (response, disposition) = guard.finish(response, config, conn_id, disposition);
+    let (response, disposition) = guard.finish(
+        response,
+        config,
+        conn_id,
+        disposition,
+        super::response::ResponseProvenance::Runtime,
+    );
     apply_http1_disposition(response, disposition)
+}
+
+fn finish_invocation_response(
+    guard: InFlightGuard,
+    result: ServiceInvocationResponse,
+    config: &H1ConnectionPolicy,
+    conn_id: u64,
+    disposition: LifecycleDisposition,
+) -> hyper::Response<BoxBodyInner> {
+    let (response, disposition) = guard.finish(
+        result.response,
+        config,
+        conn_id,
+        disposition,
+        result.provenance,
+    );
+    apply_http1_disposition(response, disposition)
+}
+
+struct ServiceInvocationResponse {
+    response: hyper::Response<BoxBodyInner>,
+    provenance: super::response::ResponseProvenance,
 }
 
 /// Apply trusted header-derived forwarding policy for one request (Plan 202 Track D).
@@ -208,18 +236,27 @@ fn convert_handshake_without_normalization(
     stream_chunk_size: usize,
     error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
     ops: &crate::ops::OpsContext,
-) -> hyper::Response<BoxBodyInner> {
+) -> ServiceInvocationResponse {
     match crate::adapters::to_hyper_response_with_file_stream_semaphore_and_chunk_size(
         canonical,
         file_stream_semaphore,
         stream_chunk_size,
         Some(ops),
     ) {
-        Ok(r) => r,
+        Ok(response) => ServiceInvocationResponse {
+            response,
+            provenance: super::response::ResponseProvenance::Service,
+        },
         Err(eggserve_primitives::canonical::ResponseConstructionError::FileStreamLimit) => {
-            crate::response::service_unavailable_with_policy(error_policy)
+            ServiceInvocationResponse {
+                response: crate::response::service_unavailable_with_policy(error_policy),
+                provenance: super::response::ResponseProvenance::Runtime,
+            }
         }
-        Err(_) => crate::response::internal_error_with_policy(error_policy),
+        Err(_) => ServiceInvocationResponse {
+            response: crate::response::internal_error_with_policy(error_policy),
+            provenance: super::response::ResponseProvenance::Runtime,
+        },
     }
 }
 
@@ -271,7 +308,7 @@ async fn invoke_service<S>(
     activity: &Arc<ConnectionActivity>,
     tunnel_semaphore: Option<&Arc<tokio::sync::Semaphore>>,
     tunnel: Option<TunnelInvocation>,
-) -> hyper::Response<BoxBodyInner>
+) -> ServiceInvocationResponse
 where
     S: Service + 'static,
 {
@@ -287,12 +324,15 @@ where
         if let Some(ref invocation) = tunnel {
             invocation.shared.mark_committed();
         }
-        return super::response::present_runtime_rejection(
-            hyper::StatusCode::SERVICE_UNAVAILABLE,
-            crate::rejection::RuntimeRejectionKind::ServiceAdmissionSaturated,
-            is_head,
-            rejection_policy,
-        );
+        return ServiceInvocationResponse {
+            response: super::response::present_runtime_rejection(
+                hyper::StatusCode::SERVICE_UNAVAILABLE,
+                crate::rejection::RuntimeRejectionKind::ServiceAdmissionSaturated,
+                is_head,
+                rejection_policy,
+            ),
+            provenance: super::response::ResponseProvenance::Runtime,
+        };
     }
 
     // Capture trailer policy + interim + tunnel commitment/lifecycle before the
@@ -348,12 +388,15 @@ where
                             )
                             .await;
                             if !admitted {
-                                return super::response::present_runtime_rejection(
+                                return ServiceInvocationResponse {
+                                    response: super::response::present_runtime_rejection(
                                     hyper::StatusCode::SERVICE_UNAVAILABLE,
                                     crate::rejection::RuntimeRejectionKind::TunnelAdmissionSaturated,
                                     is_head,
                                     rejection_policy,
-                                );
+                                    ),
+                                    provenance: super::response::ResponseProvenance::Runtime,
+                                };
                             }
                             return convert_handshake_without_normalization(
                                 canonical,
@@ -372,14 +415,18 @@ where
                     }
                 }
             }
-            normalize_then_convert(
+            let (response, provenance) = normalize_then_convert_with_provenance(
                 canonical,
                 is_head,
                 file_stream_semaphore,
                 stream_chunk_size,
                 error_policy,
                 Some(ops),
-            )
+            );
+            ServiceInvocationResponse {
+                response,
+                provenance,
+            }
         }
         Ok(Err(service_err)) => {
             let severity = if service_err.is_panic() || !service_err.is_timeout() {
@@ -395,7 +442,14 @@ where
                 )
                 .connection_id(conn_id),
             );
-            super::response::service_error_to_response(&service_err, is_head, rejection_policy)
+            ServiceInvocationResponse {
+                response: super::response::service_error_to_response(
+                    &service_err,
+                    is_head,
+                    rejection_policy,
+                ),
+                provenance: super::response::ResponseProvenance::Runtime,
+            }
         }
         Err(_elapsed) => {
             let body_pending = stream_body
@@ -410,22 +464,28 @@ where
                     crate::ops::EventKind::BodyReadTimeout,
                     "body read timeout",
                 ));
-                super::response::service_error_to_response(
-                    &ServiceError::timeout("body read timeout".to_string()),
-                    is_head,
-                    rejection_policy,
-                )
+                ServiceInvocationResponse {
+                    response: super::response::service_error_to_response(
+                        &ServiceError::timeout("body read timeout".to_string()),
+                        is_head,
+                        rejection_policy,
+                    ),
+                    provenance: super::response::ResponseProvenance::Runtime,
+                }
             } else {
                 ops.emit(crate::ops::Event::new(
                     crate::ops::Severity::Warn,
                     crate::ops::EventKind::ServiceTimeout,
                     "handler timed out",
                 ));
-                super::response::service_error_to_response(
-                    &ServiceError::timeout("handler timed out".to_string()),
-                    is_head,
-                    rejection_policy,
-                )
+                ServiceInvocationResponse {
+                    response: super::response::service_error_to_response(
+                        &ServiceError::timeout("handler timed out".to_string()),
+                        is_head,
+                        rejection_policy,
+                    ),
+                    provenance: super::response::ResponseProvenance::Runtime,
+                }
             }
         }
     }
@@ -673,7 +733,8 @@ where
                     == crate::config::PolicyOwner::EggServe)
                     .then_some(config.max_request_target_bytes),
                 config.http1_request_target_mode,
-                config.max_header_bytes,
+                (config.request_header_bytes_owner == crate::config::PolicyOwner::EggServe)
+                    .then_some(config.max_header_bytes),
                 context.scheme,
                 conn_id,
                 ops,
@@ -992,7 +1053,7 @@ where
                         tunnel,
                     )
                     .await;
-                    Ok::<_, Infallible>(finish_response(
+                    Ok::<_, Infallible>(finish_invocation_response(
                         guard,
                         response,
                         config,
@@ -1089,7 +1150,7 @@ where
                         tunnel,
                     )
                     .await;
-                    Ok::<_, Infallible>(finish_response(
+                    Ok::<_, Infallible>(finish_invocation_response(
                         guard,
                         response,
                         config,
@@ -1158,13 +1219,15 @@ where
                     // forces close only on abandonment/failure.
                     use eggserve_primitives::request_lifecycle::BodyLifecycleState;
                     match body_shared.body_state() {
-                        BodyLifecycleState::Complete => Ok::<_, Infallible>(finish_response(
-                            guard,
-                            response,
-                            config,
-                            conn_id,
-                            LifecycleDisposition::KEEP_ALIVE,
-                        )),
+                        BodyLifecycleState::Complete => {
+                            Ok::<_, Infallible>(finish_invocation_response(
+                                guard,
+                                response,
+                                config,
+                                conn_id,
+                                LifecycleDisposition::KEEP_ALIVE,
+                            ))
+                        }
                         BodyLifecycleState::Active => {
                             // Deferred: response-start available while a valid
                             // downstream task still owns the body. Do NOT add
@@ -1209,7 +1272,7 @@ where
                                     ops.clone(),
                                 );
                             }
-                            Ok::<_, Infallible>(finish_response(
+                            Ok::<_, Infallible>(finish_invocation_response(
                                 guard,
                                 response,
                                 config,
@@ -1226,7 +1289,7 @@ where
                                 )
                                 .connection_id(conn_id),
                             );
-                            Ok::<_, Infallible>(finish_response(
+                            Ok::<_, Infallible>(finish_invocation_response(
                                 guard,
                                 response,
                                 config,

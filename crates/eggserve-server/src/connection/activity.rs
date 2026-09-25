@@ -372,6 +372,7 @@ impl InFlightGuard {
         config: &H1ConnectionPolicy,
         conn_id: u64,
         mut disposition: LifecycleDisposition,
+        provenance: super::response::ResponseProvenance,
     ) -> (hyper::Response<BoxBodyInner>, LifecycleDisposition) {
         self.finished = true;
         self.service_permit.take();
@@ -404,7 +405,7 @@ impl InFlightGuard {
             }
         }
         self.request_activity.response_started();
-        let response = finalize_runtime_response(response, config);
+        let response = finalize_runtime_response(response, config, provenance);
         let activity = self.request_activity.connection.clone();
         (
             response.map(move |body| BoxBodyInner::new(TrackedBody::new(body, activity))),

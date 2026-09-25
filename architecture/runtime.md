@@ -92,8 +92,9 @@ Transport-level configuration separate from service-level concerns:
 - Timeouts (header read, connection total, handler, body read, graceful shutdown, keep-alive idle, response write no-progress)
 - Maximum requests per connection (`max_requests_per_connection`, `None` = unlimited)
 - Final-boundary response privacy (`response_policy`: `Server` suppressed by
-  default, `Date` system-clock by default with EggServe as sole authority and
-  Hyper automatic `Date` disabled, validated denylist, minimal errors)
+  default, `Date` system-clock by default with EggServe ownership and Hyper
+  automatic `Date` disabled, validated denylist, minimal errors; direct H1
+  service metadata ownership is a separate explicit projection override)
 - TLS configuration (feature-gated)
 - Maximum request body size (hard ceiling)
 
@@ -514,7 +515,8 @@ All paths then share the same steps:
    and producer failure close post-commitment; `HEAD`/body-forbidden never
    poll; every body releases the outstanding-response slot on end/error/drop)
 10. Final-boundary privacy (`finalize_runtime_response`: denylist after service
-    construction, `Server` subordinate to policy, `Date` sole authority with
+    construction, `Server` subordinate to policy by default, `Date` runtime-
+    owned by default with explicit direct-service override and
     Hyper auto-`Date` disabled, `Last-Modified <= Date` enforcement, no peer
     metadata copied, no log/error text reflected)
 11. Protocol-neutral lifecycle disposition and protocol adapter mapping, then
@@ -627,6 +629,25 @@ authority. `AdmissionOwnership` independently represents service and tunnel
 gates; externally owned gates are absent from `RuntimeState` rather than
 approximated with a large semaphore. Both ownership objects default to
 EggServe, preserving the standalone server's bounded behavior.
+
+Plans 288–289 add two direct-H1-only seams to the projected policy. Parser
+buffer and header-count validation no longer treats the legacy 4 MiB / 10,000
+guidance constants as hard maxima; the Hyper minimum (8192 bytes) and positive
+header count remain enforced, and defaults remain 64 KiB / 100. An embedder
+may transfer only the aggregate post-parse header-byte ceiling with
+`with_request_header_bytes_owner(PolicyOwner::External)`. This does not bypass
+Hyper parser limits or other canonical request validation.
+
+`with_response_metadata_ownership(ResponseMetadataOwnership { .. })` can
+transfer Date and/or Server metadata for successful service responses. The
+runtime still owns canonical framing and the explicit stripped-header
+denylist. Runtime-generated responses (including service errors, timeouts,
+rejections, and invalid external Date fallback) continue using `ResponsePolicy`.
+External Date values must be one valid HTTP-date; absence is preserved,
+duplicates or invalid values become generic 500 responses, and a future
+`Last-Modified` is removed. An embedding origin that owns Date is responsible
+for emitting it on response classes required by RFC 9110. All these ownership
+switches default to EggServe; high-level `Server` does not enable them.
 
 `RuntimeRejectionPresenter` is a synchronous direct-H1 response-presentation
 hook. Its input contains only a typed category and runtime-selected status.
@@ -896,8 +917,9 @@ shutdown) is handled by the Python subprocess wrapper, not the Rust server.
 ## Security Properties
 
 - Response normalization (hop-by-hop stripping, content-length computation) is runtime-owned
-- Final response privacy (`Server`/`Date`/denylist/`Last-Modified<=Date`) is
-  runtime-owned at one Hyper boundary; services cannot bypass it
+- Final response framing is runtime-owned at one Hyper boundary. Date/Server
+  are runtime-owned by default; direct H1 can explicitly transfer successful
+  service-response metadata while runtime errors remain runtime-owned.
 - Services cannot bypass final framing policy through the safe API
 - Handler failures map to deterministic generic responses without internal
   leakage (`Minimal` fixed bodies or `Empty`; application `Ok` bodies never

@@ -81,12 +81,12 @@ pub const MAX_STREAM_CHUNK_SIZE: usize = 1024 * 1024;
 pub const DEFAULT_MAX_BUF_SIZE: usize = 64 * 1024;
 /// Minimum parser buffer accepted by Hyper (`Builder::max_buf_size` panics below).
 pub const MIN_MAX_BUF_SIZE: usize = 8192;
-/// Maximum parser buffer EggServe will configure (4 MiB).
+/// Legacy conservative parser-buffer guidance (4 MiB); not a runtime maximum.
 pub const MAX_MAX_BUF_SIZE: usize = 4 * 1024 * 1024;
 
 /// Default maximum request header field count (Hyper's default, pinned).
 pub const DEFAULT_MAX_HEADERS: usize = 100;
-/// Maximum header-field count EggServe will configure.
+/// Legacy conservative header-count guidance; not a runtime maximum.
 pub const MAX_MAX_HEADERS: usize = 10_000;
 
 /// Default post-parse aggregate request-header ceiling (name+value bytes).
@@ -337,22 +337,10 @@ impl SharedRuntimeValues {
                 self.max_buf_size.to_string(),
                 format!(">= {MIN_MAX_BUF_SIZE} (Hyper minimum)"),
             ));
-        } else if self.max_buf_size > MAX_MAX_BUF_SIZE {
-            errors.push(Violation::new(
-                "max_buf_size",
-                self.max_buf_size.to_string(),
-                format!("<= {MAX_MAX_BUF_SIZE} (4 MiB)"),
-            ));
         }
 
         if self.max_headers == 0 {
             errors.push(Violation::new("max_headers", "0".into(), "> 0".into()));
-        } else if self.max_headers > MAX_MAX_HEADERS {
-            errors.push(Violation::new(
-                "max_headers",
-                self.max_headers.to_string(),
-                format!("<= {MAX_MAX_HEADERS}"),
-            ));
         }
 
         if self.max_header_bytes < MIN_MAX_HEADER_BYTES {
@@ -444,6 +432,34 @@ mod tests {
     #[test]
     fn defaults_are_valid() {
         assert!(SharedRuntimeValues::default().validate().is_empty());
+    }
+
+    #[test]
+    fn parser_guidance_constants_are_not_validation_maxima() {
+        let values = SharedRuntimeValues {
+            max_buf_size: MAX_MAX_BUF_SIZE + 1,
+            max_headers: MAX_MAX_HEADERS + 1,
+            ..SharedRuntimeValues::default()
+        };
+        assert!(values.validate().is_empty());
+
+        let below_minimum = SharedRuntimeValues {
+            max_buf_size: MIN_MAX_BUF_SIZE - 1,
+            ..SharedRuntimeValues::default()
+        };
+        assert!(below_minimum
+            .validate()
+            .iter()
+            .any(|v| v.field == "max_buf_size"));
+        let zero_headers = SharedRuntimeValues {
+            max_buf_size: MIN_MAX_BUF_SIZE,
+            max_headers: 0,
+            ..SharedRuntimeValues::default()
+        };
+        assert!(zero_headers
+            .validate()
+            .iter()
+            .any(|v| v.field == "max_headers"));
     }
 
     #[test]

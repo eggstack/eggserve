@@ -613,13 +613,12 @@ mod tests {
     }
 
     #[test]
-    fn buf_size_above_maximum_is_invalid() {
+    fn buf_size_above_legacy_guidance_is_valid() {
         let limits = Limits {
             max_buf_size: MAX_MAX_BUF_SIZE + 1,
             ..Default::default()
         };
-        let errs = limits.validate().unwrap_err();
-        assert!(errs.iter().any(|e| e.field == "max_buf_size"));
+        assert!(limits.validate().is_ok());
     }
 
     #[test]
@@ -644,13 +643,12 @@ mod tests {
     }
 
     #[test]
-    fn excessive_max_headers_is_invalid() {
+    fn max_headers_above_legacy_guidance_is_valid() {
         let limits = Limits {
             max_headers: MAX_MAX_HEADERS + 1,
             ..Default::default()
         };
-        let errs = limits.validate().unwrap_err();
-        assert!(errs.iter().any(|e| e.field == "max_headers"));
+        assert!(limits.validate().is_ok());
     }
 
     #[test]

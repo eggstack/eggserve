@@ -104,6 +104,15 @@ eggserve-server = { version = "0.3", default-features = false, features = ["towe
 tokio = { version = "1", features = ["full"] }
 ```
 
+Direct H1 hosts retain the 64 KiB parser buffer and 100-header defaults;
+`max_buf_size` must remain at least 8192 and `max_headers` positive, while
+larger explicit values are operator resource choices. The direct connection
+policy also offers opt-in ownership of the aggregate post-parse header-byte
+ceiling and of Date/Server metadata on successful service responses. Runtime
+errors, response framing, and the stripped-header denylist remain EggServe-owned.
+Check the published `eggserve-server` version before relying on these newer
+policy methods; registry availability is recorded only by the Plan 291 closure.
+
 The direct handle can be
 split into independent shutdown control and typed completion; setting
 `connection_total_timeout(Duration::ZERO)` opts out of only the 60-second

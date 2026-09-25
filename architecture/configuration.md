@@ -117,9 +117,9 @@ breaking its current API.
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
-| `max_buf_size` | `RuntimeConfig` → internal `Http1Config` | 65536 | 8192–4194304 | `--max-buf-size` | `max_buf_size` (`lowlevel`; compat default) | Hyper `http1::Builder::max_buf_size`, set explicitly per connection |
-| `max_headers` | `RuntimeConfig` → internal `Http1Config` | 100 | 1–10000 | `--max-headers` | `max_headers` (`lowlevel`; compat default) | Hyper `http1::Builder::max_headers` (Hyper answers 431 itself) |
-| `max_header_bytes` | `RuntimeConfig` | 32768 | 1024–1048576 | `--max-header-bytes` | `max_header_bytes` (`lowlevel`; compat default) | Post-parse aggregate check in `convert_request_head`; 431 pre-service |
+| `max_buf_size` | `RuntimeConfig` → internal `Http1Config` | 65536 | ≥8192 | `--max-buf-size` | `max_buf_size` (`lowlevel`; compat default) | Hyper `http1::Builder::max_buf_size`, set explicitly per connection; larger values increase per-connection memory exposure |
+| `max_headers` | `RuntimeConfig` → internal `Http1Config` | 100 | >0 | `--max-headers` | `max_headers` (`lowlevel`; compat default) | Hyper `http1::Builder::max_headers` (Hyper answers 431 itself); larger values increase per-request resource exposure |
+| `max_header_bytes` | `RuntimeConfig` | 32768 | 1024–1048576 | `--max-header-bytes` | `max_header_bytes` (`lowlevel`; compat default) | Post-parse aggregate check in `convert_request_head`; 431 pre-service. Direct H1 may transfer this narrow ceiling to the embedder explicitly. |
 | `max_request_target_bytes` | `RuntimeConfig` | 8192 | 128–65536 | `--max-request-target-bytes` | `max_request_target_bytes` (`lowlevel`; compat default) | Post-parse target check in `convert_request_head`; 414 pre-service |
 
 Hyper exposes no aggregate header-byte, request-target, or request-line knob: the request line is bounded jointly by the parser buffer and the target ceiling.
@@ -130,6 +130,8 @@ Hyper exposes no aggregate header-byte, request-target, or request-line knob: th
 |---|---|---|---|
 | `http1_request_target_mode` | `RuntimeConfig` (`Http1RequestTargetMode`) | `OriginOnly` | `OriginOnly` = origin-form dispatch; `OriginOrAbsolute` opts into proxy-shaped absolute-form dispatch (path/query exposed separately; static resolution stays origin-only). Core projects `OriginOnly` explicitly onto the direct config. |
 | `policy_ownership` | `RuntimeConfig` (`H1PolicyOwnership`, 6 subfields) | all `EggServe` | Per-deadline/ceiling owner: `handler_deadline`, `request_body_deadline`, `keep_alive_idle_deadline`, `response_write_progress_deadline`, `global_request_body_ceiling`, `request_target_ceiling` (`PolicyOwner::EggServe` \| `External`). |
+| `H1ConnectionPolicy::with_request_header_bytes_owner` | projected direct H1 policy | `EggServe` | Transfers only post-parse aggregate name+value byte enforcement. Hyper parser buffer and field-count limits, target validation, Host checks, and framing remain active. |
+| `H1ConnectionPolicy::with_response_metadata_ownership` | projected direct H1 policy (`ResponseMetadataOwnership`) | Date + Server `EggServe` | External ownership applies only to successful service responses. Runtime-generated errors stay under `ResponsePolicy`; external Date must be syntactically valid and duplicates fail to generic 500. |
 | `admission_ownership` | `RuntimeConfig` (`AdmissionOwnership`, 2 subfields) | all `EggServe` | Per-gate owner: `service_calls`, `tunnels` (`AdmissionOwner::EggServe` \| `External`); externally owned gates are absent from `RuntimeState` rather than approximated. |
 | `runtime_rejection_presenter` | `RuntimeConfig` (`Option<Arc<dyn RuntimeRejectionPresenter>>`) | `None` | Synchronous direct-H1 response-presentation hook: input is kind + runtime-selected status only; output is bounded headers + ≤64 KiB body and cannot choose status, framing, privacy, or disposition. Panics/invalid/oversized output fall back to the generic representation. |
 
@@ -138,6 +140,13 @@ The Plan 282 `H1ConnectionPolicy` narrow projection
 loop) carries the deadlines/ceilings/target-mode/ownership/presenter above
 but excludes bind/TLS-handshake/listener/file-stream settings (see
 `crates/eggserve-server/src/config.rs`).
+
+The legacy `MAX_MAX_BUF_SIZE` (4 MiB) and `MAX_MAX_HEADERS` (10,000) values
+remain public conservative guidance constants; they are no longer validator
+maxima. The actual parser constraints are `max_buf_size >= 8192` and
+`max_headers > 0`. Larger values are explicit resource choices. The default
+64 KiB buffer and 100 fields are unchanged. External aggregate-header
+ownership does not bypass either Hyper parser limit.
 
 ### HTTP/2 transport limits (`http2` feature)
 

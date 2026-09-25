@@ -1,6 +1,6 @@
 # Plans 288–291 — Direct H1 boundary-ownership follow-up program
 
-Status: **PLANNED**.
+Status: **IN PROGRESS** (Plans 288–289 implemented; Plans 290–291 remain).
 
 Planning baseline:
 

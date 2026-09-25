@@ -51,8 +51,9 @@ dependencies.
   standard validators. Parse-level `eggserve_static::path::DotfilePolicy`
   vs serve-level `policy::DotfilePolicy` must both agree.
 - Response framing belongs to the runtime: `normalize_response` /
-  `normalize_metadata` converge all producers; EggServe is sole `Date`
-  authority; 1xx/204/205/304 are body-forbidden (304 keeps representation
+  `normalize_metadata` converge all producers; EggServe owns `Date` by
+  default (direct H1 can explicitly transfer successful service metadata);
+  1xx/204/205/304 are body-forbidden (304 keeps representation
   length); `BodyLength::Unknown` never becomes `Content-Length: 0`.
 - Plans 280/282/283 add server-side embedding policy (`PolicyOwner`,
   `H1ConnectionPolicy`, rejection presenter) without moving any
