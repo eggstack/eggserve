@@ -151,7 +151,11 @@ pub(crate) fn service_error_to_response(
     is_head: bool,
     error_policy: crate::policy::ErrorRepresentationPolicy,
 ) -> hyper::Response<BoxBodyInner> {
-    let code = err.status_code().as_u16();
+    let raw = err.status_code().as_u16();
+    // Collapse non-standard 499 (cancelled/disconnected) to 500 on the wire,
+    // mirroring `body_error_to_response`; lifecycle cancellation still drives
+    // connection teardown.
+    let code = if raw == 499 { 500 } else { raw };
     let status =
         hyper::StatusCode::from_u16(code).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
     crate::response::runtime_error_with_policy(status, is_head, error_policy)

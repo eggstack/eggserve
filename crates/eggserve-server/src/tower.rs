@@ -275,14 +275,24 @@ where
             let request = Request::new_with_context(
                 head,
                 body,
-                eggserve_primitives::RequestContext::new(connection, lifecycle),
+                // Preserve the wire version (HTTP/1.0 interim suppression
+                // lives on the context). Tunnel capability has no standalone
+                // Tower transport to back it, so tunnel-aware services take
+                // the ordinary-denial path here by design (see interop docs).
+                eggserve_primitives::RequestContext::new_with_version(
+                    connection, lifecycle, version,
+                ),
             );
-            // Native invocation (panics/timeouts contained by the caller when
-            // driven inside the runtime; here map errors to Tower errors).
-            let response = service
-                .call(request)
-                .await
-                .map_err(TowerAdapterError::Service)?;
+            // Native invocation with panic containment so a panicking
+            // service becomes `TowerAdapterError::Service` (500 downstream)
+            // instead of panicking the Tower task. Handler deadlines stay
+            // caller-owned here (e.g. `tower::timeout::Timeout` layer or the
+            // H1 runtime's `invoke_canonical_service` when driven inside
+            // EggServe); this standalone adapter never invents its own.
+            let response =
+                crate::connection::response::contain_service_panic(service.call(request))
+                    .await
+                    .map_err(TowerAdapterError::Service)?;
             // Normalize (HEAD/body-forbidden suppression, framing, privacy)
             // before boxing for Tower.
             let normalized = normalize_response(response, &NormalizeRequest::new(is_head))

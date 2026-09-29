@@ -48,6 +48,9 @@ pub(crate) fn present_runtime_rejection(
     }
     let mut headers = hyper::HeaderMap::new();
     let mut bytes = 0usize;
+    // `take(64 + 1)`: iterate one past the 64-header limit so the 65th field
+    // triggers fallback; the `headers.len() >= 64` check runs before `append`,
+    // so the 64th legal header still succeeds.
     for field in presentation.headers.iter().take(65) {
         let name = field.name.as_str();
         let lower = name.to_ascii_lowercase();
@@ -369,7 +372,13 @@ pub(crate) fn service_error_to_response(
     is_head: bool,
     policy: &H1ConnectionPolicy,
 ) -> hyper::Response<BoxBodyInner> {
-    let code = err.status_code().as_u16();
+    let raw = err.status_code().as_u16();
+    // Cancelled/disconnected service errors report the non-standard 499,
+    // which must not appear on the wire; collapse to 500 (same as
+    // `body_error_to_response`). Internal 499 is preserved in counters/logs
+    // via `ServiceError::status_code()`; connection teardown is driven by
+    // the cancelled lifecycle, not by the status value.
+    let code = if raw == 499 { 500 } else { raw };
     let status =
         hyper::StatusCode::from_u16(code).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
     let kind = if code == 414 {

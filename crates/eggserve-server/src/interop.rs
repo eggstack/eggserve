@@ -284,21 +284,23 @@ pub fn request_target_to_uri(target: &RequestTarget) -> Result<http::Uri, Intero
 /// Duplicate values for one name are preserved via `append` in per-name
 /// order, using byte conversion for opaque values (never mandatory UTF-8).
 /// Global field-line order across different names is **not** preserved;
-/// see the module docs. Names/values that `http` rejects (which cannot
-/// happen for canonically constructed blocks) are skipped rather than
-/// coerced, preserving loss-awareness in the reverse direction.
-pub fn header_block_to_map(block: &HeaderBlock) -> http::HeaderMap {
+/// see the module docs.
+///
+/// # Errors
+///
+/// Returns [`InteropError::InvalidHeader`] when any name/value fails `http`
+/// validation, mirroring [`header_map_to_block`] (which errors in the
+/// reverse direction) instead of silently dropping application headers.
+pub fn header_block_to_map(block: &HeaderBlock) -> Result<http::HeaderMap, InteropError> {
     let mut map = http::HeaderMap::with_capacity(block.len());
     for field in block.iter() {
-        let Ok(name) = http::HeaderName::from_bytes(field.name.as_str().as_bytes()) else {
-            continue;
-        };
-        let Ok(value) = http::HeaderValue::from_bytes(field.value.as_bytes()) else {
-            continue;
-        };
+        let name = http::HeaderName::from_bytes(field.name.as_str().as_bytes())
+            .map_err(|_| InteropError::InvalidHeader)?;
+        let value = http::HeaderValue::from_bytes(field.value.as_bytes())
+            .map_err(|_| InteropError::InvalidHeader)?;
         map.append(name, value);
     }
-    map
+    Ok(map)
 }
 
 /// Convert an [`http::HeaderMap`] to the canonical [`HeaderBlock`].
@@ -342,7 +344,11 @@ pub fn header_map_to_trailers(map: &http::HeaderMap) -> Result<Trailers, Interop
 ///
 /// Opaque values map through bytes; forbidden fields cannot occur because
 /// `Trailers` construction already enforces the denylist.
-pub fn trailers_to_map(trailers: &Trailers) -> http::HeaderMap {
+///
+/// # Errors
+///
+/// Returns [`InteropError::InvalidHeader`] when `http` rejects a field.
+pub fn trailers_to_map(trailers: &Trailers) -> Result<http::HeaderMap, InteropError> {
     header_block_to_map(trailers.as_block())
 }
 
@@ -376,7 +382,7 @@ pub fn request_head_to_http(
         .uri(uri)
         .version(version);
     if let Some(headers) = builder.headers_mut() {
-        *headers = header_block_to_map(head.headers());
+        *headers = header_block_to_map(head.headers())?;
     }
     let mut req = builder.body(()).map_err(|_| InteropError::InvalidHeader)?;
     req.extensions_mut()
@@ -429,11 +435,27 @@ pub fn request_head_from_http<B>(
         pq.to_owned()
     };
     let target = RequestTarget::parse(raw).map_err(|_| InteropError::InvalidUri)?;
-    // Effective authority: explicit extension wins; otherwise a single
-    // consistent Host header (duplicates must agree) is used, matching the
-    // native Hyper adapter policy.
+    // Effective authority: explicit extension wins only when it agrees with
+    // a mutated `Host` header; otherwise a single consistent Host header is
+    // used, matching the native Hyper adapter policy (uri != host => 400).
     let authority = if let Some(ext) = req.extensions().get::<AuthorityExt>() {
-        ext.0.clone()
+        let mut first_host = None;
+        for value in req.headers().get_all(http::header::HOST).iter() {
+            let host = value.to_str().map_err(|_| InteropError::InvalidAuthority)?;
+            if first_host.is_some_and(|first| first != host) {
+                return Err(InteropError::InvalidAuthority);
+            }
+            first_host = Some(host);
+        }
+        if let Some(host) = first_host {
+            let parsed = Authority::parse(host).map_err(|_| InteropError::InvalidAuthority)?;
+            if parsed != ext.0.clone().unwrap_or(parsed.clone()) {
+                return Err(InteropError::InvalidAuthority);
+            }
+            ext.0.clone()
+        } else {
+            ext.0.clone()
+        }
     } else {
         let mut first_host = None;
         for value in req.headers().get_all(http::header::HOST).iter() {
@@ -548,9 +570,12 @@ impl http_body::Body for HttpRequestBody {
                     )))));
                 }
                 match this.take_completed_trailers() {
-                    Some(trailers) => Poll::Ready(Some(Ok(http_body::Frame::trailers(
-                        trailers_to_map(&trailers),
-                    )))),
+                    Some(trailers) => match trailers_to_map(&trailers) {
+                        Ok(map) => Poll::Ready(Some(Ok(http_body::Frame::trailers(map)))),
+                        Err(_) => Poll::Ready(Some(Err(RequestBodyHttpError::new(
+                            "invalid request trailers".to_string(),
+                        )))),
+                    },
                     None => Poll::Ready(None),
                 }
             }
@@ -717,69 +742,70 @@ where
             // Poll the ecosystem body frame-by-frame (real backpressure:
             // only when downstream is ready). Data frames stream through;
             // a trailers frame is validated, stored, and ends data.
-            // `Pin<Box<B>>` polls without requiring `B: Unpin`.
-            match self.body.as_mut().poll_frame(cx) {
-                Poll::Ready(Some(Ok(frame))) => {
-                    if let Some(data) = frame.data_ref() {
-                        if data.is_empty() {
-                            // Empty chunks are not progress; re-poll
-                            // without yielding an empty DATA frame.
-                            cx.waker().wake_by_ref();
-                            return Poll::Pending;
-                        }
-                        let chunk = data.clone();
-                        Poll::Ready(Some(Ok(chunk)))
-                    } else if frame.is_trailers() {
-                        let trailers = frame
-                            .trailers_ref()
-                            .map(|map| {
-                                let block = header_map_to_block(map).map_err(|_| {
-                                    ResponseStreamError::new("invalid response trailers")
-                                })?;
-                                Trailers::new(block).map_err(|_| {
-                                    ResponseStreamError::new("invalid response trailers")
+            // `Pin<Box<B>>` polls without requiring `B: Unpin`. Empty data
+            // frames are skipped synchronously (loop to re-poll) without
+            // re-arming the waker, so empty producers cannot spin wake→poll.
+            loop {
+                match self.body.as_mut().poll_frame(cx) {
+                    Poll::Ready(Some(Ok(frame))) => {
+                        if let Some(data) = frame.data_ref() {
+                            if data.is_empty() {
+                                continue;
+                            }
+                            let chunk = data.clone();
+                            return Poll::Ready(Some(Ok(chunk)));
+                        } else if frame.is_trailers() {
+                            let trailers = frame
+                                .trailers_ref()
+                                .map(|map| {
+                                    let block = header_map_to_block(map).map_err(|_| {
+                                        ResponseStreamError::new("invalid response trailers")
+                                    })?;
+                                    Trailers::new(block).map_err(|_| {
+                                        ResponseStreamError::new("invalid response trailers")
+                                    })
                                 })
-                            })
-                            .transpose();
-                        let stored = match trailers {
-                            Ok(Some(t)) if t.is_empty() => Ok(None),
-                            Ok(v) => Ok(v),
-                            Err(e) => Err(e),
-                        };
-                        if let Ok(mut guard) = self.slot.lock() {
-                            *guard = Some(stored);
-                        }
-                        self.trailers_emitted = true;
-                        Poll::Ready(None)
-                    } else {
-                        // Unknown frame kind: end data safely.
-                        if let Ok(mut guard) = self.slot.lock() {
-                            *guard = Some(Ok(None));
-                        }
-                        Poll::Ready(None)
-                    }
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    if let Ok(mut guard) = self.slot.lock() {
-                        *guard = Some(Err(ResponseStreamError::new(format!(
-                            "response body failed: {e}"
-                        ))));
-                    }
-                    Poll::Ready(Some(Err(ResponseStreamError::new(format!(
-                        "response body failed: {e}"
-                    )))))
-                }
-                Poll::Ready(None) => {
-                    if !self.trailers_emitted {
-                        if let Ok(mut guard) = self.slot.lock() {
-                            if guard.is_none() {
+                                .transpose();
+                            let stored = match trailers {
+                                Ok(Some(t)) if t.is_empty() => Ok(None),
+                                Ok(v) => Ok(v),
+                                Err(e) => Err(e),
+                            };
+                            if let Ok(mut guard) = self.slot.lock() {
+                                *guard = Some(stored);
+                            }
+                            self.trailers_emitted = true;
+                            return Poll::Ready(None);
+                        } else {
+                            // Unknown frame kind: end data safely.
+                            if let Ok(mut guard) = self.slot.lock() {
                                 *guard = Some(Ok(None));
                             }
+                            return Poll::Ready(None);
                         }
                     }
-                    Poll::Ready(None)
+                    Poll::Ready(Some(Err(e))) => {
+                        if let Ok(mut guard) = self.slot.lock() {
+                            *guard = Some(Err(ResponseStreamError::new(format!(
+                                "response body failed: {e}"
+                            ))));
+                        }
+                        return Poll::Ready(Some(Err(ResponseStreamError::new(format!(
+                            "response body failed: {e}"
+                        )))));
+                    }
+                    Poll::Ready(None) => {
+                        if !self.trailers_emitted {
+                            if let Ok(mut guard) = self.slot.lock() {
+                                if guard.is_none() {
+                                    *guard = Some(Ok(None));
+                                }
+                            }
+                        }
+                        return Poll::Ready(None);
+                    }
+                    Poll::Pending => return Poll::Pending,
                 }
-                Poll::Pending => Poll::Pending,
             }
         }
     }
@@ -997,7 +1023,7 @@ mod tests {
         block
             .push_bytes("x-opaque", b"\x80\x81 opaque \xff")
             .unwrap();
-        let map = header_block_to_map(&block);
+        let map = header_block_to_map(&block).unwrap();
         let v = map.get("x-opaque").unwrap();
         assert_eq!(v.as_bytes(), b"\x80\x81 opaque \xff");
         let back = header_map_to_block(&map).unwrap();
@@ -1013,7 +1039,7 @@ mod tests {
         block.push_str("x-dup", "a").unwrap();
         block.push_str("x-other", "z").unwrap();
         block.push_str("x-dup", "b").unwrap();
-        let map = header_block_to_map(&block);
+        let map = header_block_to_map(&block).unwrap();
         let vals: Vec<_> = map
             .get_all("x-dup")
             .iter()

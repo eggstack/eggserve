@@ -182,7 +182,7 @@ impl PyStaticResponder {
                             let mut response = response;
                             if let Some(overrides) = &mime_overrides {
                                 let suffix = file_suffix(&index);
-                                if let Some(mime) = overrides.get(&suffix) {
+                                if let Some(mime) = lookup_mime_override(overrides, &suffix) {
                                     response.headers.insert("content-type".into(), mime.clone());
                                 }
                             }
@@ -259,7 +259,7 @@ impl PyStaticResponder {
             Ok((plan, body_source)) => {
                 let mut response = build_response(plan, body_source)?;
                 if let Some(overrides) = &mime_overrides {
-                    if let Some(mime) = overrides.get(&file_suffix(raw_path)) {
+                    if let Some(mime) = lookup_mime_override(overrides, &file_suffix(raw_path)) {
                         response.headers.insert("content-type".into(), mime.clone());
                     }
                 }
@@ -291,6 +291,19 @@ pub(super) fn file_suffix(path: &str) -> String {
         .map(|(_, suffix)| format!(".{suffix}"))
         .unwrap_or_default()
         .to_ascii_lowercase()
+}
+
+/// Look up a MIME override case-insensitively on the key: `file_suffix`
+/// lowercases the queried suffix, but the Python-supplied map keys are raw,
+/// so `{".HTML": …}` must still match `".html"`.
+pub(super) fn lookup_mime_override<'a>(
+    overrides: &'a std::collections::HashMap<String, String>,
+    suffix: &str,
+) -> Option<&'a String> {
+    overrides
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(suffix))
+        .map(|(_, v)| v)
 }
 
 pub(super) fn build_response(
@@ -326,9 +339,8 @@ pub(super) fn apply_static_metadata(
     default_content_type: &str,
     extra_headers: &[(String, String)],
 ) -> PyResult<()> {
-    if response.status != 200 {
-        return Ok(());
-    }
+    // Operator headers apply to every file response (200/206/304/412/416),
+    // not just 200; plan-owned fields always win.
     if response
         .headers
         .get("content-type")
@@ -381,7 +393,7 @@ pub(super) fn build_error_response(status: u16, reason: &str) -> PyResult<PyResp
     })
 }
 
-pub(super) fn directory_listing_bytes(entries: &[(String, bool)]) -> Vec<u8> {
+pub(super) fn directory_listing_bytes(entries: &[eggserve_static::ListingEntry]) -> Vec<u8> {
     fn escape(value: &str) -> String {
         use std::fmt::Write;
 
@@ -400,24 +412,15 @@ pub(super) fn directory_listing_bytes(entries: &[(String, bool)]) -> Vec<u8> {
         }
         out
     }
-    fn segment(value: &str) -> String {
-        value.bytes().fold(String::new(), |mut out, byte| {
-            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-                out.push(byte as char);
-            } else {
-                out.push_str(&format!("%{byte:02X}"));
-            }
-            out
-        })
-    }
-
     let mut html = String::from(
         "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\"><title>Directory listing</title></head>\n<body><h1>Directory listing</h1><ul>\n",
     );
-    for (name, is_dir) in entries {
-        let visible = escape(name);
-        let href = escape(&segment(name));
-        if *is_dir {
+    for entry in entries {
+        // Display is lossy; the link target was encoded from raw bytes at
+        // enumeration so distinct non-UTF-8 names never share one link.
+        let visible = escape(&entry.name);
+        let href = escape(&entry.href);
+        if entry.is_dir {
             html.push_str(&format!("<li><a href=\"{href}/\">{visible}/</a></li>\n"));
         } else {
             html.push_str(&format!("<li><a href=\"{href}\">{visible}</a></li>\n"));

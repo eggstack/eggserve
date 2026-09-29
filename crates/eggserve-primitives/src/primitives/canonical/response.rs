@@ -262,6 +262,14 @@ pub fn normalize_response(
     }
     let status = response.status();
 
+    // `EmptyWithLength` is HEAD-only (equivalent-GET length with no bytes).
+    // A service must never emit it on GET: the adapter would send 0 bytes
+    // while framing advertises `n`. Collapse to `Empty` so framing (Known(0))
+    // and bytes (0) agree instead of hanging/truncating.
+    if !request.is_head && matches!(response.body, Some(ResponseBody::EmptyWithLength(_))) {
+        response.body = Some(ResponseBody::Empty);
+    }
+
     // Representation length before suppression (equivalent-GET length for
     // HEAD). For streams this is Known or Unknown; dropping below never polls.
     let pre_length: BodyLength = response

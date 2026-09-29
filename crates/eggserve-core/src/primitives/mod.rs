@@ -51,8 +51,8 @@ pub use eggserve_static::path::PathRejection;
 
 mod secure_root;
 pub use secure_root::{
-    resolve_and_plan, ResolveAndPlanError, ResolvedDirectory, ResolvedFile, ResolvedResource,
-    ResourceDeniedReason, SecureRoot,
+    resolve_and_plan, ListingEntry, ResolveAndPlanError, ResolvedDirectory, ResolvedFile,
+    ResolvedResource, ResourceDeniedReason, SecureRoot,
 };
 
 pub mod authority;

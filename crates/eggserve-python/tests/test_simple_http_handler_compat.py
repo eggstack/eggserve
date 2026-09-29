@@ -99,7 +99,10 @@ class SimpleHandlerCompatibilityTests(unittest.TestCase):
         self.assertEqual(ranged.status, 206)
         self.assertEqual(ranged.getheader("Content-Type"), "text/x-custom")
 
-    def test_extra_response_headers_are_native_ordered_and_200_only(self):
+    def test_extra_response_headers_are_native_ordered_on_file_responses(self):
+        # B17: operator headers (CORS/CSP/Cache-Control) ride every file
+        # response (200/206/304), not just 200; the bare redirect keeps
+        # none (no file representation to annotate).
         handler = functools.partial(
             SimpleHTTPRequestHandler,
             directory=self.tmp.name,
@@ -123,10 +126,20 @@ class SimpleHandlerCompatibilityTests(unittest.TestCase):
         head_headers = [(name.lower(), value) for name, value in head.getheaders()]
         self.assertEqual(head_headers.count(("x-extra", "one")), 1)
         ranged, _ = self.request("GET", "/hello.txt", {"Range": "bytes=0-2"})
-        self.assertEqual(ranged.getheader("X-Extra"), None)
+        self.assertEqual(ranged.status, 206)
+        ranged_headers = [(name.lower(), value) for name, value in ranged.getheaders()]
+        self.assertEqual(
+            [value for name, value in ranged_headers if name == "x-extra"], ["one", "two"]
+        )
         conditional, _ = self.request("GET", "/hello.txt", {"If-None-Match": response.getheader("ETag")})
         self.assertEqual(conditional.status, 304)
-        self.assertIsNone(conditional.getheader("X-Extra"))
+        conditional_headers = [
+            (name.lower(), value) for name, value in conditional.getheaders()
+        ]
+        self.assertEqual(
+            [value for name, value in conditional_headers if name == "x-extra"],
+            ["one", "two"],
+        )
         redirect, _ = self.request("GET", "/docs")
         self.assertEqual(redirect.status, 301)
         self.assertIsNone(redirect.getheader("X-Extra"))

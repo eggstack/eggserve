@@ -39,7 +39,16 @@ impl std::error::Error for ServerRequestError {}
 
 impl ServerRequestError {
     pub(super) fn into_py_err(self) -> PyErr {
-        pyo3::exceptions::PyValueError::new_err(self.to_string())
+        // Preserve the 403 vs 400 distinction built by callers (e.g.
+        // `static_responder` denies with `PathRejected` for 403): permission
+        // problems raise `PermissionError`, malformed requests `ValueError`.
+        // Callers previously string-parsed a bare `ValueError` for both.
+        match self {
+            Self::PathRejected { .. } => {
+                pyo3::exceptions::PyPermissionError::new_err(self.to_string())
+            }
+            _ => pyo3::exceptions::PyValueError::new_err(self.to_string()),
+        }
     }
 }
 
@@ -72,7 +81,9 @@ pub(super) enum RawBodyError {
     Disconnected,
     AlreadyConsumed,
     MixedConsumptionMode,
-    Transport(String),
+    // Sanitized by construction: transport internals (fd errors, TLS alerts)
+    // never cross into Python; the wire detail stays in server-side logs.
+    Transport,
     InvalidTrailers(String),
     TrailersNotReady,
 }
@@ -99,7 +110,7 @@ impl From<RustBodyError> for RawBodyError {
             RustBodyError::Disconnected => Self::Disconnected,
             RustBodyError::AlreadyConsumed => Self::AlreadyConsumed,
             RustBodyError::MixedConsumptionMode => Self::MixedConsumptionMode,
-            RustBodyError::Transport(msg) => Self::Transport(msg),
+            RustBodyError::Transport(_) => Self::Transport,
             // Plan 198: trailer failures never reach the synchronous facade as
             // trailers (facade unchanged); keep them distinct from transport
             // disconnects and already-consumed state.
@@ -108,7 +119,7 @@ impl From<RustBodyError> for RawBodyError {
             // Plan 197: `RequestBodyError` is `#[non_exhaustive]`; future
             // categories map to a sanitized transport failure (500) without
             // leaking variant detail.
-            _ => Self::Transport("request body failed".to_owned()),
+            _ => Self::Transport,
         }
     }
 }
@@ -130,13 +141,15 @@ pub(super) fn raw_body_error_to_pyerr(err: RawBodyError) -> PyErr {
         }
         RawBodyError::ReadTimeout => crate::RequestBodyTimeoutError::new_err("body read timed out"),
         RawBodyError::PrematureEof { received, expected } => {
+            // Truncated body (400 at the Rust layer), not a disconnect:
+            // the peer ended the stream before the declared length.
             let msg = match expected {
                 Some(exp) => {
                     format!("premature EOF: received {received} of {exp} expected bytes")
                 }
                 None => format!("premature EOF after {received} bytes"),
             };
-            crate::RequestBodyDisconnectedError::new_err(msg)
+            crate::RequestBodyIncompleteError::new_err(msg)
         }
         RawBodyError::Disconnected => {
             crate::RequestBodyDisconnectedError::new_err("client disconnected")
@@ -150,14 +163,21 @@ pub(super) fn raw_body_error_to_pyerr(err: RawBodyError) -> PyErr {
         RawBodyError::Cancelled => {
             crate::RequestBodyCancelledError::new_err("body consumption cancelled")
         }
-        RawBodyError::LengthMismatch { declared, actual } => crate::RequestBodyError::new_err(
-            format!("body length mismatch: declared {declared}, actual {actual}"),
-        ),
+        RawBodyError::LengthMismatch { declared, actual } => {
+            // Declared-vs-actual divergence (400 at the Rust layer): the
+            // body is incomplete/corrupt, not merely a generic failure.
+            crate::RequestBodyIncompleteError::new_err(format!(
+                "body length mismatch: declared {declared}, actual {actual}"
+            ))
+        }
         RawBodyError::InvalidChunkFraming(msg) => {
             crate::RequestBodyError::new_err(format!("invalid chunk framing: {msg}"))
         }
-        RawBodyError::Transport(msg) => {
-            crate::RequestBodyDisconnectedError::new_err(format!("transport error: {msg}"))
+        RawBodyError::Transport => {
+            // Sanitized: never interpolate transport internals (fd errors,
+            // TLS alerts) into the Python exception; the wire detail stays
+            // in server-side logs.
+            crate::RequestBodyDisconnectedError::new_err("request body transport failure")
         }
         RawBodyError::InvalidTrailers(msg) => {
             crate::RequestBodyError::new_err(format!("invalid request trailers: {msg}"))

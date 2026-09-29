@@ -696,7 +696,7 @@ fn windows_reparse_listing_entry_filtered() {
     let entries = dir
         .list(&root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)
         .expect("list should succeed");
-    let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
         !names.contains(&"link_in_dir"),
         "reparse point entry must be filtered from listing"

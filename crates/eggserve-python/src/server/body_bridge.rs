@@ -114,7 +114,28 @@ pub(super) fn spawn_python_stream_producer(
                 // lap would restart from the beginning).
                 match bound.call_method0("__next__") {
                     Ok(item) => {
+                        // Accept all bytes-like chunks (`bytes`, `bytearray`,
+                        // `memoryview`) per the `Response.stream` contract;
+                        // genuine non-bytes keep the truncated-stream path.
                         if let Ok(data) = item.extract::<Vec<u8>>() {
+                            if data.is_empty() {
+                                Pulled::Empty
+                            } else {
+                                Pulled::Chunk(data)
+                            }
+                        } else if let Ok(bytearray) =
+                            item.cast::<pyo3::types::PyByteArray>()
+                        {
+                            let data = bytearray.to_vec();
+                            if data.is_empty() {
+                                Pulled::Empty
+                            } else {
+                                Pulled::Chunk(data)
+                            }
+                        } else if let Ok(buffer) =
+                            pyo3::buffer::PyBuffer::<u8>::get(&item)
+                        {
+                            let data = buffer.to_vec(py).unwrap_or_default();
                             if data.is_empty() {
                                 Pulled::Empty
                             } else {
@@ -187,6 +208,10 @@ pub struct PyRequestBody {
     pub(super) declared_length: Option<u64>,
     pub(super) final_bytes_received: Arc<AtomicU64>,
     pub(super) final_complete: Arc<AtomicBool>,
+    /// Set on first `read_chunk()`: the body is in incremental mode and the
+    /// terminal `read()`/`iter_chunks()` modes are refused (single-mode
+    /// exclusivity; `read_chunk()` + `trailers()` is the incremental flow).
+    pub(super) incremental: Arc<AtomicBool>,
 }
 
 #[pymethods]
@@ -217,6 +242,11 @@ impl PyRequestBody {
     }
 
     fn read<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        if self.incremental.load(Ordering::Acquire) {
+            return Err(crate::RequestBodyConsumedError::new_err(
+                "body already consumed (incremental read_chunk() mode)",
+            ));
+        }
         let body = {
             let mut guard = self
                 .inner
@@ -268,6 +298,11 @@ impl PyRequestBody {
                     "chunk_size must be greater than zero",
                 ));
             }
+        }
+        if self.incremental.load(Ordering::Acquire) {
+            return Err(crate::RequestBodyConsumedError::new_err(
+                "body already consumed (incremental read_chunk() mode)",
+            ));
         }
         let body = {
             let mut guard = self
@@ -365,6 +400,9 @@ impl PyRequestBody {
     /// stays responsive; direct calls block the caller.
     fn read_chunk<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyBytes>>> {
         // Take-then-put so the std Mutex is never held across `block_on`.
+        // Marks incremental mode: terminal `read()`/`iter_chunks()` are
+        // refused from here on (single-mode exclusivity).
+        self.incremental.store(true, Ordering::Release);
         let mut body = {
             let mut guard = self
                 .inner
@@ -424,9 +462,10 @@ impl PyRequestBody {
     /// the canonical Rust validator remains the authority (denylist +
     /// count/byte limits). Raises `RequestBodyError` on `InvalidTrailers`
     /// and when called before terminal state (`TrailersNotReady`). Use
-    /// after `read_chunk()` returns `None` (or
-    /// after `read()`/`iter_chunks()` exhaustion where the body was
-    /// preserved). Intended for `asyncio.to_thread` in async handlers.
+    /// after `read_chunk()` returns `None`; `read()` drops the body and
+    /// `iter_chunks()` moves it into a producer task, so `trailers()`
+    /// after either always raises `RequestBodyConsumedError`.
+    /// Intended for `asyncio.to_thread` in async handlers.
     fn trailers(&self, py: Python<'_>) -> PyResult<Option<Vec<(String, String)>>> {
         let mut body = {
             let mut guard = self

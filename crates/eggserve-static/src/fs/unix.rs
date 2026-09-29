@@ -35,9 +35,10 @@ pub(crate) fn resolve_fd_relative(
     canonical_root: &Path,
     components: &[String],
     policy: &StaticPolicy,
+    reject_backslash: bool,
 ) -> ResolvedResource {
     if components.is_empty() {
-        return resolve_root(root_fd, canonical_root);
+        return resolve_root(root_fd, canonical_root, reject_backslash);
     }
 
     let mut current_owned: Option<fs::File> = None;
@@ -46,6 +47,14 @@ pub(crate) fn resolve_fd_relative(
     for (i, component) in components.iter().enumerate() {
         if policy.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
             return ResolvedResource::Denied(PathRejection::DotfileDenied);
+        }
+        // Defense-in-depth parity with `resolve_child_fd` (which validates
+        // via `validate_child_component` → `platform::check_component`):
+        // hand-built component lists bypass `ConfinedPath` parse-time checks,
+        // so re-apply the platform component check here (Windows reserved
+        // names, ADS syntax, drive prefixes, trailing dots/spaces).
+        if let Err(rejection) = crate::path::platform::check_component(component) {
+            return ResolvedResource::Denied(rejection);
         }
 
         let is_final = i == total - 1;
@@ -104,6 +113,7 @@ pub(crate) fn resolve_fd_relative(
                     dir_fd: std_file,
                     canonical_path: construct_path(canonical_root, components),
                     components: components.to_vec(),
+                    reject_backslash,
                 });
             } else {
                 let mode = metadata.mode();
@@ -130,10 +140,13 @@ pub(crate) fn resolve_child_fd(
     canonical_root: &Path,
     child: &str,
     policy: &StaticPolicy,
+    reject_backslash: bool,
 ) -> ResolvedResource {
-    if let Err(rejection) =
-        super::validate_child_component(child, policy.dotfiles == DotfilePolicy::Denied)
-    {
+    if let Err(rejection) = super::validate_child_component_with_policy(
+        child,
+        policy.dotfiles == DotfilePolicy::Denied,
+        reject_backslash,
+    ) {
         return ResolvedResource::Denied(rejection);
     }
 
@@ -180,6 +193,7 @@ pub(crate) fn resolve_child_fd(
             dir_fd: std_file,
             canonical_path: construct_path(canonical_root, &components),
             components,
+            reject_backslash,
         })
     } else {
         let mode = metadata.mode();
@@ -198,7 +212,7 @@ pub(crate) fn list_directory_fd(
     dir_fd: &fs::File,
     policy: &StaticPolicy,
     max_entries: usize,
-) -> Result<Vec<(String, bool)>, io::Error> {
+) -> Result<Vec<super::ListingEntry>, io::Error> {
     let mut entries = Vec::new();
     let dir = rustix::fs::Dir::read_from(dir_fd)?;
 
@@ -207,7 +221,7 @@ pub(crate) fn list_directory_fd(
         // Use the raw entry bytes for filtering and lookup: `to_string_lossy`
         // substitutes U+FFFD for invalid UTF-8, and a mangled name can never
         // `statat` back to the real entry. The lossy rendering is only for
-        // display/sort below.
+        // display/sort below; the link target encodes the raw bytes.
         let raw_name = entry.file_name();
 
         if raw_name.to_bytes() == b"." || raw_name.to_bytes() == b".." {
@@ -230,24 +244,31 @@ pub(crate) fn list_directory_fd(
         }
 
         let is_dir = (mode & S_IFMT) == S_IFDIR;
-        let name = raw_name.to_string_lossy().into_owned();
-        entries.push((name, is_dir));
+        entries.push(super::ListingEntry::from_raw_bytes(
+            raw_name.to_bytes(),
+            is_dir,
+        ));
 
         if entries.len() >= max_entries {
             break;
         }
     }
 
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(entries)
 }
 
-fn resolve_root(root_fd: &fs::File, canonical_root: &Path) -> ResolvedResource {
+fn resolve_root(
+    root_fd: &fs::File,
+    canonical_root: &Path,
+    reject_backslash: bool,
+) -> ResolvedResource {
     match try_clone_fd(root_fd) {
         Ok(fd) => ResolvedResource::Directory(ResolvedDirectory {
             dir_fd: fd,
             canonical_path: canonical_root.to_path_buf(),
             components: vec![],
+            reject_backslash,
         }),
         Err(error) => ResolvedResource::IoError(error),
     }
@@ -289,6 +310,7 @@ mod tests {
             tmp.path(),
             &[".secret".to_string()],
             &denied_policy,
+            true,
         );
         assert!(matches!(
             resolved,
@@ -313,6 +335,7 @@ mod tests {
             tmp.path(),
             &[".secret".to_string()],
             &allowed_policy,
+            true,
         );
         assert!(matches!(resolved, ResolvedResource::File(_)));
     }

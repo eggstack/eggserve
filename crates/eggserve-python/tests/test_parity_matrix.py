@@ -559,7 +559,11 @@ class TestCallbackException(unittest.TestCase):
 
 
 class TestCallbackHeaderValidation(unittest.TestCase):
-    """Dynamic callback response headers reject empty field values."""
+    """Dynamic callback response headers accept empty field values (B7).
+
+    Empty field-values are legal per RFC 9110 §5.5; the bridge accepts them
+    instead of returning 500.
+    """
 
     def setUp(self):
         self._td = tempfile.mkdtemp()
@@ -567,16 +571,17 @@ class TestCallbackHeaderValidation(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self._td, ignore_errors=True)
 
-    def test_empty_header_value_returns_500(self):
+    def test_empty_header_value_is_accepted(self):
         def handler(req):
             return Response.bytes(200, b"ok", {"X-Empty": ""})
 
         s = Server(root=self._td, port=0, handler=handler)
         s.start()
         try:
-            with self.assertRaises(urllib.error.HTTPError) as context:
-                urllib.request.urlopen(f"http://{s.addr}/", timeout=2)
-            self.assertEqual(context.exception.code, 500)
+            with urllib.request.urlopen(f"http://{s.addr}/", timeout=2) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers.get("X-Empty"), "")
+                self.assertEqual(response.read(), b"ok")
         finally:
             s.stop()
 

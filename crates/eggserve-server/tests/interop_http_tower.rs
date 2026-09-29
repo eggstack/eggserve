@@ -333,7 +333,7 @@ fn opaque_and_duplicate_headers_preserved() {
         .unwrap();
     block.push_str("x-dup", "a").unwrap();
     block.push_str("x-dup", "b").unwrap();
-    let map = header_block_to_map(&block);
+    let map = header_block_to_map(&block).unwrap();
     assert_eq!(
         map.get("x-opaque").unwrap().as_bytes(),
         b"\x80\x81 value \xff"

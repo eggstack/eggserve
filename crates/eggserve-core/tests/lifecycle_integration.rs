@@ -286,6 +286,8 @@ async fn graceful_shutdown_drains_inflight() {
     let tmp = TempDir::new().unwrap();
     let response_received = Arc::new(AtomicBool::new(false));
     let response_received_clone = response_received.clone();
+    let handler_started = Arc::new(AtomicBool::new(false));
+    let handler_started_clone = handler_started.clone();
 
     let config = config_for_with_timeout("127.0.0.1:0", Duration::from_secs(5));
     let server = Server::builder()
@@ -296,7 +298,9 @@ async fn graceful_shutdown_drains_inflight() {
     let handle = server
         .start_with_service(service_fn(move |_req: Request| {
             let rr = response_received_clone.clone();
+            let hs = handler_started_clone.clone();
             Box::pin(async move {
+                hs.store(true, Ordering::SeqCst);
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 rr.store(true, Ordering::SeqCst);
                 Ok(Response::builder()
@@ -312,7 +316,20 @@ async fn graceful_shutdown_drains_inflight() {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
     stream.write_all(GET_REQUEST.as_bytes()).await.unwrap();
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // Wait until the handler is provably inflight before shutting down: under
+    // parallel load a fixed sleep can fire before accept/dispatch, making the
+    // drain assertion race (same class as T1/B9).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !handler_started.load(Ordering::SeqCst) {
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        handler_started.load(Ordering::SeqCst),
+        "handler should start before shutdown"
+    );
     handle.shutdown();
 
     let mut buf = Vec::new();
@@ -470,6 +487,8 @@ async fn force_shutdown_returns_forced_on_timeout() {
 #[tokio::test]
 async fn force_shutdown_idempotent() {
     let tmp = TempDir::new().unwrap();
+    let handler_started = Arc::new(AtomicBool::new(false));
+    let handler_started_clone = handler_started.clone();
     let config = config_for_with_timeout("127.0.0.1:0", Duration::from_millis(100));
     let server = Server::builder()
         .runtime(config)
@@ -477,7 +496,17 @@ async fn force_shutdown_idempotent() {
         .build()
         .unwrap();
     let handle = server
-        .start_with_service(slow_service(Duration::from_secs(60)))
+        .start_with_service(service_fn(move |_req: Request| {
+            let hs = handler_started_clone.clone();
+            Box::pin(async move {
+                hs.store(true, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(b"slow".to_vec()))
+                    .unwrap())
+            })
+        }))
         .await
         .unwrap();
 
@@ -485,7 +514,20 @@ async fn force_shutdown_idempotent() {
     let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
     stream.write_all(GET_REQUEST.as_bytes()).await.unwrap();
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Poll until the slow handler is provably inflight: under parallel load
+    // a fixed 50ms sleep can fire before dispatch, and forcing with nothing
+    // inflight returns `Clean` instead of `Forced` (same class as B9).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !handler_started.load(Ordering::SeqCst) {
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        handler_started.load(Ordering::SeqCst),
+        "slow handler should start before force_shutdown"
+    );
 
     let result = handle
         .force_shutdown(Duration::from_millis(50))

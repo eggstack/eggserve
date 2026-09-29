@@ -98,6 +98,18 @@ pub(crate) fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), Se
         ));
     }
 
+    // Non-numeric Content-Length is malformed framing, not "no body".
+    if let Some(first) = cl_first {
+        let valid = first
+            .to_str()
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .is_some();
+        if !valid {
+            return Err(ServiceError::rejected(400, "invalid Content-Length"));
+        }
+    }
+
     Ok(())
 }
 
@@ -478,7 +490,9 @@ pub(crate) fn convert_request_head(
         (Some(uri), _) => Some(uri),
         (None, host) => host,
     };
-
+    // NOTE (B34 evaluated, not enforced): see the direct runtime note —
+    // Host-less HTTP/1.1 requests keep the established `authority=None`
+    // leniency for hyper-client interop.
     Ok(
         crate::primitives::request_head::RequestHead::new_with_authority(
             method, target, version, headers, authority,

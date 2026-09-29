@@ -295,6 +295,18 @@ impl PyResponse {
     ) -> PyResult<Self> {
         validate_response_status(status)?;
         if PyIterator::from_object(iterable.bind(py)).is_err() {
+            // Coroutine/async-generator producers are explicitly unsupported
+            // (same tailored hint as `stream`).
+            let is_awaitable = iterable
+                .bind(py)
+                .hasattr("__await__")
+                .unwrap_or(false)
+                || iterable.bind(py).hasattr("__anext__").unwrap_or(false);
+            if is_awaitable {
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "async response producers are not supported; use a synchronous iterable of bytes",
+                ));
+            }
             return Err(pyo3::exceptions::PyTypeError::new_err(
                 "response iterable must be a synchronous iterable of bytes-like chunks",
             ));

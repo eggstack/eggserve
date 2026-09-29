@@ -831,6 +831,7 @@ pub(crate) fn resolve_to_resource(
     components: &[String],
     deny_reparse: bool,
     dotfiles_denied: bool,
+    reject_backslash: bool,
 ) -> super::ResolvedResource {
     use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
 
@@ -850,6 +851,7 @@ pub(crate) fn resolve_to_resource(
             dir_handle,
             canonical_path: canonical_root.to_path_buf(),
             components: Vec::new(),
+            reject_backslash,
         });
     }
 
@@ -951,6 +953,7 @@ pub(crate) fn resolve_to_resource(
                     dir_handle: child,
                     canonical_path,
                     components: safe_components,
+                    reject_backslash,
                 });
             } else {
                 // Duplicate the handle for the std::fs::File, preserving the
@@ -1016,6 +1019,7 @@ pub(crate) fn resolve_child_relative(
     child: &str,
     deny_reparse: bool,
     dotfiles_denied: bool,
+    reject_backslash: bool,
 ) -> super::ResolvedResource {
     use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
 
@@ -1085,6 +1089,7 @@ pub(crate) fn resolve_child_relative(
             dir_handle: child_handle,
             canonical_path: parent_path.join(child),
             components,
+            reject_backslash,
         })
     } else {
         let std_file = match handle_to_std_file(child_handle) {
@@ -1114,7 +1119,7 @@ pub(crate) fn list_directory_handle(
     dir_handle: HANDLE,
     policy: &eggserve_primitives::policy::StaticPolicy,
     max_entries: usize,
-) -> Result<Vec<(String, bool)>, std::io::Error> {
+) -> Result<Vec<super::ListingEntry>, std::io::Error> {
     let entries = enumerate_directory(dir_handle, max_entries).map_err(std::io::Error::other)?;
 
     let mut result = Vec::new();
@@ -1137,10 +1142,10 @@ pub(crate) fn list_directory_handle(
         }
 
         let is_dir = entry.kind == DirectoryEntryKind::Directory;
-        result.push((entry.name, is_dir));
+        result.push(super::ListingEntry::from_name(entry.name, is_dir));
     }
 
-    result.sort_by(|a, b| a.0.cmp(&b.0));
+    result.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(result)
 }
 

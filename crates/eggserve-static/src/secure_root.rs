@@ -285,7 +285,7 @@ impl ResolvedDirectory {
         &self,
         root: &SecureRoot,
         max_entries: usize,
-    ) -> Result<Vec<(String, bool)>, std::io::Error> {
+    ) -> Result<Vec<crate::ListingEntry>, std::io::Error> {
         let guard = RootGuard::new(&root.pinned);
         guard.list_directory(&self.inner, &root.policy, max_entries)
     }
@@ -804,7 +804,7 @@ mod tests {
         let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
         let dir = root.resolve(&parse("/")).into_directory().unwrap();
         let entries = dir.list(&root, 4096).unwrap();
-        let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"real.txt"));
         assert!(!names.contains(&"link.txt"));
     }
@@ -849,7 +849,7 @@ mod tests {
         let (_tmp, root) = setup();
         let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
         let entries = dir.list(&root, 4096).unwrap();
-        let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"file.txt"));
         assert!(names.contains(&"index.html"));
     }
@@ -861,7 +861,7 @@ mod tests {
         fs::write(root.root_path().join("subdir").join(".env"), "secret").unwrap();
         let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
         let entries = dir.list(&root, 4096).unwrap();
-        let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(!names.contains(&".env"));
     }
 

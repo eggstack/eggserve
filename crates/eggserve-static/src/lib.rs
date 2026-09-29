@@ -21,6 +21,8 @@ pub mod path;
 mod planner;
 mod secure_root;
 
+pub use fs::ListingEntry;
+
 pub use path::{ConfinedPath, DotfilePolicy as PathDotfilePolicy, PathPolicy, PathRejection};
 pub use planner::{
     evaluate_conditional_headers, evaluate_if_match, evaluate_if_none_match, evaluate_if_range,
@@ -265,9 +267,10 @@ impl StaticService {
             if_range,
             self.root.policy().static_metadata,
         );
-        if plan.status.as_u16() == 200 {
-            self.append_extra_headers(&mut plan.headers);
-        }
+        // Operator headers (CORS/CSP/Cache-Control) apply to every file
+        // response (200/206/304/412/416), not just 200; `append` skips any
+        // name the plan already set.
+        self.append_extra_headers(&mut plan.headers);
         let source = file
             .into_body(&plan)
             .map_err(|error| ServiceError::internal(error.to_string()))?;
@@ -293,8 +296,14 @@ impl StaticService {
             };
             match values[slot].as_mut() {
                 Some(existing) => {
-                    existing.push_str(", ");
-                    existing.push_str(text);
+                    // `If-Match`/`If-None-Match` are comma-lists and combine.
+                    // `Range`/`If-Range`/dates are single values: comma-joining
+                    // corrupts them (`Range` would become `MultipleRanges`,
+                    // dates would never parse), so keep the first.
+                    if slot == 0 || slot == 2 {
+                        existing.push_str(", ");
+                        existing.push_str(text);
+                    }
                 }
                 None => {
                     values[slot] = Some(text.to_owned());
@@ -362,16 +371,33 @@ impl StaticService {
                 |error: ResponseConstructionError| ServiceError::internal(error.to_string()),
             )?;
         }
-        let body = if self.error_policy == ErrorRepresentationPolicy::Minimal && !is_head {
-            ResponseBody::Bytes(text.as_bytes().to_vec())
+        let body = if self.error_policy == ErrorRepresentationPolicy::Minimal {
+            if is_head {
+                // Preserve the equivalent-GET length so HEAD 404 advertises
+                // the same `Content-Length` as GET (file HEAD does this via
+                // `EmptyWithLength` in `response_from_plan`).
+                ResponseBody::EmptyWithLength(text.len() as u64)
+            } else {
+                ResponseBody::Bytes(text.as_bytes().to_vec())
+            }
         } else {
             ResponseBody::Empty
         };
-        let response = builder
+        let mut response = builder
             .body(body)
             .map_err(|error: ResponseConstructionError| {
                 ServiceError::internal(error.to_string())
             })?;
+        // Operator headers apply to error responses too (CORS/CSP must
+        // survive 403/404/405/416); never override response-owned fields.
+        {
+            let headers = response.head_mut().headers_mut();
+            for (name, value) in &self.extra_response_headers {
+                if !headers.contains(name) {
+                    let _ = headers.push_str(name, value);
+                }
+            }
+        }
         eggserve_primitives::normalize_response(
             response,
             &eggserve_primitives::NormalizeRequest::new(is_head),
@@ -448,7 +474,7 @@ fn path_rejection_response(rejection: PathRejection) -> (StatusCode, &'static st
 }
 
 fn render_directory_listing(
-    entries: &[(String, bool)],
+    entries: &[ListingEntry],
     max_response_bytes: usize,
 ) -> Result<Vec<u8>, ServiceError> {
     let prefix = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>Directory listing</title>\n</head>\n<body>\n<h1>Directory listing</h1>\n<ul>\n";
@@ -464,17 +490,19 @@ fn render_directory_listing(
     }
     let mut html = String::from(prefix);
     html.reserve(entries.len().saturating_mul(64));
-    for (name, is_dir) in entries {
-        let visible = html_escape(name);
-        let href = html_escape(&percent_encode_path_segment(name));
-        let entry = if *is_dir {
+    for entry in entries {
+        // Display is lossy; the link target was encoded from raw bytes at
+        // enumeration so distinct non-UTF-8 names never share one link.
+        let visible = html_escape(&entry.name);
+        let href = html_escape(&entry.href);
+        let link = if entry.is_dir {
             format!("<li><a href=\"{href}/\">{visible}/</a></li>\n")
         } else {
             format!("<li><a href=\"{href}\">{visible}</a></li>\n")
         };
         if html
             .len()
-            .checked_add(entry.len())
+            .checked_add(link.len())
             .and_then(|length| length.checked_add(suffix.len()))
             .is_none_or(|length| length > max_response_bytes)
         {
@@ -482,7 +510,7 @@ fn render_directory_listing(
                 "directory listing exceeds configured bound",
             ));
         }
-        html.push_str(&entry);
+        html.push_str(&link);
     }
     html.push_str(suffix);
     Ok(html.into_bytes())
@@ -501,24 +529,6 @@ fn html_escape(value: &str) -> String {
             character if !character.is_control() => output.push(character),
             character => write!(&mut output, "&#x{:X};", character as u32)
                 .expect("writing to String cannot fail"),
-        }
-    }
-    output
-}
-
-fn percent_encode_path_segment(value: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut output = String::with_capacity(value.len());
-    for byte in value.as_bytes() {
-        if matches!(
-            *byte,
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
-        ) {
-            output.push(*byte as char);
-        } else {
-            output.push('%');
-            output.push(HEX[(byte >> 4) as usize] as char);
-            output.push(HEX[(byte & 0x0f) as usize] as char);
         }
     }
     output

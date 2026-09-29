@@ -12,6 +12,6 @@
 //! never reconstructs an absolute path to reopen it.
 
 pub use eggserve_static::{
-    resolve_and_plan, ResolveAndPlanError, ResolvedDirectory, ResolvedFile, ResolvedResource,
-    ResourceDeniedReason, SecureRoot,
+    resolve_and_plan, ListingEntry, ResolveAndPlanError, ResolvedDirectory, ResolvedFile,
+    ResolvedResource, ResourceDeniedReason, SecureRoot,
 };

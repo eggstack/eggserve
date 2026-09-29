@@ -240,60 +240,100 @@ fn headers_from_list(headers: Option<&Bound<'_, PyList>>) -> Result<Vec<(String,
 // BodySource (Rust wrapper for Python body source)
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "BodySource")]
+#[pyclass(name = "BodySource", frozen)]
 struct PyBodySource {
-    inner: RustBodySource,
+    inner: std::sync::Mutex<RustBodySource>,
 }
 
 #[pymethods]
 impl PyBodySource {
     #[getter]
-    fn kind(&self) -> &str {
-        match self.inner.kind() {
+    fn kind(&self) -> PyResult<String> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| EggserveError::new_err(("failed to acquire body lock", "lock_error")))?;
+        Ok(match guard.kind() {
             RustBodyKind::Empty => "empty",
             RustBodyKind::Bytes => "bytes",
             RustBodyKind::FileFull => "file_full",
             RustBodyKind::FileRange => "file_range",
         }
+        .to_string())
     }
 
     #[getter]
-    fn length(&self) -> Option<u64> {
-        Some(self.inner.len())
+    fn length(&self) -> PyResult<Option<u64>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| EggserveError::new_err(("failed to acquire body lock", "lock_error")))?;
+        Ok(Some(guard.len()))
     }
 
     #[getter]
-    fn range(&self) -> Option<(u64, u64)> {
-        self.inner.range().map(|r| (r.start(), r.end_inclusive()))
+    fn range(&self) -> PyResult<Option<(u64, u64)>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| EggserveError::new_err(("failed to acquire body lock", "lock_error")))?;
+        Ok(guard.range().map(|r| (r.start(), r.end_inclusive())))
     }
 
-    fn read_all(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
-        let result = py.detach(|| self.inner.read_all());
+    fn read_all(&self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        // Take-restore: `py.detach` requires an `Ungil` closure and a std
+        // `MutexGuard` cannot cross it, so move the source out, release the
+        // GIL for I/O, then restore (reads seek explicitly, so restore is
+        // idempotent; a `detach` panic fail-closes to `Empty`).
+        let mut body = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|_| EggserveError::new_err(("failed to acquire body lock", "lock_error")))?;
+            std::mem::replace(&mut *guard, RustBodySource::Empty)
+        };
+        let result = py.detach(|| body.read_all());
+        if let Ok(mut guard) = self.inner.lock() {
+            *guard = body;
+        }
         result.map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
     }
 
     fn read_range(
-        &mut self,
+        &self,
         py: Python<'_>,
         start: u64,
         end_inclusive: u64,
     ) -> PyResult<Vec<u8>> {
-        let result = py.detach(|| self.inner.read_range(start, end_inclusive));
+        let mut body = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|_| EggserveError::new_err(("failed to acquire body lock", "lock_error")))?;
+            std::mem::replace(&mut *guard, RustBodySource::Empty)
+        };
+        let result = py.detach(|| body.read_range(start, end_inclusive));
+        if let Ok(mut guard) = self.inner.lock() {
+            *guard = body;
+        }
         result.map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
     }
 
     fn __repr__(&self) -> String {
-        match self.inner.range() {
+        let Ok(guard) = self.inner.lock() else {
+            return "BodySource(locked)".to_string();
+        };
+        match guard.range() {
             Some(r) => format!(
                 "BodySource(kind={:?}, range=({}..={}))",
-                self.inner.kind(),
+                guard.kind(),
                 r.start(),
                 r.end_inclusive()
             ),
             None => format!(
                 "BodySource(kind={:?}, length={:?})",
-                self.inner.kind(),
-                self.inner.len()
+                guard.kind(),
+                guard.len()
             ),
         }
     }
@@ -468,7 +508,7 @@ impl PyRequestTarget {
 // SecureRoot
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "SecureRoot")]
+#[pyclass(name = "SecureRoot", frozen)]
 struct PySecureRoot {
     root_path: std::path::PathBuf,
     inner: RustSecureRoot,
@@ -881,7 +921,9 @@ impl PyResolvedFile {
         let body_source = resolved_file
             .into_body(&plan.inner)
             .map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))?;
-        Ok(PyBodySource { inner: body_source })
+        Ok(PyBodySource {
+            inner: std::sync::Mutex::new(body_source),
+        })
     }
 }
 
@@ -917,9 +959,9 @@ impl PyResolvedDirectory {
                     let py_list = PyList::empty(py);
                     for entry in &entries {
                         let name_obj: Py<PyAny> =
-                            entry.0.as_str().into_pyobject(py)?.into_any().unbind();
+                            entry.name.as_str().into_pyobject(py)?.into_any().unbind();
                         let flag_obj: Py<PyAny> =
-                            entry.1.into_pyobject(py)?.to_owned().into_any().unbind();
+                            entry.is_dir.into_pyobject(py)?.to_owned().into_any().unbind();
                         let tup = PyTuple::new(py, [name_obj, flag_obj])?;
                         py_list.append(tup)?;
                     }

@@ -192,8 +192,10 @@ fn apply_forwarded_policy(
 ///   via `TE: trailers` (case-insensitive token). Otherwise suppressed with
 ///   diagnostics; the runtime never emits a `Trailer` header for suppressed
 ///   responses.
-/// - HTTP/2, HTTP/3: protocol-native terminal fields, always allowed (H1
-///   negotiation artifacts omitted).
+/// - HTTP/2, HTTP/3: never `true` here. This is the H1-only Hyper driver;
+///   multiplexed versions never reach it (their terminal fields are
+///   protocol-native and governed by their own adapters). Returning `false`
+///   keeps future reuse from mis-enabling H1 trailer emission for them.
 ///
 /// Application code never controls transfer coding: services declare trailers
 /// via `ResponseStream::with_trailers`, never by setting `Transfer-Encoding`
@@ -213,7 +215,7 @@ fn h1_trailers_allowed(head: &eggserve_primitives::request_head::RequestHead) ->
                 .map(str::trim)
                 .any(|token| token.eq_ignore_ascii_case("trailers"))
         }
-        HttpVersion::Http2 | HttpVersion::Http3 => true,
+        HttpVersion::Http2 | HttpVersion::Http3 => false,
         // Future protocol versions cannot carry H1-style trailers safely.
         _ => false,
     }
@@ -511,6 +513,12 @@ where
                 .as_ref()
                 .is_some_and(|shared| shared.is_body_active());
             if body_pending && body_deadline_owned {
+                // Mark Failed so the post-invoke owner sees Failed (close),
+                // not Active (delegate + watchdog with a past deadline that
+                // would emit a second `body_read_timeouts`).
+                if let Some(shared) = stream_body.as_ref() {
+                    shared.mark_failed();
+                }
                 ops.counters()
                     .body_read_timeouts
                     .fetch_add(1, Ordering::Relaxed);
@@ -936,8 +944,14 @@ where
             //   duplicate the runtime `100` on the wire (interims are validated
             //   and recorded; Hyper server APIs own emission where permitted).
             if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
-                let value = expect.to_str().ok().map(str::trim).unwrap_or("");
-                if !value.eq_ignore_ascii_case("100-continue") && !value.is_empty() {
+                // Opaque (non-UTF-8) Expect values cannot be `100-continue`;
+                // fail with 417 rather than silently ignoring them.
+                let value = match expect.to_str() {
+                    Ok(v) => v.trim(),
+                    Err(_) => "",
+                };
+                let opaque = expect.to_str().is_err();
+                if opaque || (!value.eq_ignore_ascii_case("100-continue") && !value.is_empty()) {
                     ops.emit(
                         crate::ops::Event::new(
                             crate::ops::Severity::Debug,

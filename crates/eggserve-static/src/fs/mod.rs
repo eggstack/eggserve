@@ -101,6 +101,62 @@ pub(crate) struct ResolvedDirectory {
     pub(crate) dir_handle: windows::OwnedHandle,
     pub(crate) canonical_path: PathBuf,
     pub(crate) components: Vec<String>,
+    /// The parse-level backslash policy the parent path was admitted under.
+    /// Child resolution inherits it so `resolve_child` agrees with `resolve`
+    /// (a permissive `PathPolicy{reject_backslash:false}` admits `a\b` in
+    /// both, a strict one denies it in both).
+    pub(crate) reject_backslash: bool,
+}
+
+/// A directory-listing entry with a byte-preserving link target
+///
+/// `name` is the display name (lossy for non-UTF-8 filenames on Unix);
+/// `href` is the percent-encoded link target computed from the raw filename
+/// bytes, so two distinct non-UTF-8 names never collide on one link (which
+/// would 404). `stat` and child resolution always use raw bytes.
+#[derive(Debug, Clone)]
+pub struct ListingEntry {
+    pub name: String,
+    pub href: String,
+    pub is_dir: bool,
+}
+
+impl ListingEntry {
+    /// Build from raw filename bytes (Unix `readdir`): display is lossy,
+    /// the link target encodes the exact bytes.
+    pub fn from_raw_bytes(raw: &[u8], is_dir: bool) -> Self {
+        Self {
+            name: String::from_utf8_lossy(raw).into_owned(),
+            href: percent_encode_bytes(raw),
+            is_dir,
+        }
+    }
+
+    /// Build from an already-decoded name (Windows UTF-16, fallback paths):
+    /// the link target encodes the name's UTF-8 bytes.
+    pub fn from_name(name: String, is_dir: bool) -> Self {
+        let href = percent_encode_bytes(name.as_bytes());
+        Self { name, href, is_dir }
+    }
+}
+
+/// Percent-encode a path segment from raw bytes (no UTF-8 assumption).
+pub(crate) fn percent_encode_bytes(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut output = String::with_capacity(bytes.len());
+    for byte in bytes {
+        if matches!(
+            *byte,
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
+        ) {
+            output.push(*byte as char);
+        } else {
+            output.push('%');
+            output.push(HEX[(byte >> 4) as usize] as char);
+            output.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+    }
+    output
 }
 
 #[derive(Debug)]
@@ -112,11 +168,7 @@ pub(crate) enum ResolvedResource {
     IoError(std::io::Error),
 }
 
-fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), PathRejection> {
-    validate_child_component_with_policy(child, dotfiles_denied, true)
-}
-
-fn validate_child_component_with_policy(
+pub(crate) fn validate_child_component_with_policy(
     child: &str,
     dotfiles_denied: bool,
     reject_backslash: bool,
@@ -319,6 +371,7 @@ impl<'a> RootGuard<'a> {
         confined: &ConfinedPath,
         policy: &StaticPolicy,
     ) -> ResolvedResource {
+        let reject_backslash = confined.path_policy().reject_backslash;
         #[cfg(unix)]
         if policy.symlinks == SymlinkPolicy::Denied {
             return unix::resolve_fd_relative(
@@ -326,6 +379,7 @@ impl<'a> RootGuard<'a> {
                 self.pinned.canonical_root(),
                 confined.components(),
                 policy,
+                reject_backslash,
             );
         }
         #[cfg(windows)]
@@ -336,6 +390,7 @@ impl<'a> RootGuard<'a> {
                 confined.components(),
                 true,
                 policy.dotfiles == DotfilePolicy::Denied,
+                reject_backslash,
             );
         }
         self.resolve_fallback(
@@ -351,9 +406,11 @@ impl<'a> RootGuard<'a> {
         child: &str,
         policy: &StaticPolicy,
     ) -> ResolvedResource {
-        if let Err(rejection) =
-            validate_child_component(child, policy.dotfiles == DotfilePolicy::Denied)
-        {
+        if let Err(rejection) = validate_child_component_with_policy(
+            child,
+            policy.dotfiles == DotfilePolicy::Denied,
+            dir.reject_backslash,
+        ) {
             return ResolvedResource::Denied(rejection);
         }
         #[cfg(unix)]
@@ -364,6 +421,7 @@ impl<'a> RootGuard<'a> {
                 self.pinned.canonical_root(),
                 child,
                 policy,
+                dir.reject_backslash,
             );
         }
         #[cfg(windows)]
@@ -375,11 +433,12 @@ impl<'a> RootGuard<'a> {
                 child,
                 true,
                 policy.dotfiles == DotfilePolicy::Denied,
+                dir.reject_backslash,
             );
         }
         let mut components = dir.components.clone();
         components.push(child.to_string());
-        self.resolve_fallback(&components, policy, true)
+        self.resolve_fallback(&components, policy, dir.reject_backslash)
     }
 
     pub(crate) fn list_directory(
@@ -387,7 +446,7 @@ impl<'a> RootGuard<'a> {
         dir: &ResolvedDirectory,
         policy: &StaticPolicy,
         max_entries: usize,
-    ) -> Result<Vec<(String, bool)>, std::io::Error> {
+    ) -> Result<Vec<ListingEntry>, std::io::Error> {
         #[cfg(unix)]
         if policy.symlinks == SymlinkPolicy::Denied {
             return unix::list_directory_fd(&dir.dir_fd, policy, max_entries);
@@ -484,6 +543,7 @@ impl<'a> RootGuard<'a> {
                                     dir_fd,
                                     canonical_path: canonical,
                                     components: components.to_vec(),
+                                    reject_backslash,
                                 })
                             }
                             Err(_) => ResolvedResource::NotFound,
@@ -506,6 +566,7 @@ impl<'a> RootGuard<'a> {
                                     dir_handle,
                                     canonical_path: canonical,
                                     components: components.to_vec(),
+                                    reject_backslash,
                                 })
                             }
                             Err(_) => ResolvedResource::NotFound,
@@ -516,6 +577,7 @@ impl<'a> RootGuard<'a> {
                         ResolvedResource::Directory(ResolvedDirectory {
                             canonical_path: canonical,
                             components: components.to_vec(),
+                            reject_backslash,
                         })
                     }
                 } else if !meta.is_file() {
@@ -546,7 +608,7 @@ fn build_listing_entries_fallback(
     dir: &Path,
     policy: &eggserve_primitives::policy::StaticPolicy,
     max_entries: usize,
-) -> Result<Vec<(String, bool)>, std::io::Error> {
+) -> Result<Vec<ListingEntry>, std::io::Error> {
     // Follow-mode-only helper: unreachable under `SymlinkPolicy::Denied`
     // (symlinks are filtered above). Symlink entries report `is_dir = false`
     // from the `symlink_metadata` without following the link, matching the
@@ -555,7 +617,17 @@ fn build_listing_entries_fallback(
     let mut entries = Vec::new();
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let raw_name = entry.file_name();
+        // Encode the link target from raw bytes on Unix so non-UTF-8 names
+        // never collide; elsewhere the decoded name's bytes are exact.
+        #[cfg(unix)]
+        let listed = {
+            use std::os::unix::ffi::OsStrExt;
+            ListingEntry::from_raw_bytes(raw_name.as_os_str().as_bytes(), false)
+        };
+        #[cfg(not(unix))]
+        let listed = ListingEntry::from_name(raw_name.to_string_lossy().into_owned(), false);
+        let name = listed.name.clone();
 
         if policy.dotfiles == DotfilePolicy::Denied && name.starts_with('.') {
             continue;
@@ -571,13 +643,13 @@ fn build_listing_entries_fallback(
         }
 
         let is_dir = meta.is_dir();
-        entries.push((name, is_dir));
+        entries.push(ListingEntry { is_dir, ..listed });
 
         if entries.len() >= max_entries {
             break;
         }
     }
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(entries)
 }
 
@@ -604,6 +676,13 @@ mod tests {
 
     fn parse_path_with_policy(raw: &str, policy: &PathPolicy) -> ConfinedPath {
         ConfinedPath::parse(raw, policy).unwrap()
+    }
+
+    // Strict default used by the validation unit tests below (production
+    // serving always rejects backslash; permissive policies go through
+    // `validate_child_component_with_policy` directly).
+    fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), PathRejection> {
+        validate_child_component_with_policy(child, dotfiles_denied, true)
     }
 
     #[test]

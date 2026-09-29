@@ -331,7 +331,7 @@ fn windows_resolved_directory_retains_handle_after_resolve() {
     let entries = dir
         .list(&root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)
         .expect("list should succeed");
-    let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
         names.contains(&"nested.txt"),
         "listing should include nested.txt via retained handle"

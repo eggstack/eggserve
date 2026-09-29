@@ -139,6 +139,7 @@ impl PythonCallbackService {
                     declared_length,
                     final_bytes_received: Arc::new(AtomicU64::new(0)),
                     final_complete: Arc::new(AtomicBool::new(false)),
+                    incremental: Arc::new(AtomicBool::new(false)),
                 };
                 (Some(py_body), true)
             } else {
@@ -243,10 +244,18 @@ pub(super) fn convert_python_response_to_canonical<'py>(
         .extract()
         .or_else(|_| {
             // Native Response exposes a dict; structural responses may
-            // provide an ordered list of header pairs.
+            // provide an ordered list of header pairs. Extract as an ordered
+            // vector first so dict insertion order survives (a `HashMap`
+            // fallback would randomize wire order); only then try the
+            // unordered map form.
             obj.getattr("headers")
-                .and_then(|v| v.extract::<HashMap<String, String>>())
-                .map(|map| map.into_iter().collect())
+                .and_then(|v| v.extract::<Vec<(String, String)>>())
+                .or_else(|_| {
+                    obj.getattr("headers").and_then(|v| {
+                        v.extract::<HashMap<String, String>>()
+                            .map(|map| map.into_iter().collect())
+                    })
+                })
         })
         .map_err(|_| ServiceError::internal("Python handler response headers are invalid"))?;
 
@@ -273,7 +282,18 @@ pub(super) fn convert_python_response_to_canonical<'py>(
             ServiceError::internal("Python handler response header validation failed")
         })?;
         let content_length = if name.eq_ignore_ascii_case("content-length") {
-            Some(value.trim().parse::<u64>().map_err(|_| {
+            // Strict RFC 9110 `Content-Length = 1*DIGIT`: strip only SP/HTAB
+            // OWS (not Unicode whitespace) and reject empty, `+`-prefixed,
+            // or non-digit values. `u64::from_str` would accept `"+5"`.
+            let trimmed = value.trim_matches([' ', '\t']);
+            let valid = !trimmed.is_empty()
+                && trimmed.bytes().all(|b| b.is_ascii_digit());
+            if !valid {
+                return Err(ServiceError::internal(
+                    "Python handler response length validation failed",
+                ));
+            }
+            Some(trimmed.parse::<u64>().map_err(|_| {
                 ServiceError::internal("Python handler response length validation failed")
             })?)
         } else {
@@ -282,15 +302,36 @@ pub(super) fn convert_python_response_to_canonical<'py>(
         validated_headers.push((n, v, content_length));
     }
 
-    let representation_length = validated_headers
+    let declared_lengths: Vec<u64> = validated_headers
         .iter()
-        .find_map(|(_, _, declared)| *declared);
+        .filter_map(|(_, _, declared)| *declared)
+        .collect();
+    // Duplicate `Content-Length` fields must agree on the wire via a single
+    // value; two identical fields are still a duplicate framing anomaly.
+    if declared_lengths.len() > 1 {
+        return Err(ServiceError::internal(
+            "Python handler response length validation failed",
+        ));
+    }
+    let representation_length = declared_lengths.into_iter().next();
     let body = extract_python_response_body(obj, code, is_head, representation_length)?;
 
-    let body_len = body.len();
-    for (_, _, declared) in &validated_headers {
-        if let Some(declared) = declared {
-            if *declared != body_len {
+    // Framing-authoritative check: `body_length()` (Unknown for unknown
+    // streams), never `len()` (which returns 0 for unknown streams and would
+    // let `Content-Length: 0` slip through on an unknown-length stream).
+    // Unknown-length bodies must be chunked, never `Content-Length`.
+    match body.body_length() {
+        eggserve_primitives::canonical::BodyLength::Known(known) => {
+            if let Some(declared) = representation_length {
+                if declared != known {
+                    return Err(ServiceError::internal(
+                        "Python handler response length validation failed",
+                    ));
+                }
+            }
+        }
+        eggserve_primitives::canonical::BodyLength::Unknown => {
+            if representation_length.is_some() {
                 return Err(ServiceError::internal(
                     "Python handler response length validation failed",
                 ));
@@ -540,6 +581,12 @@ pub(super) fn extract_python_response_body<'py>(
     if let Ok(data) = body.extract::<Vec<u8>>() {
         if is_head {
             if let Some(length) = representation_length {
+                // Structural (stdlib-facade) HEAD responses trust the declared
+                // length: `BaseHTTPRequestHandler.send_error` (and HEAD
+                // handlers generally) withhold the body (`wfile` empty) while
+                // declaring the GET-equivalent `Content-Length`. Validating
+                // `data` here would break that stdlib pattern; the native
+                // `PyResponse` paths above validate instead.
                 return Ok(ResponseBody::EmptyWithLength(length));
             }
         }
@@ -565,6 +612,8 @@ pub(super) fn extract_python_response_body<'py>(
                 })?;
             if is_head {
                 if let Some(length) = representation_length {
+                    // Same stdlib-facade trust as the `Vec<u8>` branch above:
+                    // the declared length is authoritative for HEAD.
                     Ok(ResponseBody::EmptyWithLength(length))
                 } else {
                     Ok(ResponseBody::Bytes(data))

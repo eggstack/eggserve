@@ -524,8 +524,10 @@ impl futures_util::Stream for ResponseStreamAdapter {
         if self.finished {
             return TaskPoll::Ready(None);
         }
-        // Body phase: poll byte stream while present.
-        if self.inner.is_some() {
+        // Body phase: poll byte stream while present. Empty chunks are
+        // skipped synchronously (loop to re-poll) without re-arming the
+        // waker, so a producer yielding empties cannot spin wake→poll→wake.
+        while self.inner.is_some() {
             // Borrow dance: take inner temporarily to allow trailer handling
             // after EOF without holding the borrow across `self` mutation.
             let polled = {
@@ -559,8 +561,7 @@ impl futures_util::Stream for ResponseStreamAdapter {
                 }
                 TaskPoll::Ready(Some(Ok(chunk))) => {
                     if chunk.is_empty() {
-                        cx.waker().wake_by_ref();
-                        return TaskPoll::Pending;
+                        continue;
                     }
                     let mut chunk = chunk;
                     if chunk.len() > self.chunk_size {

@@ -113,6 +113,21 @@ pub(crate) fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), Se
         ));
     }
 
+    // Non-numeric Content-Length is malformed framing (RFC 9110 §8.6:
+    // `Content-Length = 1*DIGIT`), not "no body". Reject here so a single
+    // invalid value (including on TRACE) becomes 400 instead of being
+    // treated as bodyless downstream.
+    if let Some(first) = cl_first {
+        let valid = first
+            .to_str()
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .is_some();
+        if !valid {
+            return Err(ServiceError::rejected(400, "invalid Content-Length"));
+        }
+    }
+
     Ok(())
 }
 
@@ -521,6 +536,12 @@ pub(crate) fn convert_request_head(
         (Some(uri), _) => Some(uri),
         (None, host) => host,
     };
+    // NOTE (B34 evaluated, not enforced): HTTP/1.1 nominally requires
+    // `Host` (RFC 9112 §3.2), but Hyper's own client sends origin-form
+    // targets without `Host` and the compatibility suite serves such
+    // requests with `authority=None` (see `http_primitives_integration`).
+    // Rejecting them here would break established hyper-client interop for
+    // a fail-closed `None` authority, so leniency is retained deliberately.
 
     Ok(
         eggserve_primitives::request_head::RequestHead::new_with_authority(

@@ -190,7 +190,15 @@ pub fn plan_file_response_with_preconditions_and_metadata(
         } else {
             match range_outcome {
                 RangeRequestOutcome::NotSatisfiable => {
-                    return build_not_range_satisfiable(len);
+                    // RFC 9110 §13.1.5: a failed `If-Range` MUST ignore
+                    // `Range` entirely, so an unsatisfiable range with a
+                    // mismatched validator serves 200 full, not 416.
+                    let if_range_failed = if_range.is_some_and(|v| {
+                        !if_range_allows_range(v, etag.as_deref(), last_modified_str.as_deref())
+                    });
+                    if !if_range_failed {
+                        return build_not_range_satisfiable(len);
+                    }
                 }
                 RangeRequestOutcome::Satisfiable(_) => {
                     // If-Range didn't match; serve full response.
@@ -234,7 +242,13 @@ fn evaluate_cache_validation(
         };
     }
     if if_none_match.is_some_and(|inm| inm.trim() == "*") {
-        return Some(HeaderMapPlan::new());
+        // Wildcard 304 without an ETag: still send `Last-Modified` when the
+        // 200 would carry it, so the 304 is not missing the validator.
+        let mut headers = HeaderMapPlan::new();
+        if let Some(lm) = last_modified {
+            headers.push("last-modified", lm.to_owned());
+        }
+        return Some(headers);
     }
     // No ETag: a listed `If-None-Match` can never match, and its presence
     // suppresses `If-Modified-Since` per precedence rules — fall through to
@@ -362,7 +376,9 @@ pub fn evaluate_if_match(if_match: &str, current_etag: Option<&str>) -> bool {
 /// Evaluate range request headers.
 pub fn evaluate_range_header(range: &str, file_size: u64) -> RangeRequestOutcome {
     let range = range.trim();
-    if !range.starts_with("bytes=") {
+    // Range units are case-insensitive tokens (RFC 9110 §14.1.1). Compare on
+    // bytes: `range[..6]` would panic when byte 6 splits a multi-byte char.
+    if range.len() < 6 || !range.as_bytes()[..6].eq_ignore_ascii_case(b"bytes=") {
         return RangeRequestOutcome::MalformedOrUnsupported;
     }
 
@@ -416,7 +432,10 @@ pub fn evaluate_if_range(
         if let (Some(if_range_time), Some(lm_time)) =
             (parse_http_date(trimmed), parse_http_date(lm))
         {
-            if if_range_time == lm_time {
+            // A future `If-Range` date (`lm <= if_range`, resource unmodified
+            // since) authorizes the range, mirroring `If-Modified-Since`
+            // (`lm <= ims`) rather than requiring exact equality.
+            if lm_time <= if_range_time {
                 return ConditionalRequestOutcome::NotModified(HeaderMapPlan::new());
             }
         }

@@ -575,6 +575,11 @@ where
                 .as_ref()
                 .is_some_and(|shared| shared.is_body_active());
             if body_pending {
+                // Mark Failed so post-invoke sees Failed (close), not Active
+                // (delegate + immediate second timeout).
+                if let Some(shared) = stream_body.as_ref() {
+                    shared.mark_failed();
+                }
                 ops.counters()
                     .body_read_timeouts
                     .fetch_add(1, Ordering::Relaxed);
@@ -912,8 +917,12 @@ where
             //   duplicate the runtime `100` on the wire (interims are validated
             //   and recorded; Hyper server APIs own emission where permitted).
             if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
-                let value = expect.to_str().ok().map(str::trim).unwrap_or("");
-                if !value.eq_ignore_ascii_case("100-continue") && !value.is_empty() {
+                let value = match expect.to_str() {
+                    Ok(v) => v.trim(),
+                    Err(_) => "",
+                };
+                let opaque = expect.to_str().is_err();
+                if opaque || (!value.eq_ignore_ascii_case("100-continue") && !value.is_empty()) {
                     ops.emit(
                         crate::ops::Event::new(
                             crate::ops::Severity::Debug,

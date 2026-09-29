@@ -300,10 +300,14 @@ impl TunnelCapability {
         if self.shared.is_committed() {
             return Err(TunnelError::AfterCommit);
         }
+        // Validate before claiming one-shot ownership: a `TooManyHeaders`/
+        // `TooLarge`/`ForbiddenHeader` failure must leave the capability
+        // unclaimed so the error (not a spurious `AlreadyAccepted`) is
+        // observable on retry.
+        let response = build_handshake_response(&self.request, headers)?;
         if !self.shared.try_accept() {
             return Err(TunnelError::AlreadyAccepted);
         }
-        let response = build_handshake_response(&self.request, headers)?;
         let boxed: TunnelHandlerBox = Box::new(move |io| Box::pin(handler(io)));
         let acceptance = TunnelAcceptance {
             handler: boxed,
@@ -346,39 +350,45 @@ pub fn build_handshake_response(
     // service-supplied values, then add validated ones. H2/H3: no 101,
     // no hop-by-hop; they were already stripped.
     if request.kind() == TunnelKind::Http1Upgrade {
+        // `101` without `Upgrade: <protocol>` violates the module contract;
+        // `Http1Upgrade` requires a protocol (constructor allows `None` for
+        // forward-compatibility, so enforce here where the handshake is built).
+        let Some(protocol) = request.protocol() else {
+            return Err(TunnelError::InvalidHeader(
+                eggserve_primitives::header_block::HeaderError::InvalidValue,
+            ));
+        };
         headers.retain(|f| {
             !f.name.as_str().eq_ignore_ascii_case("upgrade")
                 && !f.name.as_str().eq_ignore_ascii_case("connection")
         });
-        if let Some(protocol) = request.protocol() {
-            headers.push(
-                eggserve_primitives::header_block::HeaderName::new("upgrade").map_err(|_| {
+        headers.push(
+            eggserve_primitives::header_block::HeaderName::new("upgrade").map_err(|_| {
+                TunnelError::InvalidHeader(
+                    eggserve_primitives::header_block::HeaderError::InvalidName,
+                )
+            })?,
+            eggserve_primitives::header_block::HeaderValue::from_bytes(protocol.as_bytes())
+                .map_err(|_| {
                     TunnelError::InvalidHeader(
-                        eggserve_primitives::header_block::HeaderError::InvalidName,
+                        eggserve_primitives::header_block::HeaderError::InvalidValue,
                     )
                 })?,
-                eggserve_primitives::header_block::HeaderValue::from_bytes(protocol.as_bytes())
-                    .map_err(|_| {
-                        TunnelError::InvalidHeader(
-                            eggserve_primitives::header_block::HeaderError::InvalidValue,
-                        )
-                    })?,
-            );
-            headers.push(
-                eggserve_primitives::header_block::HeaderName::new("connection").map_err(|_| {
+        );
+        headers.push(
+            eggserve_primitives::header_block::HeaderName::new("connection").map_err(|_| {
+                TunnelError::InvalidHeader(
+                    eggserve_primitives::header_block::HeaderError::InvalidName,
+                )
+            })?,
+            eggserve_primitives::header_block::HeaderValue::from_bytes(b"upgrade").map_err(
+                |_| {
                     TunnelError::InvalidHeader(
-                        eggserve_primitives::header_block::HeaderError::InvalidName,
+                        eggserve_primitives::header_block::HeaderError::InvalidValue,
                     )
-                })?,
-                eggserve_primitives::header_block::HeaderValue::from_bytes(b"upgrade").map_err(
-                    |_| {
-                        TunnelError::InvalidHeader(
-                            eggserve_primitives::header_block::HeaderError::InvalidValue,
-                        )
-                    },
-                )?,
-            );
-        }
+                },
+            )?,
+        );
     }
     let mut response = Response::builder()
         .status(status)
@@ -873,7 +883,14 @@ mod tests {
 
     #[tokio::test]
     async fn double_accept_is_deterministic() {
-        let req = TunnelRequest::new(TunnelKind::Http1Upgrade, None, None);
+        // `Http1Upgrade` requires a protocol (a `101` without `Upgrade` is
+        // rejected); the second accept then deterministically reports
+        // `AlreadyAccepted`, not the validation error (B21/B22).
+        let req = TunnelRequest::new(
+            TunnelKind::Http1Upgrade,
+            Some(ProtocolName::new("websocket").unwrap()),
+            None,
+        );
         let shared = Arc::new(TunnelShared::new());
         // First capability claims acceptance.
         let sidecar = Arc::new(std::sync::Mutex::new(None));
@@ -889,5 +906,47 @@ mod tests {
             .accept(HeaderBlock::new(), |_io| async move {})
             .unwrap_err();
         assert_eq!(err, TunnelError::AlreadyAccepted);
+    }
+
+    #[tokio::test]
+    async fn http1_upgrade_without_protocol_is_rejected() {
+        // B21: `101` without `Upgrade: <protocol>` violates the handshake
+        // contract; `Http1Upgrade` with no protocol fails instead of
+        // emitting a bare `101`.
+        let req = TunnelRequest::new(TunnelKind::Http1Upgrade, None, None);
+        let shared = Arc::new(TunnelShared::new());
+        let sidecar = Arc::new(std::sync::Mutex::new(None));
+        let cap = TunnelCapability::new(req, None, shared, sidecar);
+        let err = cap
+            .accept(HeaderBlock::new(), |_io| async move {})
+            .unwrap_err();
+        assert!(matches!(err, TunnelError::InvalidHeader(_)));
+    }
+
+    #[tokio::test]
+    async fn validation_failure_does_not_consume_one_shot() {
+        // B22: a validation failure leaves the shared one-shot unclaimed, so
+        // a retry reports the validation outcome, not `AlreadyAccepted`.
+        let req = TunnelRequest::new(
+            TunnelKind::Http1Upgrade,
+            Some(ProtocolName::new("websocket").unwrap()),
+            None,
+        );
+        let shared = Arc::new(TunnelShared::new());
+        let first = TunnelCapability::new(
+            req.clone(),
+            None,
+            shared.clone(),
+            Arc::new(std::sync::Mutex::new(None)),
+        );
+        let err = first
+            .accept(headers(&[("content-length", "5")]), |_io| async move {})
+            .unwrap_err();
+        assert!(matches!(err, TunnelError::ForbiddenHeader(_)));
+        let second =
+            TunnelCapability::new(req, None, shared, Arc::new(std::sync::Mutex::new(None)));
+        second
+            .accept(HeaderBlock::new(), |_io| async move {})
+            .unwrap();
     }
 }
