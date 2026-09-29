@@ -264,11 +264,8 @@ pub(super) fn convert_python_response_to_canonical<'py>(
                 "Python handler response header validation failed",
             ));
         }
-        if value.trim().is_empty() {
-            return Err(ServiceError::internal(
-                "Python handler response header validation failed",
-            ));
-        }
+        // Empty field-values are legal per RFC 9110 and the canonical
+        // `HeaderValue` (post-OWS); only transport-refused bytes fail below.
         let n = HeaderName::new(name.as_str()).map_err(|_| {
             ServiceError::internal("Python handler response header validation failed")
         })?;
@@ -276,7 +273,7 @@ pub(super) fn convert_python_response_to_canonical<'py>(
             ServiceError::internal("Python handler response header validation failed")
         })?;
         let content_length = if name.eq_ignore_ascii_case("content-length") {
-            Some(value.parse::<u64>().map_err(|_| {
+            Some(value.trim().parse::<u64>().map_err(|_| {
                 ServiceError::internal("Python handler response length validation failed")
             })?)
         } else {
@@ -344,6 +341,14 @@ pub(super) fn extract_python_response_body<'py>(
             PyResponseBody::Bytes(data) => {
                 if is_head {
                     if let Some(length) = representation_length {
+                        // Validate against the discarded representation: the
+                        // later `EmptyWithLength` length check would pass
+                        // vacuously, so a mismatch must fail here.
+                        if data.len() as u64 != length {
+                            return Err(ServiceError::internal(
+                                "Python handler response length validation failed",
+                            ));
+                        }
                         Ok(ResponseBody::EmptyWithLength(length))
                     } else {
                         Ok(ResponseBody::Bytes(data))
@@ -367,6 +372,12 @@ pub(super) fn extract_python_response_body<'py>(
                 BodySource::Bytes(data) => {
                     if is_head {
                         if let Some(length) = representation_length {
+                            // Same vacuous-check guard as `Bytes` above.
+                            if data.len() as u64 != length {
+                                return Err(ServiceError::internal(
+                                    "Python handler response length validation failed",
+                                ));
+                            }
                             Ok(ResponseBody::EmptyWithLength(length))
                         } else {
                             Ok(ResponseBody::Bytes(data))

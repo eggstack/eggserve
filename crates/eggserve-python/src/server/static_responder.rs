@@ -112,12 +112,19 @@ impl PyStaticResponder {
         };
 
         let hdrs = headers.unwrap_or_default();
-        let if_match = hdrs.get("if-match").map(|s| s.as_str());
-        let if_unmodified_since = hdrs.get("if-unmodified-since").map(|s| s.as_str());
-        let if_none_match = hdrs.get("if-none-match").map(|s| s.as_str());
-        let if_modified_since = hdrs.get("if-modified-since").map(|s| s.as_str());
-        let range = hdrs.get("range").map(|s| s.as_str());
-        let if_range = hdrs.get("if-range").map(|s| s.as_str());
+        // HTTP field-names are case-insensitive; scan case-insensitively so
+        // `If-None-Match`/`Range` etc. are honored regardless of casing.
+        let header = |name: &str| {
+            hdrs.iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.as_str())
+        };
+        let if_match = header("if-match");
+        let if_unmodified_since = header("if-unmodified-since");
+        let if_none_match = header("if-none-match");
+        let if_modified_since = header("if-modified-since");
+        let range = header("range");
+        let if_range = header("if-range");
 
         let default_content_type = default_content_type
             .unwrap_or_else(|| "application/octet-stream".to_string());

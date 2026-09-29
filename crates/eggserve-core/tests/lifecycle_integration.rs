@@ -526,6 +526,15 @@ async fn force_shutdown_abandons_slow_handlers() {
     stream.write_all(GET_REQUEST.as_bytes()).await.unwrap();
 
     tokio::time::sleep(Duration::from_millis(100)).await;
+    // Poll with a deadline: under parallel load the handler may not have
+    // started within the first 100ms (previously a fixed sleep + assert).
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !handler_started.load(Ordering::SeqCst) {
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     assert!(handler_started.load(Ordering::SeqCst));
 
     let result = handle

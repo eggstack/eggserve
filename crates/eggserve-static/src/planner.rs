@@ -122,11 +122,16 @@ pub fn plan_file_response_with_preconditions_and_metadata(
     // MUST be ignored when If-Match is present.
     match if_match {
         Some(ifm) => {
-            let matches = etag
-                .as_deref()
-                .is_some_and(|current| evaluate_if_match(ifm, Some(current)));
-            if !matches {
-                return build_precondition_failed();
+            // `If-Match: *` matches whenever a current representation exists
+            // (RFC 9110 §13.1.1). The file exists by construction here, so a
+            // wildcard succeeds even when no ETag is available.
+            if ifm.trim() != "*" {
+                let matches = etag
+                    .as_deref()
+                    .is_some_and(|current| evaluate_if_match(ifm, Some(current)));
+                if !matches {
+                    return build_precondition_failed();
+                }
             }
         }
         None => {
@@ -230,6 +235,27 @@ fn evaluate_cache_validation(
     }
     if if_none_match.is_some_and(|inm| inm.trim() == "*") {
         return Some(HeaderMapPlan::new());
+    }
+    // No ETag: a listed `If-None-Match` can never match, and its presence
+    // suppresses `If-Modified-Since` per precedence rules — fall through to
+    // the date branch only when `If-None-Match` is absent.
+    if if_none_match.is_some() {
+        return None;
+    }
+    if let Some(ims) = if_modified_since {
+        if let Some(ims_time) = parse_http_date(ims) {
+            if let Some(lm) = last_modified {
+                if let Some(lm_time) = parse_http_date(lm) {
+                    if lm_time <= ims_time {
+                        let mut headers = HeaderMapPlan::new();
+                        headers.push("last-modified", lm.to_owned());
+                        return Some(headers);
+                    }
+                }
+            }
+        }
+        // Malformed date or unavailable modification time: ignore the
+        // precondition and serve the full response.
     }
     None
 }
@@ -1408,6 +1434,61 @@ mod tests {
     #[test]
     fn cache_validation_no_headers_without_etag_is_full_response() {
         assert!(evaluate_cache_validation(None, None, None, None).is_none());
+    }
+
+    #[test]
+    fn if_match_wildcard_succeeds_without_etag() {
+        // RFC 9110 §13.1.1: `*` matches whenever a current representation
+        // exists — the file exists by construction, so no 412 even when no
+        // ETag can be generated or emitted.
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let policy = eggserve_primitives::policy::StaticMetadataPolicy {
+            emit_etag: false,
+            emit_last_modified: true,
+        };
+        let plan = plan_file_response_with_preconditions_and_metadata(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("*"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            policy,
+        );
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn if_modified_since_applies_without_etag() {
+        // With ETag suppressed but Last-Modified emitted, a fresh
+        // `If-Modified-Since` must still yield 304 via the date branch.
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let future = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs + 3600);
+        let ims = httpdate::fmt_http_date(future);
+        let policy = eggserve_primitives::policy::StaticMetadataPolicy {
+            emit_etag: false,
+            emit_last_modified: true,
+        };
+        let plan = plan_file_response_with_preconditions_and_metadata(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            Some(&ims),
+            None,
+            None,
+            policy,
+        );
+        assert_eq!(plan.status.as_u16(), 304);
     }
 
     #[test]

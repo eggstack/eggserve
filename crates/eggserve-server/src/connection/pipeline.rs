@@ -407,7 +407,27 @@ where
             // sending the validated handshake. Ordinary denial (no staged
             // acceptance) uses the normal path.
             if let Some(sidecar) = tunnel_sidecar {
-                let acceptance = sidecar.lock().ok().and_then(|mut slot| slot.take());
+                // A poisoned sidecar (prior panic while holding the lock)
+                // must fail closed: the service may have staged a tunnel
+                // acceptance and returned a handshake, so falling through to
+                // the ordinary response path would silently downgrade it.
+                let acceptance = match sidecar.lock() {
+                    Ok(mut slot) => slot.take(),
+                    Err(_) => {
+                        ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Error,
+                                crate::ops::EventKind::ServiceError,
+                                "tunnel sidecar lock poisoned; failing closed",
+                            )
+                            .connection_id(conn_id),
+                        );
+                        return ServiceInvocationResponse {
+                            response: crate::response::internal_error_with_policy(error_policy),
+                            provenance: super::response::ResponseProvenance::Runtime,
+                        };
+                    }
+                };
                 if let Some(acceptance) = acceptance {
                     match tunnel_lifecycle {
                         Some(lifecycle) => {

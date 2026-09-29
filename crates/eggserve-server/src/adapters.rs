@@ -215,7 +215,10 @@ fn file_body(
     };
 
     let stream = stream::unfold(
-        (file, start, remaining, start > 0, permit),
+        // Always seek to `start` first: `try_clone` (`dup`) shares the
+        // open-file offset, so a reused fd may sit at EOF/mid-file even
+        // when `start == 0` (e.g. after `read_all` or via `.body` clones).
+        (file, start, remaining, true, permit),
         move |(mut file, offset, remaining, needs_seek, permit)| async move {
             if remaining == 0 {
                 return None;
@@ -835,6 +838,26 @@ mod tests {
         let error = frame.expect_err("truncated file must fail");
         assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
         assert!(body.frame().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn file_body_seeks_reused_fd_sitting_at_eof() {
+        // A reused fd (e.g. after `read_all`, or a `try_clone` sharing the
+        // open-file offset) sits at EOF even when `start == 0`; the stream
+        // must seek before reading rather than report truncated bytes.
+        let contents = b"0123456789abcdef";
+        let test_file = TestFile::new(contents);
+        let mut std_file = test_file.open();
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut std_file, &mut buf).expect("drain test file");
+        assert_eq!(buf, contents);
+        let source = BodySource::FileFull {
+            file: std_file,
+            len: contents.len() as u64,
+            mime: "application/octet-stream",
+        };
+        let (bytes, _) = collect_file_body(source, 8).await;
+        assert_eq!(bytes, contents);
     }
 
     #[tokio::test]

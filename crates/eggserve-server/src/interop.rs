@@ -208,15 +208,16 @@ pub fn status_from_http(
 /// Convert a canonical [`HttpVersion`] to [`http::Version`].
 ///
 /// The four modeled versions map exactly. `HttpVersion` is
-/// `#[non_exhaustive]` for downstream matching; variants can only be added
-/// in this crate, at which point this match must be extended.
+/// `#[non_exhaustive]` for downstream matching; a future variant added in
+/// the owning crate maps to `HTTP_11` rather than panicking so ecosystem
+/// conversions fail safe.
 pub fn version_to_http(version: HttpVersion) -> http::Version {
     match version {
         HttpVersion::Http10 => http::Version::HTTP_10,
         HttpVersion::Http11 => http::Version::HTTP_11,
         HttpVersion::Http2 => http::Version::HTTP_2,
         HttpVersion::Http3 => http::Version::HTTP_3,
-        _ => unreachable!("all canonical HTTP versions are mapped"),
+        _ => http::Version::HTTP_11,
     }
 }
 
