@@ -73,6 +73,8 @@ pub(super) enum RawBodyError {
     AlreadyConsumed,
     MixedConsumptionMode,
     Transport(String),
+    InvalidTrailers(String),
+    TrailersNotReady,
 }
 
 impl From<RustBodyError> for RawBodyError {
@@ -99,9 +101,10 @@ impl From<RustBodyError> for RawBodyError {
             RustBodyError::MixedConsumptionMode => Self::MixedConsumptionMode,
             RustBodyError::Transport(msg) => Self::Transport(msg),
             // Plan 198: trailer failures never reach the synchronous facade as
-            // trailers (facade unchanged); map to sanitized transport failure.
-            RustBodyError::InvalidTrailers(msg) => Self::Transport(msg),
-            RustBodyError::TrailersNotReady => Self::AlreadyConsumed,
+            // trailers (facade unchanged); keep them distinct from transport
+            // disconnects and already-consumed state.
+            RustBodyError::InvalidTrailers(msg) => Self::InvalidTrailers(msg),
+            RustBodyError::TrailersNotReady => Self::TrailersNotReady,
             // Plan 197: `RequestBodyError` is `#[non_exhaustive]`; future
             // categories map to a sanitized transport failure (500) without
             // leaking variant detail.
@@ -155,6 +158,12 @@ pub(super) fn raw_body_error_to_pyerr(err: RawBodyError) -> PyErr {
         }
         RawBodyError::Transport(msg) => {
             crate::RequestBodyDisconnectedError::new_err(format!("transport error: {msg}"))
+        }
+        RawBodyError::InvalidTrailers(msg) => {
+            crate::RequestBodyError::new_err(format!("invalid request trailers: {msg}"))
+        }
+        RawBodyError::TrailersNotReady => {
+            crate::RequestBodyError::new_err("request trailers not ready: complete the body first")
         }
     }
 }

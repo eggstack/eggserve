@@ -493,14 +493,13 @@ impl TunnelIo {
     ///
     /// Hidden: pipelines and compatibility H3 glue unwrap the bridge end
     /// for transport copying; services never unwrap (use `split` or
-    /// async IO directly).
+    /// async IO directly). Returns `Err(self)` for the direct transport
+    /// instead of panicking.
     #[doc(hidden)]
-    pub fn into_duplex(self) -> tokio::io::DuplexStream {
+    pub fn try_into_duplex(self) -> Result<tokio::io::DuplexStream, Self> {
         match self.inner {
-            TunnelIoInner::Pair(stream) => stream,
-            TunnelIoInner::Direct(_) => {
-                panic!("direct tunnel transport cannot be unwrapped as a duplex")
-            }
+            TunnelIoInner::Pair(stream) => Ok(stream),
+            TunnelIoInner::Direct(_) => Err(self),
         }
     }
 }
@@ -764,7 +763,9 @@ mod tests {
                 (TunnelIo::from_transport(transport), None)
             } else {
                 let (handler, bridge_end) = TunnelIo::pair();
-                let mut bridge_end = bridge_end.into_duplex();
+                let mut bridge_end = bridge_end
+                    .try_into_duplex()
+                    .expect("pair bridge end unwraps as duplex");
                 let mut transport = transport;
                 let bridge = tokio::spawn(async move {
                     let _ = tokio::io::copy_bidirectional(&mut bridge_end, &mut transport).await;

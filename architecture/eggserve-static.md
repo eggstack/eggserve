@@ -34,7 +34,7 @@ planning glue, and `StaticService` request-to-response rendering over
 
 Absolute-form → 400; non-GET/HEAD → 405 with `Allow: GET, HEAD`;
 directory without trailing `/` → 301 preserving query; `index.html` /
-`index.htm` lookup; `NotFound` → 404, `Denied` → 403, `IoError` → 404; path
+`index.htm` lookup; `NotFound` → 404, `Denied` → 403, `IoError` → 500; path
 rejections map malformed → 400 else 403; `default_content_type` applies only
 when detection yields octet-stream; `extra_response_headers` attach to final
 200 only and never override planned headers; error bodies follow

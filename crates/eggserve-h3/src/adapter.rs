@@ -1176,7 +1176,9 @@ async fn handle_h3_connect<S, C>(
     // Stream-scoped duplex (siblings survive): two concurrent directions with
     // bounded chunks, lifecycle wakes idle, half-close propagates (recv EOF
     // shuts duplex write, duplex EOF finishes H3 send).
-    let duplex = io_bridge.into_duplex();
+    let duplex = io_bridge
+        .try_into_duplex()
+        .expect("H3 bridge end unwraps as duplex");
     let (mut duplex_read, mut duplex_write) = tokio::io::split(duplex);
     // Client -> server: H3 DATA -> duplex.
     let recv_task = tokio::spawn(async move {

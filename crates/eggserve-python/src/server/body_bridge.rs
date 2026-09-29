@@ -423,8 +423,8 @@ impl PyRequestBody {
     /// Opaque (non-UTF-8) trailer octets are omitted (text-only facade);
     /// the canonical Rust validator remains the authority (denylist +
     /// count/byte limits). Raises `RequestBodyError` on `InvalidTrailers`
-    /// and `RequestBodyConsumedError` when called before terminal state
-    /// (`TrailersNotReady`). Use after `read_chunk()` returns `None` (or
+    /// and when called before terminal state (`TrailersNotReady`). Use
+    /// after `read_chunk()` returns `None` (or
     /// after `read()`/`iter_chunks()` exhaustion where the body was
     /// preserved). Intended for `asyncio.to_thread` in async handlers.
     fn trailers(&self, py: Python<'_>) -> PyResult<Option<Vec<(String, String)>>> {

@@ -203,13 +203,16 @@ impl StaticService {
                                 false,
                             );
                         }
-                        ResolvedResource::Denied(_) | ResolvedResource::IoError(_) => {
+                        ResolvedResource::Denied(_) => {
                             return self.error_response(
                                 StatusCode::FORBIDDEN,
                                 "403 Forbidden\n",
                                 is_head,
                                 false,
                             );
+                        }
+                        ResolvedResource::IoError(_) => {
+                            return Err(ServiceError::internal("filesystem resolution failed"));
                         }
                         ResolvedResource::NotFound => {}
                     }
@@ -223,7 +226,7 @@ impl StaticService {
                 self.error_response(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head, false)
             }
             ResolvedResource::IoError(_) => {
-                self.error_response(StatusCode::NOT_FOUND, "404 Not Found\n", is_head, false)
+                Err(ServiceError::internal("filesystem resolution failed"))
             }
         }
     }
@@ -236,6 +239,14 @@ impl StaticService {
     ) -> Result<Response, ServiceError> {
         let [if_match, if_unmodified_since, if_none_match, if_modified_since, range, if_range] =
             Self::conditional_headers(request);
+        let [if_match, if_unmodified_since, if_none_match, if_modified_since, range, if_range] = [
+            if_match.as_deref(),
+            if_unmodified_since.as_deref(),
+            if_none_match.as_deref(),
+            if_modified_since.as_deref(),
+            range.as_deref(),
+            if_range.as_deref(),
+        ];
         let detected_content_type = file.content_type();
         let content_type = if detected_content_type == "application/octet-stream" {
             self.default_content_type.as_str()
@@ -263,8 +274,8 @@ impl StaticService {
         response_from_plan(plan, source, matches!(method, ReadOnlyMethod::Head))
     }
 
-    fn conditional_headers(request: &Request) -> [Option<&str>; 6] {
-        let mut values = [None; 6];
+    fn conditional_headers(request: &Request) -> [Option<String>; 6] {
+        let mut values: [Option<String>; 6] = [None, None, None, None, None, None];
         for field in request.head().headers().iter() {
             let slot = match field.name.as_str() {
                 name if name.eq_ignore_ascii_case("if-match") => 0,
@@ -275,8 +286,19 @@ impl StaticService {
                 name if name.eq_ignore_ascii_case("if-range") => 5,
                 _ => continue,
             };
-            if values[slot].is_none() {
-                values[slot] = field.value.to_str().ok();
+            // Opaque (non-UTF-8) values are skipped explicitly; duplicate
+            // field lines combine per RFC 9110 § 5.2.
+            let Ok(text) = field.value.to_str() else {
+                continue;
+            };
+            match values[slot].as_mut() {
+                Some(existing) => {
+                    existing.push_str(", ");
+                    existing.push_str(text);
+                }
+                None => {
+                    values[slot] = Some(text.to_owned());
+                }
             }
         }
         values
