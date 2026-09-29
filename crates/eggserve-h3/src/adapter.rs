@@ -1063,6 +1063,35 @@ async fn handle_h3_connect<S, C>(
             return;
         }
     };
+    // A poisoned sidecar (prior panic while holding the lock) must fail
+    // closed (parity with direct/compat H1): silently dropping a staged
+    // acceptance would downgrade a tunnel to a plain response. Check
+    // poison without holding the guard across the later `await`s (`PoisonError`
+    // owns a non-`Send` guard).
+    if tunnel_sidecar.is_poisoned() {
+        ops.emit(
+            eggserve_server::ops::Event::new(
+                eggserve_server::ops::Severity::Error,
+                eggserve_server::ops::EventKind::ServiceError,
+                "tunnel sidecar lock poisoned; failing closed",
+            )
+            .connection_id(conn_id),
+        );
+        let _ = crate::response::send_response_or_cancel(
+            &mut send_stream,
+            crate::response::runtime_error_response(500, false, &server_config),
+            &server_config,
+            &h3_config,
+            false,
+            &file_sem,
+            &shared,
+            conn_id,
+            &ops,
+        )
+        .await;
+        recv_stream.stop_sending(h3::error::Code::H3_INTERNAL_ERROR);
+        return;
+    }
     let acceptance = tunnel_sidecar.lock().ok().and_then(|mut slot| slot.take());
     let Some(acceptance) = acceptance else {
         // Ordinary denial: normal response, recv aborted (no tunnel DATA).

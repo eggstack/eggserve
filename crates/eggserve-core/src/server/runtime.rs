@@ -56,6 +56,7 @@ impl RuntimeState {
     /// is returned instead of panicking. Validation happens before any
     /// semaphore/Hyper construction so invalid values cannot trigger obscure
     /// downstream panics.
+    #[track_caller]
     pub fn new(config: &RuntimeConfig) -> Self {
         Self::try_new(config).expect("invalid RuntimeConfig for RuntimeState")
     }

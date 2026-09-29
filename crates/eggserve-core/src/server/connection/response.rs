@@ -72,7 +72,11 @@ pub(crate) fn normalize_then_convert_with_h1_trailer_head(
                 let headers = normalized.head_mut().headers_mut();
                 headers.retain(|f| !f.name.as_str().eq_ignore_ascii_case("content-length"));
                 headers.retain(|f| !f.name.as_str().eq_ignore_ascii_case("trailer"));
-                let _ = headers.push_str("trailer", value);
+                // `push_str` is infallible for this runtime-generated value
+                // (valid trailer declaration); fail-closed if that changes.
+                headers
+                    .push_str("trailer", value)
+                    .expect("runtime trailer declaration is valid");
             }
         }
     }
@@ -199,6 +203,12 @@ pub(crate) fn apply_http1_disposition(
 /// invariant. No transport peer metadata is copied into response headers.
 /// Client responses never contain log or service error text (callers pass
 /// only fixed generic bodies here).
+///
+/// NOTE (B67): the compat path always strips + owns `Date`/`Server`
+/// (EggServe-owned). The direct H1 runtime can explicitly transfer that
+/// ownership per-response to the embedding application
+/// (`ResponseMetadataOwnership::External` with validation). Same service →
+/// preserved direct vs stripped compat is an intentional tier split.
 pub(crate) fn finalize_runtime_response(
     mut response: hyper::Response<BoxBodyInner>,
     config: &RuntimeConfig,

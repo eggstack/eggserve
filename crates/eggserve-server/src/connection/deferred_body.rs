@@ -7,6 +7,11 @@
 //! `max_in_flight_requests` bounds pre-response `Service::call` only. Active
 //! bodies delegate without forced close; Abandoned/Failed forces close via
 //! Hyper pinning. No task-supervisor framework.
+//!
+//! NOTE (B57): both helpers are bare `tokio::spawn` (deadline at most
+//! `body_read_timeout`) untracked by the server `JoinSet`, which drains only
+//! connection tasks. The post-`wait()` tail is therefore bounded by the body
+//! deadline, never unbounded.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

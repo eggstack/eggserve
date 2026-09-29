@@ -273,6 +273,10 @@ impl PyTunnel {
         })?;
         // Take the receiver out for one blocking wait, then put back unless
         // terminal. `std` Mutex guard cannot be held across `block_on`.
+        // NOTE (B83): `recv` is single-consumer only (`Send`, not `Sync`
+        // sharing) — concurrent `recv` during the blocking wait sees `None`
+        // and reports `tunnel already closed` spuriously. Callers must not
+        // share concurrent `recv` across threads.
         let mut rx = {
             let mut guard = self
                 .to_python_rx

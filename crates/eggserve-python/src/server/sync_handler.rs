@@ -65,6 +65,10 @@ impl PythonCallbackService {
             let result = handler_py.bind(py).call1((py_req_obj,)).map_err(|err| {
                 // Log the exception type only; exception text may carry
                 // untrusted request data and must not reach logs.
+                // NOTE (B85): intentional privacy — all exceptions become a
+                // generic 500 with only the type name logged. An opt-in debug
+                // mode preserving the message/chain needs a new API (out of
+                // scope here).
                 let type_name = err
                     .value(py)
                     .get_type()
@@ -657,10 +661,25 @@ impl Service for PythonCallbackService {
         let body_policy = self.body_policy;
 
         Box::pin(async move {
-            let callback_permit = callback_semaphore
-                .acquire_owned()
-                .await
-                .map_err(|_| ServiceError::internal("callback semaphore closed"))?;
+            // Fail fast under pile-up (parity with the Rust admission
+            // kernel): never queue unbounded `Request+Body+Context` behind
+            // `acquire().await`; shed with 503 instead.
+            // NOTE (B55): this permit (plus the outer service permit, held
+            // across `Service::call`) is held for the whole Python callback,
+            // including blocking `RequestBody.read()` network waits on the
+            // callback thread. Slow uploads therefore contend with handlers
+            // under `max_python_callbacks`; size that bound for upload
+            // concurrency (separate upload/download budgets need a new
+            // admission API, out of scope here).
+            let callback_permit = match callback_semaphore.try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return Err(ServiceError::rejected(
+                        503,
+                        "service unavailable: callback saturated",
+                    ));
+                }
+            };
 
             // Plan 204: use the full context so async-capable handlers observe
             // lifecycle/interim/tunnel ownership. Sync behavior for existing

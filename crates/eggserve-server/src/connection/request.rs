@@ -116,13 +116,12 @@ pub(crate) fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), Se
     // Non-numeric Content-Length is malformed framing (RFC 9110 §8.6:
     // `Content-Length = 1*DIGIT`), not "no body". Reject here so a single
     // invalid value (including on TRACE) becomes 400 instead of being
-    // treated as bodyless downstream.
+    // treated as bodyless downstream. Digit-only (rejects the leading `+`
+    // that `u64::from_str` would accept), shared with the static planner.
     if let Some(first) = cl_first {
-        let valid = first
-            .to_str()
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .is_some();
+        let valid = first.to_str().ok().is_some_and(|s| {
+            !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) && s.parse::<u64>().is_ok()
+        });
         if !valid {
             return Err(ServiceError::rejected(400, "invalid Content-Length"));
         }

@@ -533,7 +533,7 @@ mod tests {
             let runtime_state = Arc::new(RuntimeState::new(&config));
             serve_connection_with_runtime_state(
                 TokioIo::new(stream),
-                StaticService::from_state(state_clone),
+                StaticService::from_state(state_clone).expect("test static state"),
                 config,
                 runtime_state,
                 &mut shutdown_rx,

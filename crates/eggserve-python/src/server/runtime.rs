@@ -598,6 +598,10 @@ impl PyServer {
         // connection's lifetime. Cap handler/body budgets to it so the
         // total budget can never fire first and kill requests a wider
         // budget promised to allow.
+        // NOTE (B73): Python clamps with a warning here for operator
+        // convenience, while Rust `SharedRuntimeValues::validate` errors on
+        // the same misconfiguration. The split is intentional: the Python
+        // facade stays lenient (warn + clamp), Rust stays strict (error).
         let (capped_handler_timeout, capped_body_read_timeout) =
             if connection_total_timeout.is_zero() {
                 (handler_timeout, body_read_timeout)
@@ -687,6 +691,11 @@ impl PyServer {
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let (server_handle, rt) = py.detach(|| -> PyResult<_> {
+            // NOTE (B86): a single 2-worker runtime drives listeners + body
+            // producers + `block_on` waits; `max_python_callbacks=8` +
+            // `max_connections=64` can contend. Configurable workers or
+            // isolated blocking I/O needs a new runtime API — out of scope
+            // here; size callback/connection bounds for this 2-worker shape.
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()

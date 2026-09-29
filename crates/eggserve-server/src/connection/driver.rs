@@ -167,6 +167,14 @@ async fn graceful_close<C>(
 /// parse-class errors; each increments the counter named for it. Anything
 /// else is a client disconnect. Hostile bytes never reach the logs: parse
 /// errors are sanitized before emission.
+///
+/// NOTE (B50): Hyper's `header_read_timeout` also fires on idle keep-alive
+/// gaps (Hyper 1.11.1 quirk), so with the default `header_read_timeout=10s`
+/// < `keep_alive_idle_timeout=60s` idle closes surface as `HeaderTimeout`
+/// (not `IdleTimeout`); the driver `IdleTimeout` path is reachable only when
+/// `keep_alive_idle_timeout < header_read_timeout` per the documented
+/// workaround. Counters follow the wire source (Hyper vs driver), not the
+/// logical idle state, so idle-gap closes increment `header_timeouts`.
 fn finish_conn_result(
     result: Result<(), hyper::Error>,
     conn_id: u64,
@@ -265,6 +273,23 @@ where
         .then(|| activity.start.checked_add(config.connection_total_timeout))
         .flatten();
     let ops = activity.ops().clone();
+    // All-`External` + `ZERO` total leaves no EggServe-owned backstop: the
+    // driver would sleep `pending()` forever on a hanging `Service::call`.
+    // Fail loud (once per connection) instead of silently parking.
+    if total_deadline.is_none()
+        && config.policy_ownership.keep_alive_idle_deadline == crate::config::PolicyOwner::External
+        && config.policy_ownership.response_write_progress_deadline
+            == crate::config::PolicyOwner::External
+    {
+        ops.emit(
+            crate::ops::Event::new(
+                crate::ops::Severity::Warn,
+                crate::ops::EventKind::ConnectionTotalTimeout,
+                "connection has no EggServe-owned deadline (ZERO total + all-External); hanging handlers have no backstop",
+            )
+            .connection_id(conn_id),
+        );
+    }
     let mut shutdown = std::pin::pin!(shutdown);
     loop {
         let now = std::time::Instant::now();

@@ -186,7 +186,11 @@ pub(crate) fn normalize_then_convert_with_h1_trailer_head(
                 // Normalization stripped any application `Trailer`; this single
                 // runtime-owned field is the only advertisement.
                 headers.retain(|f| !f.name.as_str().eq_ignore_ascii_case("trailer"));
-                let _ = headers.push_str("trailer", value);
+                // Infallible for this runtime-generated value; fail-closed if
+                // validation ever changes.
+                headers
+                    .push_str("trailer", value)
+                    .expect("runtime trailer declaration is valid");
             }
         }
     }

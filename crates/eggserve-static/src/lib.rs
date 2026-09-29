@@ -297,10 +297,13 @@ impl StaticService {
             match values[slot].as_mut() {
                 Some(existing) => {
                     // `If-Match`/`If-None-Match` are comma-lists and combine.
-                    // `Range`/`If-Range`/dates are single values: comma-joining
-                    // corrupts them (`Range` would become `MultipleRanges`,
-                    // dates would never parse), so keep the first.
-                    if slot == 0 || slot == 2 {
+                    // Two `Range` lines combine per RFC 9110 §5.2 as well:
+                    // joining yields a comma (multi-range) that the planner
+                    // maps to `MultipleRanges` → 200 full, instead of serving
+                    // 206 from the first line when the client sent multi-range.
+                    // `If-Range`/dates are single values: comma-joining would
+                    // corrupt them (dates would never parse), so keep first.
+                    if slot == 0 || slot == 2 || slot == 4 {
                         existing.push_str(", ");
                         existing.push_str(text);
                     }

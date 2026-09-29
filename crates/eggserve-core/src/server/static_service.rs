@@ -99,9 +99,8 @@ impl StaticService {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn from_state(state: Arc<ServeState>) -> Self {
+    pub(crate) fn from_state(state: Arc<ServeState>) -> Result<Self, std::io::Error> {
         Self::from_state_with_ops(state, crate::ops::OpsContext::global().clone())
-            .expect("validated static state must project into direct service")
     }
 
     fn from_state_with_ops(

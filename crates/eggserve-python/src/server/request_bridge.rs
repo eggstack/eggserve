@@ -248,6 +248,13 @@ impl PyRequest {
         })
     }
 
+    /// Wait until the peer disconnects or the server cancels the request.
+    ///
+    /// NOTE (B56): `timeout_secs=None` parks the calling blocking thread
+    /// until peer/shutdown with no deadline; the outer handler-timeout
+    /// cancels the async join but the parked thread stays until the
+    /// lifecycle fires, holding body/lifecycle. Prefer an explicit
+    /// `timeout_secs` to bound the wait.
     #[pyo3(signature = (timeout_secs=None))]
     fn wait_disconnected(&self, py: Python<'_>, timeout_secs: Option<f64>) -> PyResult<bool> {
         let lifecycle = self.lifecycle.clone().ok_or_else(|| {

@@ -816,15 +816,21 @@ where
 
             // TRACE content remains a transport-level rejection. Other
             // methods, including GET, HEAD, and DELETE, are governed by the
-            // service-declared policy below.
+            // service-declared policy below. `Transfer-Encoding` is an H1
+            // framing signal: H2 has no TE framing, so H2 TE is exempt
+            // (shared rule with the compat path).
             if head.method().as_str() == "TRACE"
                 && (req
                     .headers()
                     .get(hyper::header::CONTENT_LENGTH)
                     .and_then(|value| value.to_str().ok())
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .is_some_and(|length| length > 0)
-                    || req.headers().contains_key(hyper::header::TRANSFER_ENCODING))
+                    .is_some_and(|s| {
+                        !s.is_empty()
+                            && s.bytes().all(|b| b.is_ascii_digit())
+                            && s.parse::<u64>().is_ok_and(|length| length > 0)
+                    })
+                    || (head.version() != eggserve_primitives::version::HttpVersion::Http2
+                        && req.headers().contains_key(hyper::header::TRANSFER_ENCODING)))
             {
                 let response = crate::response::bad_request_with_policy(
                     false,
@@ -934,16 +940,13 @@ where
             }
 
             // Expect handling (Plan 198 Track F): deterministic with body policy.
-            // - Unknown (non-100-continue) expectations fail with 417 without
-            //   inviting the body.
-            // - `Reject` + `100-continue` is rejected early (413) without
-            //   encouraging the client to send the body.
-            // - `Buffer`/`Stream` + `100-continue` is accepted: Hyper owns wire
-            //   `100` emission when the body is polled; EggServe owns the policy
-            //   decision. App-generated 100s via the interim capability never
-            //   duplicate the runtime `100` on the wire (interims are validated
-            //   and recorded; Hyper server APIs own emission where permitted).
-            if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
+            // All `Expect` field lines are examined (first-wins would miss a
+            // second `Expect: unknown`); any non-empty, non-`100-continue`
+            // token (including opaque bytes) fails with 417 without inviting
+            // the body. Empty `Expect:` is ignored as meaningless.
+            let mut has_100_continue = false;
+            let mut has_unknown_expect = false;
+            for expect in parts.headers.get_all(hyper::header::EXPECT).iter() {
                 // Opaque (non-UTF-8) Expect values cannot be `100-continue`;
                 // fail with 417 rather than silently ignoring them.
                 let value = match expect.to_str() {
@@ -952,52 +955,59 @@ where
                 };
                 let opaque = expect.to_str().is_err();
                 if opaque || (!value.eq_ignore_ascii_case("100-continue") && !value.is_empty()) {
-                    ops.emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Debug,
-                            crate::ops::EventKind::ExpectationFailed,
-                            "unknown Expect header",
-                        )
-                        .connection_id(conn_id),
-                    );
-                    let response = crate::response::expectation_failed_with_policy(
-                        false,
-                        config.response_policy.error_policy,
-                    );
-                    return Ok::<_, Infallible>(finish_response(
-                        guard,
-                        response,
-                        config,
-                        conn_id,
-                        LifecycleDisposition::KEEP_ALIVE,
-                    ));
+                    has_unknown_expect = true;
+                    break;
                 }
-                if effective_policy.is_reject() && value.eq_ignore_ascii_case("100-continue") {
-                    ops.counters()
-                        .body_rejections
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    ops.emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Debug,
-                            crate::ops::EventKind::BodyPolicyRejection,
-                            "100-continue rejected by body policy",
-                        )
-                        .connection_id(conn_id),
-                    );
-                    let response = super::response::present_runtime_rejection(
-                        hyper::StatusCode::PAYLOAD_TOO_LARGE,
-                        crate::rejection::RuntimeRejectionKind::RequestBodyRejected,
-                        is_head,
-                        config,
-                    );
-                    return Ok::<_, Infallible>(finish_response(
-                        guard,
-                        response,
-                        config,
-                        conn_id,
-                        LifecycleDisposition::close_and_cancel_body(),
-                    ));
+                if value.eq_ignore_ascii_case("100-continue") {
+                    has_100_continue = true;
                 }
+            }
+            if has_unknown_expect {
+                ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::ExpectationFailed,
+                        "unknown Expect header",
+                    )
+                    .connection_id(conn_id),
+                );
+                let response = crate::response::expectation_failed_with_policy(
+                    false,
+                    config.response_policy.error_policy,
+                );
+                return Ok::<_, Infallible>(finish_response(
+                    guard,
+                    response,
+                    config,
+                    conn_id,
+                    LifecycleDisposition::KEEP_ALIVE,
+                ));
+            }
+            if effective_policy.is_reject() && has_100_continue {
+                ops.counters()
+                    .body_rejections
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::BodyPolicyRejection,
+                        "100-continue rejected by body policy",
+                    )
+                    .connection_id(conn_id),
+                );
+                let response = super::response::present_runtime_rejection(
+                    hyper::StatusCode::PAYLOAD_TOO_LARGE,
+                    crate::rejection::RuntimeRejectionKind::RequestBodyRejected,
+                    is_head,
+                    config,
+                );
+                return Ok::<_, Infallible>(finish_response(
+                    guard,
+                    response,
+                    config,
+                    conn_id,
+                    LifecycleDisposition::close_and_cancel_body(),
+                ));
             }
 
             // Handle Reject policy — reject without invoking the service,
@@ -1151,9 +1161,30 @@ where
                     // Buffer: body is fully consumed during pre-buffering.
                     // No incomplete body handling needed. Trailers are
                     // preserved via `read_all_with_trailers` (not discarded).
-                    let body_limit = match effective_policy {
-                        RequestBodyPolicy::Buffer { max_bytes } => max_bytes,
-                        _ => unreachable!("buffer branch requires a buffer policy"),
+                    // Fail closed if the effective policy ever diverges from
+                    // the service-selected `Buffer` (no `unreachable!` panic
+                    // on a hot path).
+                    let RequestBodyPolicy::Buffer {
+                        max_bytes: body_limit,
+                    } = effective_policy
+                    else {
+                        ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Error,
+                                crate::ops::EventKind::ServiceError,
+                                "buffer branch without buffer policy; failing closed",
+                            )
+                            .connection_id(conn_id),
+                        );
+                        return Ok::<_, Infallible>(finish_response(
+                            guard,
+                            crate::response::internal_error_with_policy(
+                                config.response_policy.error_policy,
+                            ),
+                            config,
+                            conn_id,
+                            LifecycleDisposition::KEEP_ALIVE,
+                        ));
                     };
                     let read = request_body.read_all_with_trailers();
                     let read = match body_read_timeout {

@@ -1,5 +1,10 @@
 //! Bounded interim (1xx) response capability (Plan 198 Tracks E–F).
 //!
+//! NOTE (B69): lock-poison fallbacks (`unwrap_or_default`/skipped wakeups)
+//! mean a prior panic while holding the lock already fired (contained/logged
+//! at that boundary); this transport-neutral layer treats poison as
+//! absent/empty fail-closed with no second log (no `OpsContext` here).
+//!
 //! [`InterimSender`] is the request-scoped, bounded capability for emitting
 //! informational responses before the final response. `Service::call` keeps
 //! returning the final [`Response`](crate::primitives::canonical::Response);

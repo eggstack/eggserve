@@ -709,11 +709,15 @@ impl Server {
                 let service = Arc::new(service);
                 #[cfg(feature = "http3")]
                 if let Some(endpoint) = http3_endpoint {
-                    let h3_bind = tcp_addr_for_h3.expect("h3 requires TCP addr (checked)");
+                    // Validated at construction (`tcp_addr.ok_or` above when
+                    // H3 is enabled); bind locally instead of a far-apart
+                    // `expect`, fail-closed on the impossible `None`.
+                    let Some(h3_bind) = tcp_addr_for_h3 else {
+                        return ShutdownResult::Timeout;
+                    };
                     let shared_service = service.clone();
                     let tcp = accept::accept_loop_multi(
-                        tcp_listener,
-                        tcp_addr_for_h3,
+                        tcp_listener.zip(tcp_addr_for_h3),
                         #[cfg(unix)]
                         unix_listener,
                         endpoints_for_task,
@@ -744,8 +748,7 @@ impl Server {
                     };
                 }
                 accept::accept_loop_multi(
-                    tcp_listener,
-                    tcp_addr,
+                    tcp_listener.zip(tcp_addr),
                     #[cfg(unix)]
                     unix_listener,
                     endpoints_for_task,

@@ -320,7 +320,7 @@ fn scalar_conversions_round_trip() {
     let s = StatusCode::new(429).unwrap();
     assert_eq!(status_from_http(status_to_http(s)).unwrap(), s);
     assert_eq!(
-        version_from_http(version_to_http(HttpVersion::Http2)).unwrap(),
+        version_from_http(version_to_http(HttpVersion::Http2).unwrap()).unwrap(),
         HttpVersion::Http2
     );
 }

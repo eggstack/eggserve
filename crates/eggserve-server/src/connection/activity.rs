@@ -239,6 +239,11 @@ impl ConnectionActivity {
     /// Returns `true` when all tunnels drained cleanly, `false` on timeout
     /// (remainders aborted). Called by the driver after Hyper completion and
     /// on total/shutdown paths so tunnels never outlive the connection task.
+    ///
+    /// NOTE (B77): the `tunnels` mutex is held across the bounded
+    /// `join_next` wait, briefly blocking `spawn_tunnel`. The drain runs
+    /// after the service returned (no concurrent spawns expected), so the
+    /// hold is bounded by the drain deadline, never unbounded.
     pub(crate) async fn drain_tunnels(
         self: &Arc<Self>,
         deadline: Option<tokio::time::Instant>,

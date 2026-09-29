@@ -98,13 +98,13 @@ pub(crate) fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), Se
         ));
     }
 
-    // Non-numeric Content-Length is malformed framing, not "no body".
+    // Non-numeric Content-Length is malformed framing (RFC 9110 §8.6
+    // `1*DIGIT`), not "no body". Digit-only: rejects the leading `+` that
+    // `u64::from_str` would accept, shared with the static planner.
     if let Some(first) = cl_first {
-        let valid = first
-            .to_str()
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .is_some();
+        let valid = first.to_str().ok().is_some_and(|s| {
+            !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) && s.parse::<u64>().is_ok()
+        });
         if !valid {
             return Err(ServiceError::rejected(400, "invalid Content-Length"));
         }
@@ -363,9 +363,14 @@ pub(crate) fn convert_request_head(
 
     let is_h2 = version == HttpVersion::Http2;
 
-    // HTTP/1 absolute-form is intentionally not accepted. HTTP/2 carries
-    // scheme and authority as pseudo-fields, which Hyper represents on the
-    // URI; validate the scheme against the transport context instead.
+    // HTTP/1 absolute-form is intentionally not accepted on the compat
+    // path (origin-only). The direct H1 runtime defaults to the same
+    // `OriginOnly` rejection; its opt-in `OriginOrAbsolute` mode is a
+    // direct-only forward-proxy seam (static stays origin-only per Plan
+    // 278), so default configs agree wire-for-wire here.
+    // HTTP/2 carries scheme and authority as pseudo-fields, which Hyper
+    // represents on the URI; validate the scheme against the transport
+    // context instead.
     if !is_h2 && req.uri().scheme_str().is_some() {
         return Err(ServiceError::rejected(
             400,

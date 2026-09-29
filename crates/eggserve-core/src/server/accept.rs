@@ -51,8 +51,7 @@ pub(super) fn config_http3_enabled(config: &RuntimeConfig) -> bool {
 /// promptly and undispatched transports are dropped.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn accept_loop_multi<S: Service>(
-    tcp_listener: Option<TcpListener>,
-    tcp_addr: Option<std::net::SocketAddr>,
+    tcp: Option<(TcpListener, std::net::SocketAddr)>,
     #[cfg(unix)] unix_listener: Option<tokio::net::UnixListener>,
     endpoints: Vec<crate::server::listener::BoundEndpoint>,
     config: Arc<RuntimeConfig>,
@@ -103,15 +102,17 @@ pub(super) async fn accept_loop_multi<S: Service>(
     let has_unix = unix_listener.is_some();
     #[cfg(not(unix))]
     let has_unix = false;
-    let has_tcp = tcp_listener.is_some();
+    let has_tcp = tcp.is_some();
     debug_assert!(has_tcp || has_unix, "accept loop needs a listener");
 
     loop {
         // `pending()` branches keep `select!` well-formed when a family is
-        // absent (Unix-only or TCP-only servers).
+        // absent (Unix-only or TCP-only servers). `tcp` is a single paired
+        // `Option<(Listener, Addr)>` so a listener always carries its bind
+        // address (no parallel-`Option` mispair).
         let tcp_accept = async {
-            match &tcp_listener {
-                Some(l) => l.accept().await.map(|(s, p)| (Some(s), p)),
+            match tcp.as_ref() {
+                Some((l, _)) => l.accept().await.map(|(s, p)| (Some(s), p)),
                 None => {
                     std::future::pending::<
                         Result<
@@ -139,7 +140,12 @@ pub(super) async fn accept_loop_multi<S: Service>(
             result = tcp_accept => {
                 match result {
                     Ok((Some(stream), peer_addr)) => {
-                        let tcp_bind = tcp_addr.expect("tcp listener has an addr");
+                        // Safe by construction: a TCP stream implies `tcp`
+                        // is `Some`, carrying the paired bind address.
+                        let Some((_, tcp_bind)) = tcp.as_ref() else {
+                            continue;
+                        };
+                        let tcp_bind = *tcp_bind;
                         handle_tcp_accept(
                             stream,
                             peer_addr,

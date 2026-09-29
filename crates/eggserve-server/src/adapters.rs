@@ -147,6 +147,12 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
             .map_err(|never| match never {})
             .boxed_unsync(),
         Some(ResponseBody::File(source)) => {
+            // NOTE (B75): the file permit is held until the stream `Drop`
+            // (up to `response_write_timeout` on a stalled client), so 32
+            // stalled downloads 503 new file responses. Releasing on
+            // first-byte or a separate download budget needs a new admission
+            // API — out of scope here; size `max_file_streams` for stall
+            // concurrency.
             let permit = semaphore
                 .map(|s| s.clone().try_acquire_owned())
                 .transpose()
@@ -527,6 +533,9 @@ impl futures_util::Stream for ResponseStreamAdapter {
         // Body phase: poll byte stream while present. Empty chunks are
         // skipped synchronously (loop to re-poll) without re-arming the
         // waker, so a producer yielding empties cannot spin wake→poll→wake.
+        // Bound consecutive empties (B76): yield `Pending` past the bound so
+        // a `b''`-yielding producer cannot hot-spin the executor/GIL.
+        let mut empty_runs: u32 = 0;
         while self.inner.is_some() {
             // Borrow dance: take inner temporarily to allow trailer handling
             // after EOF without holding the borrow across `self` mutation.
@@ -561,6 +570,11 @@ impl futures_util::Stream for ResponseStreamAdapter {
                 }
                 TaskPoll::Ready(Some(Ok(chunk))) => {
                     if chunk.is_empty() {
+                        empty_runs += 1;
+                        if empty_runs > 32 {
+                            cx.waker().wake_by_ref();
+                            return TaskPoll::Pending;
+                        }
                         continue;
                     }
                     let mut chunk = chunk;

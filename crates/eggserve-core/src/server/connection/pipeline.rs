@@ -493,7 +493,24 @@ where
             // no second bridge) before sending the validated handshake.
             // Ordinary denial (nothing staged) uses the normal path.
             if let Some(sidecar) = tunnel_sidecar {
-                let acceptance = sidecar.lock().ok().and_then(|mut slot| slot.take());
+                // A poisoned sidecar (prior panic while holding the lock)
+                // must fail closed: the service may have staged a tunnel
+                // acceptance and returned a handshake, so falling through to
+                // the ordinary response path would silently downgrade it.
+                let acceptance = match sidecar.lock() {
+                    Ok(mut slot) => slot.take(),
+                    Err(_) => {
+                        ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Error,
+                                crate::ops::EventKind::ServiceError,
+                                "tunnel sidecar lock poisoned; failing closed",
+                            )
+                            .connection_id(conn_id),
+                        );
+                        return crate::response::internal_error_with_policy(error_policy);
+                    }
+                };
                 if let Some(acceptance) = acceptance {
                     match tunnel_lifecycle {
                         Some(lifecycle) => {
@@ -768,14 +785,18 @@ where
 
             // TRACE content remains a transport-level rejection. Other
             // methods, including GET, HEAD, and DELETE, are governed by the
-            // service-declared policy below.
+            // service-declared policy below. `Content-Length` is digit-only
+            // (RFC 9110 §8.6 `1*DIGIT`); H2 TE is exempt (no H2 framing).
             if head.method().as_str() == "TRACE"
                 && (req
                     .headers()
                     .get(hyper::header::CONTENT_LENGTH)
                     .and_then(|value| value.to_str().ok())
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .is_some_and(|length| length > 0)
+                    .is_some_and(|s| {
+                        !s.is_empty()
+                            && s.bytes().all(|b| b.is_ascii_digit())
+                            && s.parse::<u64>().is_ok_and(|length| length > 0)
+                    })
                     || (head.version() != crate::primitives::version::HttpVersion::Http2
                         && req.headers().contains_key(hyper::header::TRANSFER_ENCODING)))
             {
@@ -836,34 +857,35 @@ where
             // polls or buffers request DATA.
             let body_is_end_stream = http_body::Body::is_end_stream(&body);
 
-            // Validate body framing (TE+CL conflict, duplicate CL) for all methods.
-            if head.version() != crate::primitives::version::HttpVersion::Http2 {
-                if let Err(e) = validate_body_framing(&parts.headers) {
-                    ops.counters()
-                        .parser_rejects
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    ops.emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Debug,
-                            crate::ops::EventKind::ParserRejection,
-                            format!("parser rejection: {e}"),
-                        )
-                        .connection_id(conn_id),
-                    );
-                    let is_head = head.method().is_head();
-                    return Ok::<_, Infallible>(finish_response(
-                        guard,
-                        super::response::service_error_to_response(
-                            &e,
-                            is_head,
-                            config.response_policy.error_policy,
-                        ),
-                        &config,
-                        conn_id,
-                        is_h2,
-                        LifecycleDisposition::KEEP_ALIVE,
-                    ));
-                }
+            // Validate body framing (TE+CL conflict, duplicate CL) for all methods
+            // on all versions (parity with the direct H1 authority): H2 can
+            // carry DATA without Content-Length (see `body_is_end_stream`
+            // above), but conflicting/duplicate framing is still rejected.
+            if let Err(e) = validate_body_framing(&parts.headers) {
+                ops.counters()
+                    .parser_rejects
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::ParserRejection,
+                        format!("parser rejection: {e}"),
+                    )
+                    .connection_id(conn_id),
+                );
+                let is_head = head.method().is_head();
+                return Ok::<_, Infallible>(finish_response(
+                    guard,
+                    super::response::service_error_to_response(
+                        &e,
+                        is_head,
+                        config.response_policy.error_policy,
+                    ),
+                    &config,
+                    conn_id,
+                    is_h2,
+                    LifecycleDisposition::KEEP_ALIVE,
+                ));
             }
 
             let declared_length = parts
@@ -907,68 +929,71 @@ where
             }
 
             // Expect handling (Plan 198 Track F): deterministic with body policy.
-            // - Unknown (non-100-continue) expectations fail with 417 without
-            //   inviting the body.
-            // - `Reject` + `100-continue` is rejected early (413) without
-            //   encouraging the client to send the body.
-            // - `Buffer`/`Stream` + `100-continue` is accepted: Hyper owns wire
-            //   `100` emission when the body is polled; EggServe owns the policy
-            //   decision. App-generated 100s via the interim capability never
-            //   duplicate the runtime `100` on the wire (interims are validated
-            //   and recorded; Hyper server APIs own emission where permitted).
-            if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
+            // All `Expect` field lines are examined; any non-empty,
+            // non-`100-continue` token (including opaque bytes) fails with
+            // 417 without inviting the body. Empty `Expect:` is ignored.
+            let mut has_100_continue = false;
+            let mut has_unknown_expect = false;
+            for expect in parts.headers.get_all(hyper::header::EXPECT).iter() {
                 let value = match expect.to_str() {
                     Ok(v) => v.trim(),
                     Err(_) => "",
                 };
                 let opaque = expect.to_str().is_err();
                 if opaque || (!value.eq_ignore_ascii_case("100-continue") && !value.is_empty()) {
-                    ops.emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Debug,
-                            crate::ops::EventKind::ExpectationFailed,
-                            "unknown Expect header",
-                        )
-                        .connection_id(conn_id),
-                    );
-                    let response = crate::response::expectation_failed_with_policy(
-                        false,
-                        config.response_policy.error_policy,
-                    );
-                    return Ok::<_, Infallible>(finish_response(
-                        guard,
-                        response,
-                        &config,
-                        conn_id,
-                        is_h2,
-                        LifecycleDisposition::KEEP_ALIVE,
-                    ));
+                    has_unknown_expect = true;
+                    break;
                 }
-                if effective_policy.is_reject() && value.eq_ignore_ascii_case("100-continue") {
-                    ops.counters()
-                        .body_rejections
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    ops.emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Debug,
-                            crate::ops::EventKind::BodyPolicyRejection,
-                            "100-continue rejected by body policy",
-                        )
-                        .connection_id(conn_id),
-                    );
-                    let response = crate::response::payload_too_large_with_policy(
-                        is_head,
-                        config.response_policy.error_policy,
-                    );
-                    return Ok::<_, Infallible>(finish_response(
-                        guard,
-                        response,
-                        &config,
-                        conn_id,
-                        is_h2,
-                        LifecycleDisposition::close_and_cancel_body(),
-                    ));
+                if value.eq_ignore_ascii_case("100-continue") {
+                    has_100_continue = true;
                 }
+            }
+            if has_unknown_expect {
+                ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::ExpectationFailed,
+                        "unknown Expect header",
+                    )
+                    .connection_id(conn_id),
+                );
+                let response = crate::response::expectation_failed_with_policy(
+                    false,
+                    config.response_policy.error_policy,
+                );
+                return Ok::<_, Infallible>(finish_response(
+                    guard,
+                    response,
+                    &config,
+                    conn_id,
+                    is_h2,
+                    LifecycleDisposition::KEEP_ALIVE,
+                ));
+            }
+            if effective_policy.is_reject() && has_100_continue {
+                ops.counters()
+                    .body_rejections
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::BodyPolicyRejection,
+                        "100-continue rejected by body policy",
+                    )
+                    .connection_id(conn_id),
+                );
+                let response = crate::response::payload_too_large_with_policy(
+                    is_head,
+                    config.response_policy.error_policy,
+                );
+                return Ok::<_, Infallible>(finish_response(
+                    guard,
+                    response,
+                    &config,
+                    conn_id,
+                    is_h2,
+                    LifecycleDisposition::close_and_cancel_body(),
+                ));
             }
 
             // Handle Reject policy — reject without invoking the service,
@@ -1050,20 +1075,32 @@ where
                 RequestBodyPolicy::Reject => crate::primitives::request_body::RequestBody::empty(),
                 RequestBodyPolicy::Buffer { max_bytes }
                 | RequestBodyPolicy::Stream { max_bytes } => {
-                    let slot = crate::primitives::request_body::new_wire_slot();
-                    let (stream, slot) = wrap_incoming_body_with_trailers(body, slot);
-                    // Shared allocation so `RequestBody` and `RequestLifecycle`
-                    // observe the same ownership state.
-                    let shared = crate::primitives::request_lifecycle::RequestShared::new_active();
-                    // `requests` registry needs the shared observer; register
-                    // after construction below via the body's shared clone.
-                    crate::primitives::request_body::RequestBody::from_incoming_with_shared_and_wire_slot(
-                        stream,
-                        declared_length,
-                        *max_bytes,
-                        shared,
-                        slot,
-                    )
+                    // Provably-empty fast path (parity with the direct H1
+                    // authority): `is_end_stream` means no wire bytes can
+                    // follow, so use a `Complete` empty body rather than
+                    // wrapping `Incoming` (which would require a poll to
+                    // complete). Preserves keep-alive for bodyless requests
+                    // without weakening framing safety.
+                    if body_is_end_stream {
+                        drop(body);
+                        crate::primitives::request_body::RequestBody::empty()
+                    } else {
+                        let slot = crate::primitives::request_body::new_wire_slot();
+                        let (stream, slot) = wrap_incoming_body_with_trailers(body, slot);
+                        // Shared allocation so `RequestBody` and `RequestLifecycle`
+                        // observe the same ownership state.
+                        let shared =
+                            crate::primitives::request_lifecycle::RequestShared::new_active();
+                        // `requests` registry needs the shared observer; register
+                        // after construction below via the body's shared clone.
+                        crate::primitives::request_body::RequestBody::from_incoming_with_shared_and_wire_slot(
+                            stream,
+                            declared_length,
+                            *max_bytes,
+                            shared,
+                            slot,
+                        )
+                    }
                 }
             };
 
@@ -1109,9 +1146,30 @@ where
                     // Buffer: body is fully consumed during pre-buffering.
                     // No incomplete body handling needed. Trailers are
                     // preserved via `read_all_with_trailers` (not discarded).
-                    let body_limit = match effective_policy {
-                        RequestBodyPolicy::Buffer { max_bytes } => max_bytes,
-                        _ => unreachable!("buffer branch requires a buffer policy"),
+                    // Fail closed if the effective policy ever diverges (no
+                    // `unreachable!` panic on a hot path).
+                    let RequestBodyPolicy::Buffer {
+                        max_bytes: body_limit,
+                    } = effective_policy
+                    else {
+                        ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Error,
+                                crate::ops::EventKind::ServiceError,
+                                "buffer branch without buffer policy; failing closed",
+                            )
+                            .connection_id(conn_id),
+                        );
+                        return Ok::<_, Infallible>(finish_response(
+                            guard,
+                            crate::response::internal_error_with_policy(
+                                config.response_policy.error_policy,
+                            ),
+                            &config,
+                            conn_id,
+                            is_h2,
+                            LifecycleDisposition::KEEP_ALIVE,
+                        ));
                     };
                     let request_body = match tokio::time::timeout(
                         body_read_timeout,

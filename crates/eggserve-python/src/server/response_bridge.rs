@@ -25,6 +25,9 @@ pub struct PyResponse {
     pub(super) status: u16,
     #[pyo3(get)]
     pub(super) headers: HashMap<String, String>,
+    // NOTE (B84): `frozen` + `Mutex<Option>` interior mutation is by-design
+    // one-shot (`Send`-only): concurrent Python threads racing `take` see
+    // `already consumed`. Do not share bodies/responses across threads.
     pub(crate) body: std::sync::Mutex<PyResponseBody>,
     pub(crate) extra_headers: Vec<(String, String)>,
 }

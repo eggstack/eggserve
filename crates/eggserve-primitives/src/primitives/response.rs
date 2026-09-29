@@ -99,6 +99,11 @@ pub struct FileRange {
 
 impl FileRange {
     /// Construct a byte range whose length is representable as a `u64`.
+    ///
+    /// NOTE (B89): this panics only on the single unrepresentable pair
+    /// `(0, u64::MAX)`; all other inputs are infallible. Prefer
+    /// [`FileRange::try_new`] when the endpoints are untrusted so the
+    /// failure is returned instead of panicking.
     pub fn new(start: u64, end_inclusive: u64) -> Self {
         let range = Self {
             start,

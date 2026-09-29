@@ -24,6 +24,12 @@ use eggserve_primitives::request_body::RequestBody;
 use super::errors::{RawBodyError, raw_body_error_to_pyerr};
 
 pub(super) const PYTHON_STREAM_CHANNEL_BOUND: usize = 16;
+/// Per-send split for Python stream chunks: a single huge `bytes` object
+/// occupies one channel slot, so split at the bridge (64 KiB, same as the
+/// tunnel frame bound) with backpressure per piece. The in-flight bound is
+/// then `16 × 64 KiB` plus the single chunk being split, instead of
+/// `16 × huge`.
+pub(super) const PYTHON_STREAM_CHUNK_SPLIT_BYTES: usize = 64 * 1024;
 
 /// `Stream` adapter over the bounded producer channel.
 ///
@@ -62,6 +68,11 @@ impl futures_util::Stream for PythonReceiverStream {
 /// receiver; the next send fails and this thread exits, releasing all
 /// `PyObject` references promptly.
 ///
+/// NOTE (B57): the producer `JoinHandle` is intentionally detached
+/// (untracked by `ServerHandle::wait()`); an infinite `__next__` parks this
+/// thread past `wait()` until the receiver is dropped. Keep response
+/// iterables finite.
+///
 /// Non-bytes items and iterator exceptions become stream errors: the wire
 /// sees a truncated/closed connection and diagnostics carry only the
 /// sanitized exception type name, never request/response content.
@@ -97,6 +108,10 @@ pub(super) fn spawn_python_stream_producer(
                 return;
             }
         };
+        // Bound consecutive `b''` yields (B76): each `Empty` re-attaches the
+        // GIL for the next `__next__`; yield the thread past the bound so a
+        // `b''`-yielding producer cannot hot-spin CPU/GIL.
+        let mut empty_runs: u32 = 0;
         loop {
             // Pull one item under the GIL and copy bytes to Rust.
             enum Pulled {
@@ -135,11 +150,17 @@ pub(super) fn spawn_python_stream_producer(
                         } else if let Ok(buffer) =
                             pyo3::buffer::PyBuffer::<u8>::get(&item)
                         {
-                            let data = buffer.to_vec(py).unwrap_or_default();
-                            if data.is_empty() {
-                                Pulled::Empty
-                            } else {
-                                Pulled::Chunk(data)
+                            // A failed buffer export must fail the stream, not
+                            // silently drop the chunk short (fail-closed).
+                            match buffer.to_vec(py) {
+                                Ok(data) => {
+                                    if data.is_empty() {
+                                        Pulled::Empty
+                                    } else {
+                                        Pulled::Chunk(data)
+                                    }
+                                }
+                                Err(_) => Pulled::ItemError("PyBuffer".to_string()),
                             }
                         } else {
                             Pulled::NonBytes
@@ -161,10 +182,32 @@ pub(super) fn spawn_python_stream_producer(
             });
             match pulled {
                 Pulled::Finished => break,
-                Pulled::Empty => continue,
+                Pulled::Empty => {
+                    empty_runs += 1;
+                    if empty_runs > 32 {
+                        std::thread::yield_now();
+                        empty_runs = 0;
+                    }
+                    continue;
+                }
                 Pulled::Chunk(data) => {
-                    let bytes = Bytes::from(data);
-                    if sender.blocking_send(Ok(bytes)).is_err() {
+                    empty_runs = 0;
+                    let mut bytes = Bytes::from(data);
+                    // Byte-bound the 16-slot count cap: split huge chunks so
+                    // slow clients apply backpressure per 64 KiB piece.
+                    while !bytes.is_empty() {
+                        let take = bytes.len().min(PYTHON_STREAM_CHUNK_SPLIT_BYTES);
+                        let piece = bytes.split_to(take);
+                        if sender.blocking_send(Ok(piece)).is_err() {
+                            break;
+                        }
+                        // `blocking_send` fails only when the receiver is
+                        // gone; break the outer loop via a flag check.
+                        if sender.is_closed() {
+                            break;
+                        }
+                    }
+                    if sender.is_closed() {
                         break;
                     }
                 }

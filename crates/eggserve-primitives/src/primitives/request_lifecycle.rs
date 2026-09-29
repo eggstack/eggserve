@@ -1,5 +1,9 @@
 //! Transport-neutral request lifecycle signaling (Plan 174).
 //!
+//! NOTE (B69): lock-poison fallbacks (dropped trailers/unwoken waiters as
+//! empty) mean a prior panic already fired; this neutral layer stays
+//! fail-closed with no second log (no `OpsContext` here).
+//!
 //! [`RequestLifecycle`] is a cloneable per-request observer that becomes
 //! ready when the peer disconnects or the runtime cancels the request or
 //! connection. It is transport-neutral: no Hyper, socket, or executor type
@@ -89,7 +93,11 @@ impl Future for Notified<'_> {
             return Poll::Ready(());
         }
         if let Ok(mut waiters) = self.notify.waiters.lock() {
-            waiters.push(cx.waker().clone());
+            // Bound growth (B82/O7): dedup by `will_wake` so frequent polling
+            // cannot grow an unbounded `Vec<Waker>`.
+            if !waiters.iter().any(|w| w.will_wake(cx.waker())) {
+                waiters.push(cx.waker().clone());
+            }
         }
         if self.notify.generation.load(Ordering::Acquire) != self.generation {
             Poll::Ready(())

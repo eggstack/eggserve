@@ -141,6 +141,9 @@ fn drain_and_validate_wire_slot(
     wire_slot: &WireTrailerSlot,
     limits: &TrailerLimits,
 ) -> Result<Option<Trailers>, String> {
+    // Poison means a prior panic while holding the lock already fired (and
+    // was contained/logged at that boundary); treat as absent trailers
+    // fail-closed (B69) — no second log from this transport-neutral layer.
     let wire = wire_slot.lock().ok().and_then(|mut g| g.take());
     let Some(wire) = wire else {
         return Ok(None);
@@ -634,6 +637,25 @@ impl RequestBody {
             }
             BodyInner::Incoming { mut stream } => {
                 let mut buf = Vec::new();
+                // Pre-reserve from the declared length (bounded by the
+                // effective ceiling) so a small-chunk stream does not
+                // reallocate per chunk; `try_reserve` fails closed instead
+                // of aborting on a hostile declaration.
+                if let Some(declared) = self.declared_length {
+                    let reserve = declared.min(self.max_bytes);
+                    if reserve > 0 {
+                        if let Ok(reserve_usize) = usize::try_from(reserve) {
+                            if buf.try_reserve(reserve_usize).is_err() {
+                                self.state = BodyState::Error;
+                                self.shared.mark_failed();
+                                return Err(RequestBodyError::LimitExceeded {
+                                    limit: self.max_bytes,
+                                    received: reserve,
+                                });
+                            }
+                        }
+                    }
+                }
                 use futures_util::StreamExt;
                 while let Some(item) = stream.next().await {
                     let chunk = match item {

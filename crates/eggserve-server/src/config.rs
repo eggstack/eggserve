@@ -136,6 +136,12 @@ pub struct RuntimeConfig {
     /// Default: 60s. `Duration::ZERO` explicitly disables this ceiling;
     /// independent idle, request, write, and shutdown bounds remain active.
     ///
+    /// Footgun: `ZERO` combined with full externalization of every other
+    /// deadline (`H1PolicyOwnership` all-`External`) leaves no EggServe-owned
+    /// backstop — a hanging `Service::call` pins the connection task until
+    /// peer/shutdown. Keep at least one EggServe-owned deadline when `ZERO`
+    /// is set (the driver logs a warning in this configuration).
+    ///
     /// Maximum connection lifetime shared across all requests on a
     /// keep-alive connection, not reset per request.
     pub connection_total_timeout: Duration,

@@ -30,7 +30,9 @@ use crate::errors::ServerError;
 /// [`crate::connection::serve_http1_connection`] must share one
 /// `RuntimeState` across all of their connections rather than constructing
 /// one per connection; otherwise file/response/service budgets become
-/// per-connection instead of server-wide. It owns only transport-runtime
+/// per-connection instead of server-wide (NOTE B74: per-connection
+/// construction is a footgun — `max_file_streams`/`max_in_flight`/
+/// `max_active_tunnels` become per-conn; share one `Arc`). It owns only transport-runtime
 /// admission (file-stream permits and in-flight service permits); it never
 /// owns static filesystem state or application routing state.
 #[derive(Debug, Clone)]
@@ -78,6 +80,7 @@ impl RuntimeState {
     /// is returned instead of panicking. Validation happens before any
     /// semaphore construction so invalid values cannot trigger obscure
     /// downstream panics.
+    #[track_caller]
     pub fn new(config: &RuntimeConfig) -> Self {
         Self::try_new(config).expect("invalid RuntimeConfig for RuntimeState")
     }

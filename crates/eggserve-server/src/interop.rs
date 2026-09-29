@@ -209,15 +209,19 @@ pub fn status_from_http(
 ///
 /// The four modeled versions map exactly. `HttpVersion` is
 /// `#[non_exhaustive]` for downstream matching; a future variant added in
-/// the owning crate maps to `HTTP_11` rather than panicking so ecosystem
-/// conversions fail safe.
-pub fn version_to_http(version: HttpVersion) -> http::Version {
+/// the owning crate fails closed with [`InteropError::InvalidVersion`]
+/// rather than silently downgrading to HTTP/1.1.
+///
+/// # Errors
+///
+/// Returns [`InteropError::InvalidVersion`] for unknown future versions.
+pub fn version_to_http(version: HttpVersion) -> Result<http::Version, InteropError> {
     match version {
-        HttpVersion::Http10 => http::Version::HTTP_10,
-        HttpVersion::Http11 => http::Version::HTTP_11,
-        HttpVersion::Http2 => http::Version::HTTP_2,
-        HttpVersion::Http3 => http::Version::HTTP_3,
-        _ => http::Version::HTTP_11,
+        HttpVersion::Http10 => Ok(http::Version::HTTP_10),
+        HttpVersion::Http11 => Ok(http::Version::HTTP_11),
+        HttpVersion::Http2 => Ok(http::Version::HTTP_2),
+        HttpVersion::Http3 => Ok(http::Version::HTTP_3),
+        _ => Err(InteropError::InvalidVersion),
     }
 }
 
@@ -376,7 +380,7 @@ pub fn request_head_to_http(
 ) -> Result<http::Request<()>, InteropError> {
     let method = method_to_http(head.method())?;
     let uri = request_target_to_uri(head.target())?;
-    let version = version_to_http(head.version());
+    let version = version_to_http(head.version())?;
     let mut builder = http::Request::builder()
         .method(method)
         .uri(uri)
@@ -402,6 +406,11 @@ pub fn request_head_to_http(
 /// normalized. Headers map through byte-preserving validation. When the
 /// request carries [`RawTargetExt`], its exact bytes are preferred over the
 /// `http::Uri` rendering for fidelity.
+///
+/// NOTE (B63): a Tower middleware `Uri` rewrite is a no-op on the
+/// `RawTargetExt` path — the preserved raw target wins and the mutated `Uri`
+/// is ignored. Middleware that must change the target should replace or
+/// remove `RawTargetExt` as well.
 ///
 /// # Errors
 ///
@@ -449,10 +458,18 @@ pub fn request_head_from_http<B>(
         }
         if let Some(host) = first_host {
             let parsed = Authority::parse(host).map_err(|_| InteropError::InvalidAuthority)?;
-            if parsed != ext.0.clone().unwrap_or(parsed.clone()) {
-                return Err(InteropError::InvalidAuthority);
+            match &ext.0 {
+                Some(expected) => {
+                    if parsed != *expected {
+                        return Err(InteropError::InvalidAuthority);
+                    }
+                    ext.0.clone()
+                }
+                // No explicit authority but a middleware-added `Host` is
+                // present: adopt it (same as the no-extension arm) rather
+                // than silently dropping a present `Host`.
+                None => Some(parsed),
             }
-            ext.0.clone()
         } else {
             ext.0.clone()
         }
@@ -745,11 +762,18 @@ where
             // `Pin<Box<B>>` polls without requiring `B: Unpin`. Empty data
             // frames are skipped synchronously (loop to re-poll) without
             // re-arming the waker, so empty producers cannot spin wake→poll.
+            // Bound consecutive empties (B76): yield `Pending` past the bound.
+            let mut empty_runs: u32 = 0;
             loop {
                 match self.body.as_mut().poll_frame(cx) {
                     Poll::Ready(Some(Ok(frame))) => {
                         if let Some(data) = frame.data_ref() {
                             if data.is_empty() {
+                                empty_runs += 1;
+                                if empty_runs > 32 {
+                                    cx.waker().wake_by_ref();
+                                    return Poll::Pending;
+                                }
                                 continue;
                             }
                             let chunk = data.clone();
@@ -1010,7 +1034,10 @@ mod tests {
 
     #[test]
     fn version_round_trip() {
-        assert_eq!(version_to_http(HttpVersion::Http11), http::Version::HTTP_11);
+        assert_eq!(
+            version_to_http(HttpVersion::Http11).unwrap(),
+            http::Version::HTTP_11
+        );
         assert_eq!(
             version_from_http(http::Version::HTTP_2).unwrap(),
             HttpVersion::Http2

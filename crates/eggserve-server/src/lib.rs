@@ -375,13 +375,32 @@ impl Server {
 
             // The durable state makes every relay task take this path even
             // when it starts after shutdown. Keep the accept task alive until
-            // every runtime-owned connection task has released its permit.
-            while let Some(result) = tasks.join_next().await {
-                if result.is_err() && terminal_error.is_none() {
-                    terminal_error = Some(ServerError::Terminal(
-                        "runtime-owned connection task panicked or was cancelled".into(),
-                    ));
+            // every runtime-owned connection task has released its permit,
+            // bounded by the configured graceful-shutdown budget so one stuck
+            // driver cannot pin `wait()` forever (past-deadline remainders
+            // are aborted and reported as `ShutdownResult::Timeout`).
+            let drain_budget = config.graceful_shutdown_timeout;
+            let drain = async {
+                while let Some(result) = tasks.join_next().await {
+                    if result.is_err() && terminal_error.is_none() {
+                        terminal_error = Some(ServerError::Terminal(
+                            "runtime-owned connection task panicked or was cancelled".into(),
+                        ));
+                    }
                 }
+            };
+            let timed_out = tokio::time::timeout(drain_budget, drain).await.is_err();
+            if timed_out {
+                ops.emit(ops::Event::new(
+                    ops::Severity::Warn,
+                    ops::EventKind::ForcedShutdownStarted,
+                    "graceful shutdown drain budget expired; aborting stalled connections",
+                ));
+                tasks.abort_all();
+                while tasks.join_next().await.is_some() {}
+            }
+            if timed_out {
+                return Ok(ShutdownResult::Timeout);
             }
             match terminal_error {
                 Some(error) => Err(error),
