@@ -146,7 +146,7 @@ def use_async_responses() -> None:
 
 
 async def use_async_server(server: lowlevel.AsyncServer) -> None:
-    assert_type(server.addr, tuple[str, int] | None)
+    assert_type(server.addr, str | None)
     assert_type(server.max_async_tasks, int)
     task: asyncio.Task[Any] = asyncio.ensure_future(asyncio.sleep(0))
     assert_type(server.track(task), asyncio.Task[Any])

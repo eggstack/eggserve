@@ -1,6 +1,6 @@
 # Deployment Guide
 
-eggserve is a hardened static file server intended for local development, internal tools, and controlled environments. Production deployment is defined through explicit profiles — see README.md for the full profile table. This guide covers common deployment patterns.
+eggserve is a hardened static file server intended for local development, internal tools, and controlled environments. Production deployment is defined through the explicit profiles below (`unix-reverse-proxy`, `unix-direct-https`). This guide covers common deployment patterns.
 
 ## Pattern 1: Local-only HTTP
 
@@ -66,7 +66,7 @@ remains `BLOCKED` on upstream `h3#338`/`h3#262`; see the
 
 When eggserve runs behind a reverse proxy, raw connection metadata (`remote_addr`, `local_addr`, `scheme`, `tls`) always reflects the **transport peer** — the proxy's address, not the end client's. Forwarding signals are untrusted by default.
 
-Opt-in Plan 202 trusted-proxy policy (`RuntimeConfig.trusted_proxy`: explicit IP/CIDR peers with no implicit loopback trust, optional Unix local-trust flag, optional PROXY v1/v2 preamble before TLS/HTTP, optional `Forwarded` / `X-Forwarded-*` single-hop policy with hard size/element bounds and conflict fail-closed) populates provenance-tagged effective fields (`effective_client`/`effective_scheme`/`effective_authority` with `proxy_v1`/`proxy_v2`/`forwarded`/`legacy_forwarded` provenance) without rewriting the canonical `Host`/target. Use the effective accessors for secure-cookie, URL-construction, logging, rate-limit, and allowlist decisions only when the immediate peer is explicitly trusted; otherwise keep validating headers in your service layer. H3 ignores this policy (separately specified datagram proxying is out of scope).
+Opt-in Plan 202 trusted-proxy policy (Rust `RuntimeConfig.trusted_proxy`, Python `lowlevel` `trusted_proxies`: explicit IP/CIDR peers with no implicit loopback trust, optional Unix local-trust flag, optional PROXY v1/v2 preamble before TLS/HTTP, optional `Forwarded` / `X-Forwarded-*` single-hop policy with hard size/element bounds and conflict fail-closed) populates provenance-tagged effective fields (Rust `effective_client` / Python `effective_addr`, plus `effective_scheme`/`effective_authority`, with `proxy_v1`/`proxy_v2`/`forwarded`/`legacy_forwarded` provenance) without rewriting the canonical `Host`/target. Use the effective accessors for secure-cookie, URL-construction, logging, rate-limit, and allowlist decisions only when the immediate peer is explicitly trusted; otherwise keep validating headers in your service layer. H3 ignores this policy (separately specified datagram proxying is out of scope).
 
 ### Body handling behind a reverse proxy
 
@@ -74,7 +74,7 @@ eggserve rejects request bodies by default (safe default). When a reverse proxy 
 
 ### Production profile: unix-reverse-proxy
 
-The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. External qualification evidence collection is pending; the profile remains functional until all gates pass. See README.md for the full specification.
+The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. External qualification evidence collection is pending; the profile remains functional until all gates pass. Per-profile defaults are tabulated below.
 
 ### Production profile: unix-direct-https
 
@@ -84,8 +84,8 @@ build with `http2,tls` can negotiate H2 via ALPN, but remains experimental and
 is not an edge platform — no ACME/PKI automation, but Plan 203 SNI
 multi-identity, WebPKI mTLS, verified metadata, and atomic reload are available
 in the Rust substrate (CLI stays single-identity). Linux wire qualification passes; broad client/platform qualification
-and a safe public per-stream reset hook remain open. See README.md for the
-full specification. The opt-in `http3` build is similarly Rust-only and
+and a safe public per-stream reset hook remain open. Per-profile defaults
+are tabulated below. The opt-in `http3` build is similarly Rust-only and
 experimental; deploy it only where the operator accepts the Plan 188
 qualification boundary and the absence of general H3 support claims (H3 keeps a
 separate QUIC identity; TCP reload does not atomically rotate H3).
@@ -113,9 +113,9 @@ Independent budgets for connections, in-flight service work, parser memory, and 
 Notes:
 
 - **Reverse-proxy production** favors persistent connections, bounded parser memory, meaningful service concurrency, and idle/write-stall defense. Raise the total lifetime into the hours so it acts purely as defense-in-depth; the idle and write timers bound routine use. Keep `header-timeout` at or above the proxy's keep-alive gap, otherwise Hyper closes healthy idle connections and they count as header timeouts.
-- **Direct TLS** uses the same core bounds plus the existing TLS handshake budget (`--tls-*`, 10s default).
+- **Direct TLS** uses the same core bounds plus the existing TLS handshake budget (10s code default; no CLI flag).
 - **Embedded anonymity-sensitive** uses stricter open-connection, header, keep-alive, request-count, and write-stall bounds suitable for resource-constrained direct origins. This is still not rate limiting: all clients share the same generic resource budgets — there are no per-IP/client/user token buckets, authentication quotas, or reputation logic anywhere in the core.
-- Every production claim must name a profile from the production profiles table in README.md. Hardened profiles must not allow symlink following.
+- Every production claim must name a profile from the production profiles defined in this guide. Hardened profiles must not allow symlink following.
 
 ### Performance evidence boundary
 
@@ -215,7 +215,7 @@ A common setup for small deployments:
 - eggserve does **not** implement ACME. Use certbot, Caddy's built-in ACME, or your hosting provider's certificate management.
 - For production, always prefer a mature TLS terminator unless eggserve's native TLS is sufficient for your threat model.
 - Never expose eggserve directly to the public internet without proper TLS and access control.
-- Every production deployment must name a profile from the production profiles table in README.md. No document should claim production support without naming the profile.
+- Every production deployment must name a profile from the production profiles defined in this guide. No document should claim production support without naming the profile.
 - **Directory listing is opt-in and disabled by default.** When enabled with `--directory-listing`, it exposes file names and directory structure. Listing responses are bounded (max 4096 entries, 1 MiB body). Symlink entries are hidden from listings by default. Do not enable directory listing for untrusted content without understanding the information disclosure implications.
 - **Connection metadata is transport-peer metadata by default.** `remote_addr` on the `Request` object reflects the TCP peer address (proxy address when behind a reverse proxy). Use provenance-tagged effective fields only under an explicit Plan 202 trusted-proxy policy; otherwise validate proxy headers in your service layer. See “Connection metadata behind a reverse proxy” above.
 

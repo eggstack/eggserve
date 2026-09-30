@@ -9,7 +9,7 @@ Canonical direction remains in:
 - `plans/002-long-term-roadmap.md`
 - `plans/003-planning-process.md`
 
-New milestone numbers continue from `303`. Legacy flat plans (`000`–`292`) and `release/plan-*.md` are archived in place and immutable.
+New milestone numbers continue from `304`. Legacy flat plans (`000`–`292`) and `release/plan-*.md` are archived in place and immutable.
 
 ## Status vocabulary
 
@@ -48,6 +48,7 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Docs architecture | 301 | closed | `plans/implementation/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md` | Done; closure: `plans/closure/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md`. |
 | Direct H1 runtime | 300 | active | `plans/implementation/direct-h1-runtime/300-release-0-4-0-publication.md` | Operational publication: 0.4.0 line (primitives 0.2.2; server/static/h3/core 0.4.0; bin 0.2.2) + wheel 0.2.4; tag `v0.4.0`; TestPyPI→PyPI. |
 | Planning governance | 302 | closed | `plans/implementation/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | Done; closure: `plans/closure/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` (docs-only 0.4.0-line sweep). |
+| Docs architecture | 303 | closed | `plans/implementation/docs-architecture/303-readme-quickstart-user-docs-accuracy.md` | Done; closure: `plans/closure/docs-architecture/303-readme-quickstart-user-docs-accuracy.md` (README quickstart rewrite + user-docs accuracy). |
 
 ## Blocked work
 

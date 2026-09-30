@@ -151,10 +151,16 @@ python examples/python_custom_headers.py
 
 ## Rust library
 
-The Rust examples are Cargo examples and use only public `eggserve-core` APIs.
-They default to `127.0.0.1:8000`, accept an optional bind address as their
-second argument, and shut down gracefully on Ctrl+C. Passing
-`127.0.0.1:0` makes the operating system choose a free port.
+The Rust examples use only public APIs: `eggserve-core` for the
+composition examples, and `eggserve-server` directly for the
+`caller_owned` downstream-embedding demo. The server examples
+(`static_server`, `custom_service`, `streaming_service`,
+`application_service`, `custom_headers`, `https_server`) default to
+`127.0.0.1:8000` and accept an optional bind address as their second
+argument; `caller_owned_stream`, `caller_owned`, and `primitives` bind no
+socket (caller-owned transport / one request / no listener) and take no
+bind argument. Passing `127.0.0.1:0` to the server examples makes the
+operating system choose a free port.
 
 ### Static server: `static_server.rs`
 

@@ -23,6 +23,15 @@ cargo install --path crates/eggserve-bin   # CLI from source
 
 ## Quick start
 
+### CLI
+
+```sh
+eggserve --directory ./public                              # loopback, static only
+eggserve --directory ./public --public --addr 0.0.0.0:8080 # explicit public bind
+```
+
+See [CLI reference](docs/cli.md).
+
 ### Python
 
 Static files with the familiar `http.server` shape:
@@ -79,46 +88,15 @@ intentional `http.server` deviations.
 
 ### Rust
 
-Choose the crate profile that matches the server you are building. Use
-`eggserve-server` for a direct H1 application service, optionally with Tower;
-use `eggserve-core` for compatibility, static, or multiprotocol composition.
-Core intentionally retains the static-serving dependency closure.
-
-For a composed/static server:
+Use `eggserve-core` for compatibility, static, or multiprotocol
+composition; use `eggserve-server` (+ `eggserve-primitives`) for a direct
+H1 application service, optionally with Tower.
 
 ```toml
 [dependencies]
 eggserve-core = "0.4"
 tokio = { version = "1", features = ["full"] }
 ```
-
-For a generic supervised H1 daemon using native services, depend on
-`eggserve-server`, `eggserve-primitives`, and Tokio. The direct `tower` feature
-was first published in `eggserve-server 0.3.0` with registry-only consumer proof
-(see `release/plan-286-embedding-contract-publication-closure.md`); it adapts
-Tower/Axum without depending on `eggserve-core` or `eggserve-static`:
-
-```toml
-[dependencies]
-eggserve-server = { version = "0.4", default-features = false, features = ["tower"] }
-tokio = { version = "1", features = ["full"] }
-```
-
-Direct H1 hosts retain the 64 KiB parser buffer and 100-header defaults;
-`max_buf_size` must remain at least 8192 and `max_headers` positive, while
-larger explicit values are operator resource choices. The direct connection
-policy also offers opt-in ownership of the aggregate post-parse header-byte
-ceiling and of Date/Server metadata on successful service responses. Runtime
-errors, response framing, and the stripped-header denylist remain EggServe-owned.
-These ownership and parser-range APIs ship in `eggserve-server
-0.4.0` (introduced in `0.3.1`); registry-only evidence is recorded in the Plan 291 closure.
-
-The direct handle can be
-split into independent shutdown control and typed completion; setting
-`connection_total_timeout(Duration::ZERO)` opts out of only the 60-second
-total-lifetime ceiling. Other request, idle, write, admission, and shutdown
-bounds remain. The combined leaf-only fixture is
-[`downstream_embedding.rs`](crates/eggserve-server/tests/downstream_embedding.rs).
 
 Serve a confined static directory:
 
@@ -162,18 +140,13 @@ handle.ready().await?;
 # }
 ```
 
-H1 is the supported transport; H2/H3 are opt-in and experimental. See
-[public API boundary](docs/public-api-boundary.md) and
+H1 is the supported transport; H2/H3 are opt-in and experimental.
+Embedding detail (timeouts, response policy, Tower adapters, downstream
+contracts) lives in [deployment](docs/deployment.md),
+[timeouts](docs/timeout-reference.md),
+[interop](docs/http-interop.md),
+[public API boundary](docs/public-api-boundary.md), and
 [downstream app servers](docs/downstream-app-server.md).
-
-### CLI
-
-```sh
-eggserve --directory ./public            # loopback, static only
-eggserve --directory ./public --public --port 8080   # explicit public bind
-```
-
-See [CLI reference](docs/cli.md).
 
 ## Examples
 

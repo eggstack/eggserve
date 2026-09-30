@@ -1,6 +1,6 @@
 # Docs Architecture Roadmap
 
-Status: closed
+Status: closed (Milestones 293, 301, 303 closed)
 
 Long-term references:
 
@@ -161,3 +161,4 @@ requirement-to-evidence matrix accepted; registry + roadmap status updated.
 |---|---|---|---|---|
 | 293 | closed | `plans/implementation/docs-architecture/293-architecture-overview-deep-dive-refresh.md` | `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md` | — |
 | 301 | closed | `plans/implementation/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md` | `plans/closure/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md` | — |
+| 303 | closed | `plans/implementation/docs-architecture/303-readme-quickstart-user-docs-accuracy.md` | `plans/closure/docs-architecture/303-readme-quickstart-user-docs-accuracy.md` | — |
