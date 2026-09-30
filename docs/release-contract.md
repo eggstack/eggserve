@@ -2,9 +2,9 @@
 
 This document defines the exact product surface, behavioral guarantees, and compatibility commitments for eggserve's first public release. It is the normative reference for what eggserve ships, what is stable, what is experimental, and what is internal.
 
-Development metadata: per-crate versions (`eggserve-server 0.3.1`,
-`eggserve-static`/`eggserve-h3`/`eggserve-core 0.3.0`,
-`eggserve-primitives 0.2.1`, `eggserve-bin 0.2.1`, Python wheel `0.2.3`;
+Development metadata: per-crate versions (`eggserve-server`/
+`eggserve-static`/`eggserve-h3`/`eggserve-core 0.4.0`,
+`eggserve-primitives 0.2.2`, `eggserve-bin 0.2.2`, Python wheel `0.2.4`;
 see `crates/*/Cargo.toml`). This line carries the intentional pre-1.0
 `0.1.x` → `0.2.0` transition and must not be published as a 0.1.x patch
 release.
@@ -13,8 +13,9 @@ Stable Rust API changes follow the pre-1.0 rule in
 [api-stability.md](api-stability.md): patch releases preserve source
 compatibility; an intentional breaking change requires an explicit minor
 transition, release notes, and migration guidance. The current `main` tree
-carries the outbound response-conversion transition on the `0.2.0`
-release line; it is not a patch-level compatibility promise for `0.1.x`.
+is on the `0.4.x` release line; the outbound response-conversion transition
+(Plan 171) shipped in the `0.2.0` line. It is not a patch-level compatibility
+promise for `0.1.x`.
 
 Request-body behavior is service-owned. The built-in static service rejects
 body-bearing requests, while custom services may declare buffering or streaming

@@ -161,4 +161,4 @@ suites.
 * [crate-topology.md](crate-topology.md) — Plan 221/225/249/276 gates
 * [security-model.md](security-model.md) — safe defaults behind the flags
 * [overview.md](overview.md) — crate map and request lifecycle
-* `../release/plan-286-embedding-contract-publication-closure.md` — `0.2.2` publication evidence (Plan 300; Plan 286 published `0.2.1`)
+* `../release/plan-286-embedding-contract-publication-closure.md` — `0.3.0`-line publication evidence (Plan 286; the `0.4.0` publication is Plan 300, active)

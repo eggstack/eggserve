@@ -1,6 +1,6 @@
 # Planning Governance Roadmap
 
-Status: closed
+Status: closed (Milestones 1 and 302 closed)
 
 Long-term references:
 
@@ -95,6 +95,28 @@ User or operator value: handoff agents see one truthful source of active work an
 
 Exit conditions: Milestone 298 closure record proves Plan 292 acceptance, registry/roadmaps agree, stale 297 blocker text is gone, agent guidance uses durable hierarchy pointers, and no legacy plan/runtime file is changed.
 
+### Milestone 302 — Agent/skill/docs staleness sweep (0.4.0 line)
+
+Class: polish
+
+Objective: sweep version drift left after Plans 293–301 moved the tree to
+the 0.4.0 line (skill text, `AGENTS.md`, `README.md`, `docs/`,
+`architecture/`, registry next-number). Docs-only; no behavior, API,
+dependency, or tier change.
+
+Dependencies: closed 293–301 state + active Plan 300 versions as review
+input (interface only).
+
+Deliverable boundary: skill/agent-guide/docs/architecture/planning-metadata
+text only; implementation plan + closure record + registry update.
+
+User or operator value: future agents work from accurate, non-stale sources
+(dependency snippets that resolve, status labels that match the registry).
+
+Exit conditions: every finding in the 302 implementation plan §3 corrected
+with manifest/registry evidence; topology + conformance-matrix gates pass;
+`cargo fmt --check` passes; registry + closure record complete.
+
 ## 8. Cross-cutting requirements
 
 ### Storage and migration
@@ -144,3 +166,4 @@ The planning-governance roadmap closes when Milestone 298 has an accepted closur
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | 1 | closed | `plans/implementation/planning-governance/298-planning-control-surface-reconciliation.md` | `plans/closure/planning-governance/298-planning-control-surface-reconciliation.md` | — |
+| 302 | closed | `plans/implementation/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | `plans/closure/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | — |

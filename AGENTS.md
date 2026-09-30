@@ -54,7 +54,9 @@ checks before builds). Full sequence lives in `.github/workflows/ci.yml`
 ```
 
 Focused runs: `cargo test -p <name>`; single test: `cargo test -p <name> <test_name>`.
-`fast` skips MSRV (`cargo +1.89`) checks and TLS-only `eggserve-bin` tests.
+`fast` keeps the `cargo +1.89` interop/tower checks but skips the workspace-wide
+MSRV matrix (`--workspace`, `http2`, `http3`), the wheel-matrix/release-workflow
+self-tests, and TLS-only `eggserve-bin` tests that CI runs.
 
 ```sh
 bash scripts/install-cargo-tools.sh     # required first; pinned audit/deny tools
@@ -82,7 +84,8 @@ push/tag/merge ever publishes.
   (`aws-lc-rs` is intentionally allowed: dev-only `rcgen` unification,
   production `cargo tree -e no-dev` is ring-only).
 - Stripped CLI: `cargo build --profile dist --locked -p eggserve-bin [--features tls]`.
-- Per-crate versions differ (e.g. `server 0.3.1`, `core/static/h3 0.3.0`); check
+- Per-crate versions differ (e.g. `server/static/h3/core 0.4.0`, `primitives 0.2.2`,
+  `bin 0.2.2`, wheel `0.2.4`); check
   `crates/*/Cargo.toml`, never assume workspace version. Never publish this API
   line as `0.1.x`. Every performance/release claim names a profile
   (`docs/deployment.md`) + evidence.

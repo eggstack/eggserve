@@ -231,7 +231,7 @@ Backoff is per path and interruptible by shutdown via `tokio::select!`:
 ## Example Events
 
 ```json
-{"schema_version":1,"severity":"INFO","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.3.0 starting","fields":[{"version":"0.3.0"},{"bind":"127.0.0.1:8000"},{"root":"./public"},{"symlinks":"denied"},{"dotfiles":"denied"}]}
+{"schema_version":1,"severity":"INFO","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.2.2 starting","fields":[{"version":"0.2.2"},{"bind":"127.0.0.1:8000"},{"root":"./public"},{"symlinks":"denied"},{"dotfiles":"denied"}]}
 ```
 
 ```json

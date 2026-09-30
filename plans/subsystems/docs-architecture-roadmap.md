@@ -59,8 +59,9 @@ wins.
 `architecture/overview.md` already has the Plan 259–260 index shape (crate
 overviews, capability map, tool map, deep-dive index, lifecycle diagrams)
 over 26 architecture files. Plans 270–291 (supervisory completion, adapter
-extraction, embedding policy ownership, boundary-ownership follow-up) need a
-systematic freshness pass across the deep dives.
+extraction, embedding policy ownership, boundary-ownership follow-up) needed
+a systematic freshness pass across the deep dives (done: closed Milestones
+293 at the 0.3.x baseline and 301 at the 0.4.0 baseline).
 
 ## 5. Target architecture
 
@@ -72,7 +73,7 @@ recording discrepancies as findings rather than silent scope expansion.
 
 ```text
 Milestone 293 (overview + deep-dive refresh, closed at 0.3.x baseline)
-Milestone 301 (overview + deep-dive refresh to 0.4.0 baseline, active)
+Milestone 301 (overview + deep-dive refresh to 0.4.0 baseline, closed)
 ```
 
 No hard dependencies (docs-only, closed 294–299 code state + active Plan 300

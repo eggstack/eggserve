@@ -140,9 +140,9 @@ qualifies the combined embedding contract (caller-owned Rustls/Tokio-Rustls
 TLS fixture, no core/static/PHF ancestry on the direct graph) and selects
 `0.3.0` because exhaustive `RuntimeConfig` literals and direct users of the
 service/tunnel semaphore accessors are source-incompatible. Plan 286
-publishes `primitives 0.2.1` + `server 0.3.1` + `static`/`h3`/`core 0.3.0` +
-`bin 0.2.1` with registry-only consumer proof; report the direct registry
-path as available only at these published versions.
+publishes `primitives 0.2.1` + `server`/`static`/`h3`/`core 0.3.0` +
+`bin 0.2.1` with registry-only consumer proof (see
+`release/plan-286-embedding-contract-publication-closure.md`).
 
 Plans 288–291 extend only the direct H1 boundary: the old 4 MiB / 10,000
 parser values are conservative guidance rather than validator maxima (retain
@@ -155,6 +155,18 @@ framing and denylist runtime-owned, default/high-level behavior unchanged,
 H2/H3 untouched. The published `eggserve-server 0.3.1` APIs are registry-
 qualified by the direct, TLS-H1, Tower, and core consumers in the Plan 291
 closure record.
+
+Plans 293–302 are docs/agent-surface only (no behavior, ownership, or tier
+change): 293/301 refresh the architecture overview + deep dives to the
+0.3.x/0.4.0 baselines; 294–297 close the direct-H1 polish campaign; 298
+reconciles the planning control surface; 299 repairs the H1 response-trailer
+wire (F3); 300 (active) publishes the 0.4.0 line (`server`/`static`/`h3`/
+`core 0.4.0`, `primitives 0.2.2`, `bin 0.2.2`, wheel `0.2.4`); 302 sweeps
+skill/agent-guide/docs/architecture version drift onto that line. Report the
+direct registry path as available at the 0.4.0-line versions once Plan 300
+publishes; until then the registry-qualified leaves remain `server 0.3.1` +
+`static`/`h3`/`core 0.3.0` + `primitives 0.2.1` + `bin 0.2.1` (Plans
+286/291).
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`

@@ -15,10 +15,10 @@ registry-only consumer proof (see
 the published leaves; the staged-package validation uses these direct imports.
 
 ```toml
-eggserve-server = { version = "0.3", default-features = false, features = ["http-interop"] }
-eggserve-server = { version = "0.3", default-features = false, features = ["tower"] }
+eggserve-server = { version = "0.4", default-features = false, features = ["http-interop"] }
+eggserve-server = { version = "0.4", default-features = false, features = ["tower"] }
 # Compatibility/static/multiprotocol composition:
-eggserve-core = { version = "0.3", features = ["tower"] }
+eggserve-core = { version = "0.4", features = ["tower"] }
 ```
 
 `eggserve-server` owns the interop and Tower implementations. The historical

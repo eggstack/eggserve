@@ -26,7 +26,7 @@ migrates planning itself to the CodeGG-style hierarchy (`plans/README.md` +
 `closure/`/`adrs/`/`archive/`; legacy flat plans + `release/` archived in place).
 Plan 293 (overview index + all deep dives refreshed, docs-only) is closed;
 Plan 301 (overview index + all deep dives refreshed to the 0.4.0 baseline,
-docs-only) is active; new work is tracked in `plans/registry.md` (the next-number/current-work authority).
+docs-only) is closed; new work is tracked in `plans/registry.md` (the next-number/current-work authority).
 H1 + canonical `primitives` are supported; `server`/H2/H3/
 tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remain
 experimental. `plans/ROADMAP.md` and the flat `plans/NNN-*.md` files are change-trace records, not normative

@@ -348,7 +348,7 @@ Additive only; the Plan 175 common path is preserved.
 ## Plan 171: outbound response conversion boundary
 
 
-### Release note for the next `0.2.0` minor transition
+### Release note for the `0.2.0` minor transition (historical)
 
 Plan 169 changed the implementation of `primitives::to_hyper_response()` to
 support the stable one-owner `ResponseStream` contract: producers are `Send`

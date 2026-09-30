@@ -88,7 +88,7 @@ For a composed/static server:
 
 ```toml
 [dependencies]
-eggserve-core = "0.3"
+eggserve-core = "0.4"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -100,7 +100,7 @@ Tower/Axum without depending on `eggserve-core` or `eggserve-static`:
 
 ```toml
 [dependencies]
-eggserve-server = { version = "0.3", default-features = false, features = ["tower"] }
+eggserve-server = { version = "0.4", default-features = false, features = ["tower"] }
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -110,8 +110,8 @@ larger explicit values are operator resource choices. The direct connection
 policy also offers opt-in ownership of the aggregate post-parse header-byte
 ceiling and of Date/Server metadata on successful service responses. Runtime
 errors, response framing, and the stripped-header denylist remain EggServe-owned.
-These ownership and parser-range APIs are published in `eggserve-server
-0.3.1`; registry-only evidence is recorded in the Plan 291 closure.
+These ownership and parser-range APIs ship in `eggserve-server
+0.4.0` (introduced in `0.3.1`); registry-only evidence is recorded in the Plan 291 closure.
 
 The direct handle can be
 split into independent shutdown control and typed completion; setting

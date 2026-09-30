@@ -9,7 +9,7 @@ Canonical direction remains in:
 - `plans/002-long-term-roadmap.md`
 - `plans/003-planning-process.md`
 
-New milestone numbers continue from `293`. Legacy flat plans (`000`–`292`) and `release/plan-*.md` are archived in place and immutable.
+New milestone numbers continue from `303`. Legacy flat plans (`000`–`292`) and `release/plan-*.md` are archived in place and immutable.
 
 ## Status vocabulary
 
@@ -47,6 +47,7 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Direct H1 runtime | 299 | closed | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | Done; closure: `plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md`. F3 wire repair landed; no publication. |
 | Docs architecture | 301 | closed | `plans/implementation/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md` | Done; closure: `plans/closure/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md`. |
 | Direct H1 runtime | 300 | active | `plans/implementation/direct-h1-runtime/300-release-0-4-0-publication.md` | Operational publication: 0.4.0 line (primitives 0.2.2; server/static/h3/core 0.4.0; bin 0.2.2) + wheel 0.2.4; tag `v0.4.0`; TestPyPI→PyPI. |
+| Planning governance | 302 | closed | `plans/implementation/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | Done; closure: `plans/closure/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` (docs-only 0.4.0-line sweep). |
 
 ## Blocked work
 
@@ -63,6 +64,7 @@ No blocked milestones. Plans 298 and 299 are closed; Plan 300 is active (operati
 | Docs architecture overview + deep dives (301) | closed | `plans/closure/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md` (docs-only; overview index + all deep dives refreshed to 0.4.0 baseline). |
 | Direct application-server polish (294–297) | closed | `plans/closure/direct-h1-runtime/294-direct-tower-footprint-baseline.md`; `295-direct-tower-hotpath-optimization.md`; `296-direct-profile-footprint-capability-split.md`; `297-direct-application-server-qualification-closure.md`. P1/P2/WP-A retained; file/tunnel splits NO-GO; publication deferred. |
 | Response-trailer F3 | closed | `plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` (wire repair landed; deferred Tower rendezvous untouched; no publication). |
+| Agent/skill/docs staleness sweep (302) | closed | `plans/closure/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` (docs-only; skill + AGENTS.md + docs/README + architecture version strings onto the 0.4.0 line; registry next-number → 303). |
 
 ## Legacy trace pointer
 

@@ -13,7 +13,7 @@ implementations and leftover dependencies are removed, and the topology
 gate rejects silent re-expansion (see
 `../release/plan-225-compatibility-facade-closure.md`). Plan 226 executes
 the `0.2.0` version transition and the Rust 1.89 MSRV move with no
-ownership change. The crate is now at `0.3.0`: additive `0.2.1` (Plan 272
+ownership change: additive `0.2.1` (Plan 272
 downstream embedding qualification), core-only `0.2.2` Tower repair (Plans
 274–275), and the `0.3.0` breaking embedding contract (Plans 285–286),
 carried forward on the `0.4.0` line via Plan 300 (active publication:
