@@ -270,7 +270,15 @@ Performance snapshots and the regression/claims policy live in
 `benchmarks/233-evidence-polish/`, `benchmarks/234-fixed-cost-baseline/`,
 and `benchmarks/240-fixed-cost-closure/`. The full evidence index (including
 `benchmarks/241-fixed-cost-evidence-corrective/` and `benchmarks/binary-size.md`
-for Plan 109) is `benchmarks/README.md`.
+for Plan 109, plus `benchmarks/294-direct-tower-baseline/`,
+`benchmarks/295-direct-tower-optimization/`,
+`benchmarks/296-direct-profile-footprint/`,
+`benchmarks/297-application-server-qualification/` for Plans 294–297) is
+`benchmarks/README.md`. Routine-CI server suites backing those snapshots:
+`crates/eggserve-server/tests/direct_tower_baseline_294.rs`,
+`direct_tower_hotpath_295.rs`, and
+`application_server_qualification_297.rs` (plus `h1_response_trailers_299.rs`
+for the Plan 299 F3 wire repair).
 
 Plan 232 adds a mandatory forced-over-capacity file-read regression to the
 direct server adapter tests. Its manual evidence compares 64 KiB and 128 KiB

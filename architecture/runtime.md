@@ -497,7 +497,9 @@ on the same canonical service pipeline:
 
 All paths then share the same steps:
 
-4. Protocol selection and connection setup via Hyper: direct H1 uses the
+4. Protocol selection and connection setup: on the core compatibility path,
+    selection (`Auto`/preface/ALPN/`WireProtocol`) runs before any Hyper
+    service exists and direct H1 assumes pre-selected H1 via Hyper. Direct H1 uses the
     Plan 282 `H1ConnectionPolicy` projection of the runtime config
     (`RuntimeConfig::h1_connection_policy()`, projected once at the
     accept loop; see `crates/eggserve-server/src/config.rs`). The narrow
@@ -552,7 +554,7 @@ selector lives only in `eggserve-core` compatibility.
 | `lifecycle.rs` | Live-request registry + abnormal-termination cancellation (contextual) |
 | `activity.rs` | Connection deadlines, request/response activity identities, in-flight admission guard, tracked response bodies; carries the connection's `OpsContext` |
 | `transport.rs` | `ProgressIo` read/write progress observation |
-| `driver.rs` | HTTP/1 and feature-gated HTTP/2 builders, protocol selection, graceful close/GOAWAY, outcome classification, deadline/select loop (observability via activity's context) |
+| `driver.rs` | H1-only builder, deadline/select loop, graceful close, outcome classification (observability via activity's context); H2 selection/execution stays compatibility-owned (core drives H2 plus `Auto`/replay classifier) |
 | `pipeline.rs` | `CanonicalHyperService`, body preparation, and the single shared service-invocation kernel (explicit `OpsContext` parameter) |
 | `request.rs` | Target/header ceilings, framing checks, body-policy selection, body bridge (contextual rejections) |
 | `response.rs` | Normalization, panic containment, body-error mapping, neutral dispositions, final privacy, and the HTTP/1 disposition adapter; contextual streaming/file conversion |
@@ -561,8 +563,10 @@ selector lives only in `eggserve-core` compatibility.
 Dependency direction is acyclic: `pipeline`/`driver` depend on the rest,
 `activity` depends on `response` (final privacy only), and nothing depends
 back on `pipeline`/`driver` except the facade. Hyper types stay out of public
-signatures; HTTP/1 upgrade machinery and H2 extended CONNECT/upgrade paths are
-not enabled.
+signatures; H1 upgrade machinery is enabled (`.with_upgrades()`; validated
+intent becomes a one-shot tunnel capability, Plan 216). H2 Extended CONNECT
+lives in core compatibility and H3 extended connect in `eggserve-h3`; there
+is no `Upgrade: h2c` path.
 
 ### Transport-neutral connection driver (Plan 163)
 

@@ -1,6 +1,6 @@
 # eggserve-server
 
-`eggserve-server 0.3.1` is the single mature H1 runtime and transport
+`eggserve-server 0.4.0` is the single mature H1 runtime and transport
 boundary (Plans 215–217, 243–250, 270–286). It owns the H1 driver,
 `Service` contract, tunnel execution, per-runtime observability vocabulary,
 response privacy, shared limit kernel, supervisory completion, external
@@ -13,7 +13,9 @@ static orchestration.
 
 Depends on `eggserve-primitives` plus transport deps (`bytes`,
 `futures-util`, `http-body`, `http-body-util`, `httpdate`, `hyper`
-http1/server, `hyper-util`, `tokio`) — never `eggserve-core`,
+http1/server, `hyper-util`, `tokio`) plus optional `http`, `tower-service`,
+`tower-layer` (only under `http-interop`/`tower`; `tower` no longer activates
+`tower-layer` per 296 WP-A) — never `eggserve-core`,
 `eggserve-static`, PHF, `eggnet-tls`, or QUIC. `http2`/`tls` are inert
 compatibility feature names; `http-interop`/`tower` are opt-in only.
 Direct native graph has no core/static/PHF ancestry (Plan 286 registry

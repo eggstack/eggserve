@@ -202,7 +202,7 @@ crates/eggserve-python/
     └── py.typed        # PEP 561 typed-package marker
 ```
 
-The Python distribution stays at `0.2.3` (the Rust side tracks the `0.3.0`
+The Python distribution is at `0.2.4` (the Rust side tracks the `0.4.0`
 leaves); no new protocol is surfaced to Python — the facade remains H1-only.
 
 ## Security boundary

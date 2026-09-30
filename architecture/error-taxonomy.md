@@ -1,6 +1,6 @@
 # Error Taxonomy Deep Dive
 
-eggserve uses five distinct error layers, each scoped to a specific subsystem. This separation ensures that errors carry precise context and map cleanly to HTTP responses without leaking internal details.
+eggserve uses five distinct error layers plus one presentation-only rejection hook, each scoped to a specific subsystem. This separation ensures that errors carry precise context and map cleanly to HTTP responses without leaking internal details.
 
 ## Error Layers Overview
 
@@ -20,7 +20,7 @@ The four `ServiceError` kinds (`Internal`, `Rejected(u16)`, `Panic`, `Timeout`) 
 
 **Location:** `eggserve-static::path::rejected` (facade: `eggserve-core::primitives`)
 
-Returned by the 6-stage path validation pipeline when a request target fails any validation check. These are the first errors a request encounters and prevent any filesystem access.
+Returned by the 5-stage path validation pipeline (+ `ConfinedPath` construction) when a request target fails any validation check. These are the first errors a request encounters and prevent any filesystem access.
 
 | Variant | Meaning | Example Trigger |
 |---------|---------|-----------------|
@@ -31,7 +31,7 @@ Returned by the 6-stage path validation pipeline when a request target fails any
 | `InvalidUtf8` | Path contains invalid UTF-8 | Raw bytes in URL |
 | `NulByte` | Path contains `%00` | `GET /%00/etc/passwd` |
 | `ControlCharacter` | Path contains a control character | Raw `0x01`–`0x1F` / `0x7F` byte in target |
-| `AbsolutePath` | Path starts with `/` after decode | Absolute path injection |
+| `AbsolutePath` | (reserved, `#[allow(dead_code)]`, never constructed) | Absolute path injection |
 | `ParentComponent` | Path contains `..` | `GET /../../../etc/passwd` |
 | `CurrentComponent` | Path contains `.` | `GET /./etc/passwd` |
 | `SeparatorAmbiguity` | Backslash or mixed separators | `GET /foo\bar` |

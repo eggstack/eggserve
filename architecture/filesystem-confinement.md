@@ -114,6 +114,7 @@ pub(crate) struct ResolvedDirectory {
     dir_handle: OwnedHandle,       // Windows: retained directory handle for child resolution
     canonical_path: PathBuf,       // canonicalized directory path
     components: Vec<String>,       // path components relative to root
+    reject_backslash: bool,        // captured PathPolicy backslash rule
 }
 ```
 

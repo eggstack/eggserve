@@ -32,7 +32,9 @@ Live server/connection execution resolves observability through an explicit
   connection pipeline, deferred-body supervision, and lifecycle cancellation
   all resolve events, counters, and correlation IDs through it.
 - `ServerBuilder::ops_context(..)` attaches a context to a direct TCP-only
-  H1 server; the built-in `StaticService` is wired to the same context.
+  H1 server (direct `Server` has no built-in static service — services only
+  attach via `start_with_service(S)`; the built-in `StaticService`
+  convenience lives on compatibility `ServerBuilder`).
   `ServerHandle` retains it for inspection. TLS/Unix/systemd/H3 event
   detail (`tls_handshake_*`, `protocol_negotiated h2`, Alt-Svc
   advertisement) is core/`eggserve-h3` compatibility-owned, not direct.
@@ -106,7 +108,7 @@ Every operational event has:
 - `client_disconnect` — client disconnected (Debug severity)
 - `connection_panic` — handler panic contained
 
-### Request/Service
+### Request/Service (selected; see `crates/eggserve-server/src/ops/events.rs` for the full streaming/trailer/interim/tunnel/proxy kinds)
 - `request_completed` — request finished with status, bytes, duration
 - `file_not_found` — path resolved but file not found (sanitized path field)
 - `file_denied` — access denied (dotfile/symlink/policy)
@@ -161,9 +163,10 @@ need isolated sinks use `OpsContext` with `ServerBuilder::ops_context` /
 
 ## Operational Counters
 
-`OpsCounters` tracks (per runtime context; `global_counters()` is the
+`OpsCounters` tracks a selected set (per runtime context; `global_counters()` is the
 process-global default's set, and `RuntimeState::ops_snapshot()` /
-`ServerHandle::ops_snapshot()` read a single runtime's set):
+`ServerHandle::ops_snapshot()` read a single runtime's set; see
+`crates/eggserve-server/src/ops/counters.rs` for the full streaming/deferred/lifecycle/tunnel/proxy fields):
 - `connections_accepted` — TCP connections accepted
 - `connections_rejected` — connections rejected by admission limit
 - `active_connections` — currently active connections

@@ -25,7 +25,8 @@ migrates planning itself to the CodeGG-style hierarchy (`plans/README.md` +
 `registry.md` + `000`–`003` canonical docs + `subsystems/`/`implementation/`/
 `closure/`/`adrs/`/`archive/`; legacy flat plans + `release/` archived in place).
 Plan 293 (overview index + all deep dives refreshed, docs-only) is closed;
-new work is tracked in `plans/registry.md` (the next-number/current-work authority).
+Plan 301 (overview index + all deep dives refreshed to the 0.4.0 baseline,
+docs-only) is active; new work is tracked in `plans/registry.md` (the next-number/current-work authority).
 H1 + canonical `primitives` are supported; `server`/H2/H3/
 tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remain
 experimental. `plans/ROADMAP.md` and the flat `plans/NNN-*.md` files are change-trace records, not normative
@@ -57,10 +58,19 @@ TunnelIo direct-transport KEEP (Plan 284), embedding-contract qualification
 (Plan 285), and publication of `primitives 0.2.1` + `server`/`static`/`h3`/
 `core 0.3.0` + `bin 0.2.1` with registry-only proof (Plan 286; see
 [the closure evidence](../release/plan-286-embedding-contract-publication-closure.md)).
-Current versions: `eggserve-server` at `0.3.1`, `eggserve-static`/
-`eggserve-h3`/`eggserve-core` at `0.3.0`, `eggserve-primitives` at `0.2.1`,
-`eggserve-bin` at `0.2.1`, `eggserve-python` wheel at `0.2.3`
-(Plans 288–291 extend only the direct H1 boundary).
+Plans 294–297 close the direct application-server polish campaign (tower
+footprint baseline + hot-path optimization + profile/footprint split +
+application-server qualification; file/tunnel splits NO-GO, publication
+deferred) and Plan 299 repairs the H1 response-trailer F3 wire path with no
+publication. Plan 300 (active) publishes the 0.4.0 line
+(`primitives 0.2.2`, `server`/`static`/`h3`/`core 0.4.0`, `bin 0.2.2`, wheel
+`0.2.4`) with registry-only proof; see
+`plans/implementation/direct-h1-runtime/300-release-0-4-0-publication.md`.
+Current versions: `eggserve-server`/`eggserve-static`/
+`eggserve-h3`/`eggserve-core` at `0.4.0`, `eggserve-primitives` at `0.2.2`,
+`eggserve-bin` at `0.2.2`, `eggserve-python` wheel at `0.2.4`
+(Plans 288–291 extend only the direct H1 boundary; 296 WP-A tower edge and
+299 F3 trailer repair ride the 0.4.0 minor).
 
 ## What eggserve Is
 
@@ -177,7 +187,7 @@ eggserve-core           (compatibility umbrella; facades over the leaves + H2/TL
 |-------|---------------------|-----------|
 | `eggnet-tls` | Neutral rustls identity/trust/client-auth/reload substrate: bounded PEM parsing, key/cert pairing, SNI (exact + single-level wildcard), WebPKI mTLS modes, trust/CRL bounds, atomic reload snapshots, neutral ALPN hook. No HTTP, Tokio, QUIC, proxy, or filesystem-watcher dependency; production graph is `rustls` + `rustls-pki-types` only. | [eggnet-tls.md](eggnet-tls.md), [tls.md](tls.md) |
 | `eggserve-primitives` | Canonical transport-neutral request/response/body/lifecycle/policy model: `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `Request`/`RequestBody`/`RequestContext`/`RequestLifecycle`, `StatusCode`, `ResponseHead`/`ResponseBody`/`Response`, `BodyLength`, trailers/interim, proxy metadata, tunnel vocabulary, `StaticPolicy`, `Limits`. Small transport-neutral deps only (`bytes`, `futures-util`). | [eggserve-primitives.md](eggserve-primitives.md), [primitives-api.md](primitives-api.md) |
-| `eggserve-server` | Single mature H1 connection runtime and transport boundary (`0.3.1`): strict-H1 driver over any `AsyncRead + AsyncWrite` stream, single `Service` contract (+ additive `call_with_tunnel`), `RuntimeConfig`/`RuntimeState` admission pool, per-connection shutdown, listener TCP `Server`, tunnel execution (incl. Plan 284 direct opaque `TunnelIo`), `OpsContext` authority, response policy, shared limit kernel. Plans 270/280–283 add supervisory `ServerControl`/`ServerCompletion`, external policy/admission ownership with narrow `H1ConnectionPolicy` projection, typed rejection presentation, and opt-in absolute-form dispatch (Plan 278). Plans 288–291 add wider explicit parser ranges plus external aggregate-header and successful service Date/Server ownership. Plans 276–277 add opt-in `http-interop` and Tower adapters for direct H1 composition. Depends on primitives plus transport deps (`hyper`, `tokio`, …); never on static/core. `http2`/`tls` are inert compatibility feature names (H1-only crate). | [eggserve-server.md](eggserve-server.md), [runtime.md](runtime.md) |
+| `eggserve-server` | Single mature H1 connection runtime and transport boundary (`0.4.0`): strict-H1 driver over any `AsyncRead + AsyncWrite` stream, single `Service` contract (+ additive `call_with_tunnel`), `RuntimeConfig`/`RuntimeState` admission pool, per-connection shutdown, listener TCP `Server`, tunnel execution (incl. Plan 284 direct opaque `TunnelIo`), `OpsContext` authority, response policy, shared limit kernel. Plans 270/280–283 add supervisory `ServerControl`/`ServerCompletion`, external policy/admission ownership with narrow `H1ConnectionPolicy` projection, typed rejection presentation, and opt-in absolute-form dispatch (Plan 278). Plans 288–291 add wider explicit parser ranges plus external aggregate-header and successful service Date/Server ownership. Plans 276–277 add opt-in `http-interop` and Tower adapters for direct H1 composition (296 WP-A: `tower` no longer activates `tower-layer`). Plan 299 repairs the H1 response-trailer F3 wire path (`TrailerDeclaration`, declared-trailer framing). Depends on primitives plus transport deps (`hyper`, `tokio`, …); never on static/core. `http2`/`tls` are inert compatibility feature names (H1-only crate). | [eggserve-server.md](eggserve-server.md), [runtime.md](runtime.md) |
 | `eggserve-static` | SOLE static/path/filesystem/MIME/planning authority: `ConfinedPath` parsing, `SecureRoot`/`PinnedRoot` confinement, descriptor-relative (Unix) / handle-relative (Windows) resolution, capability bridge, MIME selection, conditional/range/ETag planner, `StaticService` request planning + rendering. Core keeps facades only. Plan 224 NO-GO: no capability-filesystem crate. | [eggserve-static.md](eggserve-static.md), [path-confinement.md](path-confinement.md), [filesystem-confinement.md](filesystem-confinement.md), [response-planning.md](response-planning.md) |
 | `eggserve-h3` | Experimental H3/QUIC transport adapter and sole QUIC dependency owner (`h3`/`h3-quinn`/`quinn` pinned set). Downward-only on primitives/server/`eggnet-tls`. Owns endpoint lifecycle, bounded QUIC/H3 policy, canonical request/response/tunnel adaptation, Alt-Svc. Blocked upstream (`hyperium/h3#338`, `#262` remainder); stays experimental. | [eggserve-h3.md](eggserve-h3.md), [http3.md](http3.md) |
 
@@ -185,9 +195,9 @@ eggserve-core           (compatibility umbrella; facades over the leaves + H2/TL
 
 | Crate | Bird's-eye overview | Deep dive |
 |-------|---------------------|-----------|
-| `eggserve-core` | Compatibility/composition umbrella (`0.3.0`; 0.2.1 via Plan 272, core-only 0.2.2 Tower repair via Plans 274–275): facades over the direct authorities (no second implementation) plus explicit transport glue (H2 wire mechanics, TLS/proxy/listener composition, extended `Server`/`ServerBuilder` orchestration, `ServeConfig`/`try_from_serve_config`, `StaticService` wrapper, thin H3 facade). Plan 249: compatibility `Auto` classifies before any Hyper service exists; core executes H2 only. Forwards server-owned `http-interop`/`tower` as compatibility re-exports; projects `OriginOnly` absolute-form default. Plan 225 facade closure; `0.3.0` breaking embedding contract via Plans 285–286. | [eggserve-core.md](eggserve-core.md), [runtime.md](runtime.md), [configuration.md](configuration.md) |
-| `eggserve-bin` | Static-only CLI binary (`0.2.1`; lockfile-only selection via Plan 286, no behavior change). `main.rs` is a shim; real logic lives in `lib.rs` (`run`, `run_cli`) + `args.rs` (manual `[OPTIONS] [PORT] [DIRECTORY]` grammar, no clap) + `shutdown.rs` (signal handling) + `tls.rs` (neutral substrate re-export). Neutral policy/ops/limits/static paths name the leaf crates directly (Plan 221); extended orchestration goes through the core facade. | [eggserve-bin.md](eggserve-bin.md) |
-| `eggserve-python` | Workspace-excluded maturin/PyO3 (`0.29.2`, `abi3-py311`, CPython 3.11–3.15 build-once/test-many) wheel (`0.2.3`; Python distribution, Rust side tracks `0.3.0` leaves). `eggserve.server` six-class `http.server`-shaped facade (stock `SimpleHTTPRequestHandler` fast path only for the exact bare class), `eggserve.lowlevel` handler-only substrate (`RuntimeConfig`, `Server`, `Response.stream` over a 16-chunk bridge, `StaticResponder` composition; experimental H1-only `AsyncServer`), `eggserve.subprocess` lifecycle helpers. Bridge in `src/server/` submodules; async stays Python-side. H1-only facade (no new protocol surfaced to Python). | [eggserve-python.md](eggserve-python.md) |
+| `eggserve-core` | Compatibility/composition umbrella (`0.4.0`; 0.2.1 via Plan 272, core-only 0.2.2 Tower repair via Plans 274–275, 0.4.0 via Plan 300): facades over the direct authorities (no second implementation) plus explicit transport glue (H2 wire mechanics, TLS/proxy/listener composition, extended `Server`/`ServerBuilder` orchestration, `ServeConfig`/`try_from_serve_config`, `StaticService` wrapper, thin H3 facade). Plan 249: compatibility `Auto` classifies before any Hyper service exists; core executes H2 only. Forwards server-owned `http-interop`/`tower` as compatibility re-exports; projects `OriginOnly` absolute-form default. Plan 225 facade closure; `0.3.0` breaking embedding contract via Plans 285–286, carried forward on the `0.4.0` line via Plan 300. | [eggserve-core.md](eggserve-core.md), [runtime.md](runtime.md), [configuration.md](configuration.md) |
+| `eggserve-bin` | Static-only CLI binary (`0.2.2`; requirement-only bump via Plan 300, no behavior change). `main.rs` is a shim; real logic lives in `lib.rs` (`run`, `run_cli`) + `args.rs` (manual `[OPTIONS] [PORT] [DIRECTORY]` grammar, no clap) + `shutdown.rs` (signal handling) + `tls.rs` (neutral substrate re-export). Neutral policy/ops/limits/static paths name the leaf crates directly (Plan 221); extended orchestration goes through the core facade. | [eggserve-bin.md](eggserve-bin.md) |
+| `eggserve-python` | Workspace-excluded maturin/PyO3 (`0.29.2`, `abi3-py311`, CPython 3.11–3.15 build-once/test-many) wheel (`0.2.4`; Python distribution, Rust side tracks `0.4.0` leaves). `eggserve.server` six-class `http.server`-shaped facade (stock `SimpleHTTPRequestHandler` fast path only for the exact bare class), `eggserve.lowlevel` handler-only substrate (`RuntimeConfig`, `Server`, `Response.stream` over a 16-chunk bridge, `StaticResponder` composition; experimental H1-only `AsyncServer`), `eggserve.subprocess` lifecycle helpers. Bridge in `src/server/` submodules; async stays Python-side. H1-only facade (no new protocol surfaced to Python). | [eggserve-python.md](eggserve-python.md) |
 
 ### Feature flags
 
@@ -210,7 +220,7 @@ Each capability is 2–3 sentences. Follow the link for the review deep dive.
 | Capability | Bird's-eye overview | Deep dive |
 |------------|---------------------|-----------|
 | Static serving | Primary product. `StaticService` validates the method, parses the target to a `ConfinedPath`, resolves via `SecureRoot` to a `ResolvedResource`, then plans the response (conditional/range/ETag, HEAD parity, directory policy) and streams the file or renders listing/error. Planning authority lives once in `eggserve-static`. | [eggserve-static.md](eggserve-static.md), [response-planning.md](response-planning.md), [runtime.md](runtime.md) |
-| Path confinement | 6-stage pipeline (`RequestTarget::parse` → decode → normalize → split → validate → `ConfinedPath`), 17 `PathRejection` variants, dual `DotfilePolicy` types that must agree. Origin-form classification is the sole target-form classifier. | [path-confinement.md](path-confinement.md) |
+| Path confinement | 5-stage pipeline (`RequestTarget::parse` → decode → normalize → split → validate, then `ConfinedPath` construction), 17 `PathRejection` variants, dual `DotfilePolicy` types that must agree. Origin-form classification is the sole target-form classifier. | [path-confinement.md](path-confinement.md) |
 | Filesystem confinement | Post-validation resolution through `PinnedRoot`/`RootGuard`: Unix descriptor-relative `statat`+`openat`, Windows handle-relative resolution with reparse-point denial, TOCTOU-safe open semantics. Confinement guarantee ends if the caller extracts the raw handle. | [filesystem-confinement.md](filesystem-confinement.md) |
 | Policy system | Layered safe-defaults policy: `StaticPolicy.symlinks` (not `follow_symlinks`), dotfile/listing controls, `StaticMetadataPolicy`, `ErrorRepresentationPolicy`, `ResponsePolicy`/`DatePolicy`/denylist. Every unsafe behavior needs an explicit opt-in flag. | [policy-system.md](policy-system.md), [configuration.md](configuration.md) |
 | H1 runtime + service contract | One `Service::call(Request) → Response` contract drives direct H1 and (via the same canonical types) compatibility H2. Single H1 authority: compatibility `Auto` classifies first, every H1 path delegates to `eggserve-server`; core executes H2 only (Plan 249). Per-connection shutdown is structured under the connection task. Supervisors use `ServerHandle::into_parts()` + cloneable `ServerControl` with cancellation-safe `ServerCompletion::wait()` (Plan 270); `Duration::ZERO` opts out of only the total lifetime. Embedding owners can take external deadline/ceiling/admission ownership with a narrow `H1ConnectionPolicy` projection (Plans 280–282), external aggregate-header byte ownership and successful service-response Date/Server ownership (Plans 288–289), plus a presentation-only typed-rejection hook (Plan 283). Opt-in absolute-form dispatch (`OriginOrAbsolute`; static still rejects, Plan 278). Response framing stays runtime-owned. | [runtime.md](runtime.md), [eggserve-server.md](eggserve-server.md) |
@@ -311,7 +321,11 @@ excluded warm-up, repeated trials with variance, and raw files retained —
 never one best number; absolute RPS/latency never gates PR/routine CI. See
 [testing-and-conformance.md](testing-and-conformance.md) for the per-plan
 evidence index (Plans 088/168/170/227/231–234/240–241 plus `binary-size.md`
-for Plan 109).
+for Plan 109, plus 294–297 direct-tower/application-server evidence:
+`benchmarks/294-direct-tower-baseline/`,
+`benchmarks/295-direct-tower-optimization/`,
+`benchmarks/296-direct-profile-footprint/`,
+`benchmarks/297-application-server-qualification/`).
 
 ### Repo-level tests (`tests/`)
 
@@ -394,7 +408,7 @@ navigate directly to what you need for a focused review.
 
 | Document | Covers |
 |----------|--------|
-| [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parsing, decoding, normalization, component validation, 17 rejection variants |
+| [path-confinement.md](path-confinement.md) | 5-stage path validation pipeline (+ `ConfinedPath` construction) — parsing, decoding, normalization, component validation, 17 rejection variants |
 | [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows), TOCTOU prevention |
 | [policy-system.md](policy-system.md) | `StaticPolicy` (+`StaticMetadataPolicy`, `ErrorRepresentationPolicy`), `ResponsePolicy`/`DatePolicy`/denylist, safe defaults, CLI/Python mapping |
 | [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries, platform security |
@@ -688,7 +702,7 @@ the conformance corpora. See
 | Layer | Location | Scope |
 |-------|----------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic |
-| Rust integration tests | `crates/*/tests/*.rs` | Cross-module, live TCP, TLS, parity/authority fixtures (`direct_h1_parity`, `direct_service_convergence`, `static_authority_conformance`, `downstream_embedding`, `tower_compatibility`/`interop_http_tower`/`axum_tower_qualification`, `cross_protocol_conformance`, `tls_identity`, `http2_runtime`, `http3_runtime`) |
+| Rust integration tests | `crates/*/tests/*.rs` | Cross-module, live TCP, TLS, parity/authority fixtures (`direct_h1_parity`, `direct_service_convergence`, `static_authority_conformance`, `downstream_embedding`, `tower_compatibility`/`interop_http_tower`/`axum_tower_qualification`, `direct_tower_baseline_294`, `direct_tower_hotpath_295`, `application_server_qualification_297`, `h1_response_trailers_299`, `tunnel_upgrade`, `cross_protocol_conformance`, `tls_identity`, `http2_runtime`, `http3_runtime`) |
 | Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility facade, TLS, low-level runtime, async bridge/lifecycle (Plans 254/257–258), conformance, body, boundary hardening (`asgi_fixture.py` is the ASGI test fixture; `typing_smoke.py` guards stub fidelity via `check-python-types.py`) |
 | Packaging smoke tests | `scripts/test-python-wheel.sh` (authoritative harness) + `crates/eggserve-python/packaging-tests/` (installed-wheel supplement) | Installed-wheel validation |
 | Conformance corpora | `conformance/*.toml` + `*.json` (51-entry H1 matrix, 55-scenario cross-protocol inventory with 47-routine subset, 17-scenario H3 inventory) | Shared Rust/Python test data |

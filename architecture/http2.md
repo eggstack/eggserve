@@ -113,7 +113,9 @@ closure record for the full evidence and blocker list.
 ## Non-goals
 
 This boundary does not add server push, proxying, middleware, routing,
-upgrades, WebSockets, or HTTP/3. Trailers are supported via Plan 198 terminal
+`Upgrade: h2c`, or HTTP/3 (no WebSocket codec in-tree — downstream serves
+framing over `TunnelIo`). Generic tunnels use H2 Extended `CONNECT` via
+`Service::call_with_tunnel`. Trailers are supported via Plan 198 terminal
 HEADERS (not server push). A reverse proxy may terminate H2
 and forward H1 to EggServe; native H2 is available only when an operator
 builds/enables the Rust feature and accepts its experimental status.

@@ -1,6 +1,6 @@
 # `eggserve-h3` — experimental H3/QUIC transport adapter
 
-`eggserve-h3` is the sole home of EggServe's HTTP/3 and QUIC transport:
+`eggserve-h3 0.4.0` (`crates/eggserve-h3/Cargo.toml:3`; QUIC triple unchanged) is the sole home of EggServe's HTTP/3 and QUIC transport:
 the coordinated production dependency set **and** the adapter
 implementation (Plan 220 extraction from the compatibility core, Plan 213
 dependency isolation). It remains experimental with the Plan 192–195

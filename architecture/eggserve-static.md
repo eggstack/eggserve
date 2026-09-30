@@ -17,7 +17,7 @@ planning glue, and `StaticService` request-to-response rendering over
 - Deps (`Cargo.toml`): `eggserve-primitives`, `eggserve-server`,
   `httpdate`, `phf{macros}`; Unix-only `rustix{fs,net}`. Feature:
   `python-bindings-internal` (capability bridge only).
-- Modules (`src/`): `path/` (public), `fs/` + `secure_root.rs` + `mime.rs`
+- Modules (`src/`): `path/` (public), `fs/` + `secure_root.rs` + `mime.rs` (private, no root re-export)
   + `planner.rs` (crate-private, re-exported at root per `lib.rs`).
 
 ## Module inventory
@@ -36,8 +36,8 @@ Absolute-form → 400; non-GET/HEAD → 405 with `Allow: GET, HEAD`;
 directory without trailing `/` → 301 preserving query; `index.html` /
 `index.htm` lookup; `NotFound` → 404, `Denied` → 403, `IoError` → 500; path
 rejections map malformed → 400 else 403; `default_content_type` applies only
-when detection yields octet-stream; `extra_response_headers` attach to final
-200 only and never override planned headers; error bodies follow
+when detection yields octet-stream; `extra_response_headers` attach to every
+file/directory/error response and never override planned headers; error bodies follow
 `ErrorRepresentationPolicy` (`Minimal` fixed text vs `Empty`); every response
 passes `normalize_response`. Listing (when enabled) is bounded with escaped
 HTML + percent-encoded hrefs.

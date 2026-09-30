@@ -30,10 +30,10 @@ is the core-facing projection, not a second owner:
 |--------|-----------|---------|
 | `config.rs` (facade) | **pub** (experimental) | `ServerBuilder` + `try_from_serve_config` + re-exports + tests; owns the public config surface |
 | `config/runtime.rs` | pub via facade | `RuntimeConfig` — single validation authority delegating to `runtime_limits` |
-| `config/http1.rs` | `pub(crate)` | Retained inventory placeholder with no H1 authority (no second defaults table, Plan 249) |
-| `config/http2.rs` | `pub(super)` | `Http2Config` protocol-owned controls (validate `pub(super)`) |
-| `config/http3.rs` | `pub(super)` | `Http3Config` optional QUIC/H3 envelope (validate `pub(super)`) |
-| `config/tls.rs` | pub via facade | TLS ownership pointer (no new knobs; PEM reload handle via `RuntimeConfig`) |
+| `config/http1.rs` | **pub** (retained placeholder) | Retained inventory placeholder with no H1 authority (no second defaults table, Plan 249) |
+| `config/http2.rs` | **pub** (feature-gated) | `Http2Config` protocol-owned controls |
+| `config/http3.rs` | **pub** (feature-gated) | `Http3Config` optional QUIC/H3 envelope |
+| `config/tls.rs` | **pub** (feature-gated) | TLS ownership pointer (no new knobs; PEM reload handle via `RuntimeConfig`) |
 
 Public import paths (`server::RuntimeConfig`, `server::RuntimeConfigBuilder`) resolve unchanged through the facade `config.rs`.
 
@@ -112,7 +112,7 @@ breaking its current API.
 | `max_active_tunnels` | `RuntimeConfig` | 64 | > 0 | — (static never tunnels; Rust `RuntimeConfigBuilder::max_active_tunnels`) | — (Python sync facade unchanged; async projection owns Plan 204) | Server-wide tunnel semaphore held until tunnel close; 503 on exhaustion; H1 keeps owning connection alive, H2/H3 stream-scoped |
 | `max_python_callbacks` | `PyServer` | 8 | > 0 | N/A | `max_python_callbacks` | Callback semaphore in `PythonCallbackService` |
 | `max_listing_entries` | `Limits` | 4096 | > 0, <= 10485760 (entries) | N/A | N/A | Directory listing enumeration |
-| `max_listing_response_bytes` | `Limits` | 1 MiB | > 0 | N/A | N/A | Directory listing response body cap |
+| `max_listing_response_bytes` | `Limits` | 1 MiB | > 0, <= 10 MiB | N/A | N/A | Directory listing response body cap |
 
 ### Parser ceilings
 
@@ -225,12 +225,16 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 |---|---|---|---|---|---|---|
 | `root` | `ServeConfig` | "." | PathBuf | `--directory` | `root` | PinnedRoot at startup |
 | `directory_listing` | `StaticPolicy` | Disabled | enum | `--directory-listing` | `directory_listing` (StaticPolicy) | Directory listing response |
-| `symlinks` | `StaticPolicy` | Denied | enum | `--follow-symlinks` | `follow_symlinks` (StaticPolicy) | Path traversal resolution |
+| `symlinks` | `StaticPolicy.symlinks` (not `follow_symlinks`) | Denied | enum | `--follow-symlinks` | `follow_symlinks=True` (Python API only) | Path traversal resolution |
 | `dotfiles` | `StaticPolicy` | Denied | enum | `--allow-dotfiles` | `allow_dotfiles` (StaticPolicy) | Dotfile path component check |
 | `static_metadata.emit_etag` / `emit_last_modified` | `StaticPolicy` | true / true | bool | N/A (Rust-only) | N/A | Static `ETag`/`Last-Modified`; `minimal_fingerprint()` suppresses both |
 | `stream_chunk_size` | `Limits` / `RuntimeConfig` | 131072 | >= 64, <= 1 MiB | N/A | N/A | File streaming read chunk size; Plan 229 default, bounded by `max_file_streams` |
 
-### TLS (feature-gated, Plan 203)
+### TLS (feature-gated, Plan 203; compatibility `RuntimeConfig` only)
+
+Direct `eggserve-server::RuntimeConfig` carries no `tls_*` fields; the rows
+below live only on compatibility `RuntimeConfig` behind the `tls` feature
+(`crates/eggserve-core/src/server/config/runtime.rs`).
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|

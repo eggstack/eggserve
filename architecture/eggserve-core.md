@@ -15,7 +15,10 @@ gate rejects silent re-expansion (see
 the `0.2.0` version transition and the Rust 1.89 MSRV move with no
 ownership change. The crate is now at `0.3.0`: additive `0.2.1` (Plan 272
 downstream embedding qualification), core-only `0.2.2` Tower repair (Plans
-274–275), and the `0.3.0` breaking embedding contract (Plans 285–286).
+274–275), and the `0.3.0` breaking embedding contract (Plans 285–286),
+carried forward on the `0.4.0` line via Plan 300 (active publication:
+`server`/`static`/`h3`/`core 0.4.0`, `primitives 0.2.2`, `bin 0.2.2`, wheel
+`0.2.4`). The crate is now at `0.4.0`.
 
 Plans 243–258 continue as an API-preserving maintenance index with no
 ownership change: compatibility H1 entry points delegate to the single
@@ -367,7 +370,7 @@ external policy/admission ownership with narrow projection, typed rejection
 presentation, tunnel transport decision (Plan 284 keeps the direct opaque
 `TunnelIo`), and registry-only embedding-contract qualification with
 fixtures under `release/fixtures/plan-286-*/`; publication closes in Plan
-286 (`core 0.3.0` with compatible Tower API in `server 0.3.0`).
+286 (`core 0.3.0` with compatible Tower API in `server 0.3.0`, carried forward on the `0.4.0` line via Plan 300; 296 WP-A: `tower` no longer activates `tower-layer`).
 
 ## Dependencies
 

@@ -104,8 +104,10 @@ pub struct ResolvedFile {
 
 Public methods:
 - `len()` → `u64`
+- `metadata()` → `&std::fs::Metadata`
 - `modified()` → `Option<SystemTime>`
 - `content_type()` → `&str`
+- `is_empty()` → `bool`
 - `plan_response(method, if_match, if_unmodified_since, if_none_match, if_modified_since, range_header, if_range)` → `StaticResponsePlan` (originating-capability convenience; delegates to `plan_response_with_content_type` with the resolved content type, which calls the metadata-policy planner `plan_file_response_with_preconditions_and_metadata`)
 - `plan_response_with_content_type(method, ..., content_type)` → `StaticResponsePlan` (explicit content-type variant)
 - `into_body(&StaticResponsePlan)` → `Result<BodySource, BodySourceError>`
@@ -128,7 +130,7 @@ pub struct ResolvedDirectory {
 
 Public methods:
 - `components()` → `&[String]`
-- `list(root, max_entries)` → `Result<Vec<(String, bool)>, std::io::Error>`
+- `list(root, max_entries)` → `Result<Vec<ListingEntry>, std::io::Error>` (`ListingEntry` facaded from `eggserve-static`; tuple form is stale)
 - `resolve_child(child, root)` → `ResolvedResource`
 
 ### HTTP Validation (`http.rs`)

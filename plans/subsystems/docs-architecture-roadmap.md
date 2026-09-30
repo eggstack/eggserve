@@ -71,10 +71,12 @@ recording discrepancies as findings rather than silent scope expansion.
 ## 6. Dependency graph
 
 ```text
-Milestone 293 (overview + deep-dive refresh)
+Milestone 293 (overview + deep-dive refresh, closed at 0.3.x baseline)
+Milestone 301 (overview + deep-dive refresh to 0.4.0 baseline, active)
 ```
 
-No hard dependencies (docs-only, closed code baseline). Interface dependency:
+No hard dependencies (docs-only, closed 294–299 code state + active Plan 300
+publication as review input). Interface dependency:
 closed Plans 280–291 code state as review input. Soft: subsystem owners may
 correct findings in follow-up plans.
 
@@ -157,3 +159,4 @@ requirement-to-evidence matrix accepted; registry + roadmap status updated.
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | 293 | closed | `plans/implementation/docs-architecture/293-architecture-overview-deep-dive-refresh.md` | `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md` | — |
+| 301 | closed | `plans/implementation/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md` | `plans/closure/docs-architecture/301-architecture-overview-deep-dive-refresh-040.md` | — |

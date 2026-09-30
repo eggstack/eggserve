@@ -101,7 +101,7 @@ Methods:
 | Variant | Stage | Meaning |
 |---------|-------|---------|
 | `Empty` | parse | Empty request target |
-| `TooLong` | parse | Target exceeds 8192 bytes (active pre-check; mapped to 414) |
+| `TooLong` | parse | Target exceeds 8192 bytes (active pre-check; static mapping is 400 malformed — `StaticService::path_rejection_response`; 414 lives only at the runtime pre-service `max_target_bytes` ceiling via `ServiceError::rejected(414)`) |
 | `UnsupportedUriForm` | parse | Not origin-form (absolute or authority form) |
 | `MalformedPercentEncoding` | decode | Invalid `%XX` sequence |
 | `InvalidUtf8` | decode | Decoded bytes are not valid UTF-8 |
