@@ -728,19 +728,36 @@ mod tests {
     use std::sync::Arc;
     use tokio::io::AsyncReadExt;
 
+    static NEXT_TEST_FILE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     struct TestFile {
         path: PathBuf,
     }
 
     impl TestFile {
         fn new(bytes: &[u8]) -> Self {
-            let mut path = std::env::temp_dir();
-            path.push(format!(
-                "eggserve-adapter-{}-{}",
-                std::process::id(),
-                unique_suffix()
-            ));
-            let mut file = std::fs::File::create(&path).expect("create test file");
+            // `create_new` (O_EXCL) plus a process-unique sequence: parallel
+            // tests must never share a path, or one test's payload silently
+            // replaces another's. Wall-clock nanoseconds alone are not unique
+            // across concurrently running test threads.
+            let (path, mut file) = loop {
+                let mut candidate = std::env::temp_dir();
+                candidate.push(format!(
+                    "eggserve-adapter-{}-{}-{}",
+                    std::process::id(),
+                    unique_suffix(),
+                    NEXT_TEST_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                match std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&candidate)
+                {
+                    Ok(created) => break (candidate, created),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create test file: {error}"),
+                }
+            };
             file.write_all(bytes).expect("write test file");
             Self { path }
         }

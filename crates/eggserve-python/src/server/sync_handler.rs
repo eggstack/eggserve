@@ -661,25 +661,26 @@ impl Service for PythonCallbackService {
         let body_policy = self.body_policy;
 
         Box::pin(async move {
-            // Fail fast under pile-up (parity with the Rust admission
-            // kernel): never queue unbounded `Request+Body+Context` behind
-            // `acquire().await`; shed with 503 instead.
-            // NOTE (B55): this permit (plus the outer service permit, held
-            // across `Service::call`) is held for the whole Python callback,
+            // Overload is gated by the outer in-flight admission permit
+            // (`max_in_flight_requests`, taken fail-fast before `Service::call`),
+            // which bounds how many `Request+Body+Context` values can be
+            // waiting here. This permit is therefore only a concurrency bound
+            // and queues: a callback that arrives while every permit is held
+            // waits for the next release (ThreadingHTTPServer parity —
+            // blocked work proceeds as workers finish) instead of shedding
+            // with 503. Fail-fast overload rejection belongs to the async
+            // `max_async_tasks` path, which is a separate Python-side
+            // semaphore.
+            // NOTE (B55): this permit is held for the whole Python callback,
             // including blocking `RequestBody.read()` network waits on the
             // callback thread. Slow uploads therefore contend with handlers
             // under `max_python_callbacks`; size that bound for upload
             // concurrency (separate upload/download budgets need a new
             // admission API, out of scope here).
-            let callback_permit = match callback_semaphore.try_acquire_owned() {
-                Ok(permit) => permit,
-                Err(_) => {
-                    return Err(ServiceError::rejected(
-                        503,
-                        "service unavailable: callback saturated",
-                    ));
-                }
-            };
+            let callback_permit = callback_semaphore
+                .acquire_owned()
+                .await
+                .map_err(|_| ServiceError::internal("callback semaphore closed"))?;
 
             // Plan 204: use the full context so async-capable handlers observe
             // lifecycle/interim/tunnel ownership. Sync behavior for existing
