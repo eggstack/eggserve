@@ -1,12 +1,12 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
-use eggserve_static::path::{ConfinedPath, PathPolicy};
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
 use eggserve_core::primitives::http::validate_request_target;
 use eggserve_core::primitives::method::Method;
 use eggserve_core::primitives::request_head::RequestHead;
 use eggserve_core::primitives::request_target::RequestTarget;
 use eggserve_core::primitives::version::HttpVersion;
+use eggserve_static::path::{ConfinedPath, PathPolicy};
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     if data.len() < 5 {
@@ -33,9 +33,17 @@ fuzz_target!(|data: &[u8]| {
         // Fuzz validate_request_target
         let result = validate_request_target(s);
         if let Ok(()) = result {
-            assert!(s.starts_with('/'), "valid target does not start with /: {:?}", s);
+            assert!(
+                s.starts_with('/'),
+                "valid target does not start with /: {:?}",
+                s
+            );
             assert!(!s.is_empty(), "empty target passed validation");
-            assert!(!s.contains(char::is_whitespace), "whitespace in valid target: {:?}", s);
+            assert!(
+                !s.contains(char::is_whitespace),
+                "whitespace in valid target: {:?}",
+                s
+            );
         }
     }
 
@@ -45,7 +53,9 @@ fuzz_target!(|data: &[u8]| {
     let header_count = (data[2] as usize) % 8;
     let target_byte = data[3];
 
-    let methods = ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT", "PURGE"];
+    let methods = [
+        "GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT", "PURGE",
+    ];
     let method_idx = method_byte as usize % methods.len();
     let method = match Method::new(methods[method_idx]) {
         Ok(m) => m,
@@ -65,11 +75,11 @@ fuzz_target!(|data: &[u8]| {
 
     let mut headers = HeaderBlock::new();
     for i in 0..header_count {
-        let name = match HeaderName::new(&format!("x-h-{}", i)) {
+        let name = match HeaderName::new(format!("x-h-{}", i)) {
             Ok(n) => n,
             Err(_) => continue,
         };
-        let value = match HeaderValue::new(&format!("v-{}", i)) {
+        let value = match HeaderValue::new(format!("v-{}", i)) {
             Ok(v) => v,
             Err(_) => continue,
         };

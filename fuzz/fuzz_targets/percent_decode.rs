@@ -1,6 +1,6 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
 use eggserve_static::path::decode;
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {
@@ -11,8 +11,12 @@ fuzz_target!(|data: &[u8]| {
             assert!(std::str::from_utf8(decoded.as_bytes()).is_ok());
             // Decoded output must not be longer than 4x input (each %XX is 3 chars -> 1 char)
             // Worst case: all bytes are %XX sequences, so decoded <= input
-            assert!(decoded.len() <= s.len() + 1,
-                "decoded length {} exceeds input length {}", decoded.len(), s.len());
+            assert!(
+                decoded.len() <= s.len() + 1,
+                "decoded length {} exceeds input length {}",
+                decoded.len(),
+                s.len()
+            );
         }
     }
 });

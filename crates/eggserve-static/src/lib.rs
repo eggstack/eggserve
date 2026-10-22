@@ -21,6 +21,9 @@ pub mod path;
 mod planner;
 mod secure_root;
 
+pub use fs::dirbuf::{
+    parse_directory_buffer, DirBufParseError, DirectoryEntryKind, DirectoryEntryRecord,
+};
 pub use fs::ListingEntry;
 
 pub use path::{ConfinedPath, DotfilePolicy as PathDotfilePolicy, PathPolicy, PathRejection};
@@ -33,6 +36,19 @@ pub use secure_root::{
     resolve_and_plan, ResolveAndPlanError, ResolvedDirectory, ResolvedFile, ResolvedResource,
     ResourceDeniedReason, SecureRoot,
 };
+
+/// Default maximum number of entries enumerated in a directory listing.
+///
+/// Single source of truth for the listing entry ceiling: the static service
+/// and every compatibility surface that projects into it read this constant
+/// so the Rust and Python surfaces cannot drift apart.
+pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
+
+/// Default maximum size, in bytes, of a rendered directory-listing response.
+///
+/// Single source of truth for the listing byte ceiling (1 MiB). A listing
+/// that would exceed the ceiling is refused, never truncated.
+pub const DEFAULT_MAX_LISTING_RESPONSE_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct StaticServiceBuilder {
@@ -106,8 +122,8 @@ impl StaticService {
             default_content_type: "application/octet-stream".to_owned(),
             extra_response_headers: Vec::new(),
             error_policy: ErrorRepresentationPolicy::Minimal,
-            max_listing_entries: 4096,
-            max_listing_response_bytes: 1024 * 1024,
+            max_listing_entries: DEFAULT_MAX_LISTING_ENTRIES,
+            max_listing_response_bytes: DEFAULT_MAX_LISTING_RESPONSE_BYTES,
         }
     }
 
@@ -476,7 +492,21 @@ fn path_rejection_response(rejection: PathRejection) -> (StatusCode, &'static st
     }
 }
 
-fn render_directory_listing(
+/// Render a directory listing as the canonical listing body.
+///
+/// This is the single listing renderer. The static service and every
+/// compatibility surface that can serve a listing call it, so the emitted
+/// bytes and the byte ceiling are identical on every surface.
+///
+/// `max_response_bytes` bounds the whole response body. The renderer refuses
+/// (returns `Err`) when the prefix/suffix pre-check or the per-link re-check
+/// would exceed the bound; it never truncates a listing, never emits a
+/// partial body, and never buffers past the bound.
+///
+/// The rendered format is a fixed HTML wrapper, one `<li>` link per entry
+/// (escaped display name, percent-encoded link target, `/` suffix for
+/// directories), and a fixed closing wrapper.
+pub fn render_directory_listing(
     entries: &[ListingEntry],
     max_response_bytes: usize,
 ) -> Result<Vec<u8>, ServiceError> {

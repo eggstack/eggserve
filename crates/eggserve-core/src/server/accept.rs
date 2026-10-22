@@ -978,6 +978,11 @@ where
 /// bounded exponential backoff for transient errors. The backoff is
 /// interruptible by shutdown via the provided receiver.
 ///
+/// The classification itself is the single authority in
+/// `eggserve_server::accept_error` (Plan 309); this function owns only the
+/// compatibility loop's policy: the rate-limited emission and the
+/// shutdown-aware sleep.
+///
 /// Rate-limits repeated identical errors: emits the first occurrence, then
 /// a summary every 10 consecutive identical errors, resetting on success
 /// or a different error kind. Grouping is intentionally coarse: it keys on
@@ -990,7 +995,6 @@ where
 /// granularity is needed.
 ///
 /// Returns `true` if the error is fatal and the accept loop should terminate.
-#[allow(clippy::collapsible_match)]
 pub(super) async fn classify_accept_error(
     e: &std::io::Error,
     shutdown_rx: &mut broadcast::Receiver<()>,
@@ -999,57 +1003,12 @@ pub(super) async fn classify_accept_error(
     last_error_kind: &mut Option<String>,
     ops: &crate::ops::OpsContext,
 ) -> bool {
-    use crate::ops::{Event, EventKind, Severity};
+    use crate::ops::{Event, Field};
 
     let err_str = e.to_string();
     let kind = e.kind();
-    let fd_exhausted = is_fd_exhaustion(e);
-
-    let (severity, event_kind, should_backoff, is_fatal) = match kind {
-        std::io::ErrorKind::Interrupted => (
-            Severity::Debug,
-            EventKind::ListenerTransientError,
-            true,
-            false,
-        ),
-        std::io::ErrorKind::ConnectionRefused
-        | std::io::ErrorKind::ConnectionReset
-        | std::io::ErrorKind::ConnectionAborted
-        | std::io::ErrorKind::BrokenPipe => (
-            Severity::Debug,
-            EventKind::ListenerTransientError,
-            true,
-            false,
-        ),
-        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => (
-            Severity::Warn,
-            EventKind::ListenerTransientError,
-            true,
-            false,
-        ),
-        // Kernel memory pressure (ENOMEM) surfaces as OutOfMemory without
-        // matching is_fd_exhaustion; like fd exhaustion it can be transient,
-        // so back off instead of terminating the server.
-        std::io::ErrorKind::OutOfMemory => {
-            (Severity::Error, EventKind::ResourceExhaustion, true, false)
-        }
-        std::io::ErrorKind::Other if fd_exhausted => {
-            (Severity::Error, EventKind::ResourceExhaustion, true, false)
-        }
-        std::io::ErrorKind::Other => (
-            Severity::Error,
-            EventKind::ListenerPersistentError,
-            false,
-            true,
-        ),
-        _ if fd_exhausted => (Severity::Error, EventKind::ResourceExhaustion, true, false),
-        _ => (
-            Severity::Error,
-            EventKind::ListenerPersistentError,
-            false,
-            true,
-        ),
-    };
+    let classification = eggserve_server::accept_error::classify_accept_error(e);
+    let event_kind = classification.event_kind;
 
     ops.counters()
         .listener_errors
@@ -1078,53 +1037,32 @@ pub(super) async fn classify_accept_error(
             format!("accept error: {err_str}")
         };
         ops.emit(
-            Event::new(severity, event_kind, message).field(crate::ops::Field::Str(
-                "error_kind".into(),
-                format!("{kind:?}"),
-            )),
+            Event::new(classification.severity, event_kind, message)
+                .field(Field::Str("error_kind".into(), format!("{kind:?}"))),
         );
     }
 
-    if should_backoff {
-        static BACKOFF_MS: [u64; 8] = [1, 2, 4, 8, 50, 100, 250, 500];
-        let idx = (*backoff_idx).min(BACKOFF_MS.len() - 1);
+    if classification.should_backoff {
+        let backoff = eggserve_server::accept_error::accept_backoff(*backoff_idx);
         *backoff_idx = backoff_idx.saturating_add(1);
-        let backoff = std::time::Duration::from_millis(BACKOFF_MS[idx]);
         tokio::select! {
             _ = tokio::time::sleep(backoff) => {}
             _ = shutdown_rx.recv() => {}
         }
     }
 
-    is_fatal
+    classification.is_fatal
 }
 
+/// Recognize a descriptor-exhaustion accept error.
+///
+/// Thin delegation to the single authority in `eggserve_server::accept_error`
+/// (Plan 309); the compatibility crate keeps no local predicate. The wrapper
+/// exists for this crate's own unit tests, which assert the exhaustion
+/// contract against the delegated authority.
+#[cfg(test)]
 pub(super) fn is_fd_exhaustion(error: &std::io::Error) -> bool {
-    #[cfg(unix)]
-    if let Some(raw) = error.raw_os_error() {
-        return raw == rustix::io::Errno::MFILE.raw_os_error()
-            || raw == rustix::io::Errno::NFILE.raw_os_error();
-    }
-
-    // Windows accept() failures carry raw Winsock codes; WSAEMFILE and
-    // WSAENFILE are the fd-exhaustion equivalents and must back off like
-    // Unix EMFILE/ENFILE.
-    #[cfg(windows)]
-    if let Some(raw) = error.raw_os_error() {
-        return raw == 10024 || raw == 10023; // WSAEMFILE || WSAENFILE
-    }
-
-    if error.raw_os_error().is_some() {
-        return false;
-    }
-
-    // Fallback string match for non-OS errors (e.g., mocked accept failures).
-    // `accept()` errors originate from the kernel and are not user-controlled,
-    // so the misclassification risk of matching the error string is negligible.
-    let message = error.to_string().to_ascii_lowercase();
-    message.contains("too many open files")
-        || message.contains("emfile")
-        || message.contains("enfile")
+    eggserve_server::accept_error::is_fd_exhaustion(error)
 }
 
 struct ActiveConnectionGuard {
@@ -1184,6 +1122,161 @@ impl<S: Service> Service for ArcService<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sink that keeps every emitted event for assertions.
+    #[derive(Default)]
+    struct CapturingSink {
+        events: std::sync::Mutex<Vec<crate::ops::Event>>,
+    }
+
+    impl CapturingSink {
+        fn events(&self) -> Vec<crate::ops::Event> {
+            self.events.lock().expect("sink mutex").clone()
+        }
+    }
+
+    impl crate::ops::LogSink for CapturingSink {
+        fn emit(&self, event: &crate::ops::Event) {
+            self.events.lock().expect("sink mutex").push(event.clone());
+        }
+
+        fn flush(&self) {}
+    }
+
+    /// The compatibility loop delegates to the single authority in
+    /// `eggserve_server::accept_error` (Plan 309): the emitted severity and
+    /// event kind and the fatal decision are the authority's, for every
+    /// injected error in the classification matrix.
+    #[tokio::test]
+    async fn compat_accept_classification_delegates_to_the_authority() {
+        use crate::ops::{EventKind, Severity};
+        use eggserve_server::accept_error as authority;
+
+        let cases: Vec<(std::io::Error, Severity, EventKind, bool)> = vec![
+            (
+                std::io::Error::from_raw_os_error(authority::EMFILE_RAW),
+                Severity::Error,
+                EventKind::ResourceExhaustion,
+                false,
+            ),
+            (
+                std::io::Error::from_raw_os_error(authority::ENFILE_RAW),
+                Severity::Error,
+                EventKind::ResourceExhaustion,
+                false,
+            ),
+            (
+                std::io::Error::from_raw_os_error(authority::WSAEMFILE_RAW),
+                Severity::Error,
+                EventKind::ResourceExhaustion,
+                false,
+            ),
+            (
+                std::io::Error::from_raw_os_error(authority::WSAENFILE_RAW),
+                Severity::Error,
+                EventKind::ResourceExhaustion,
+                false,
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::OutOfMemory),
+                Severity::Error,
+                EventKind::ResourceExhaustion,
+                false,
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::Interrupted),
+                Severity::Debug,
+                EventKind::ListenerTransientError,
+                false,
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::ConnectionReset),
+                Severity::Debug,
+                EventKind::ListenerTransientError,
+                false,
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::WouldBlock),
+                Severity::Warn,
+                EventKind::ListenerTransientError,
+                false,
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::Other),
+                Severity::Error,
+                EventKind::ListenerPersistentError,
+                true,
+            ),
+            (
+                std::io::Error::other("Too many open files"),
+                Severity::Error,
+                EventKind::ResourceExhaustion,
+                false,
+            ),
+        ];
+
+        for (error, severity, event_kind, fatal) in cases {
+            let expected = authority::classify_accept_error(&error);
+            assert_eq!(expected.severity, severity);
+            assert_eq!(expected.event_kind, event_kind);
+            assert_eq!(expected.is_fatal, fatal);
+
+            let sink = std::sync::Arc::new(CapturingSink::default());
+            let ops = crate::ops::OpsContext::new(sink.clone());
+            let (tx, mut rx) = broadcast::channel::<()>(1);
+            let mut backoff_idx = 0usize;
+            let mut repeats = 0usize;
+            let mut last_kind = None;
+
+            let observed_fatal = classify_accept_error(
+                &error,
+                &mut rx,
+                &mut backoff_idx,
+                &mut repeats,
+                &mut last_kind,
+                &ops,
+            )
+            .await;
+
+            assert_eq!(observed_fatal, fatal, "fatal decision drifted");
+            let events = sink.events();
+            assert_eq!(events.len(), 1, "the first error is always emitted");
+            assert_eq!(events[0].severity, expected.severity);
+            assert_eq!(events[0].event, expected.event_kind);
+            assert!(events[0].message.starts_with("accept error: "));
+            assert_eq!(ops.snapshot().listener_errors, 1);
+            let _ = tx.send(());
+        }
+    }
+
+    /// The compatibility crate keeps no local exhaustion predicate: its
+    /// wrapper is the authority's answer for the same inputs.
+    #[test]
+    fn compat_fd_exhaustion_predicate_delegates_to_the_authority() {
+        use eggserve_server::accept_error as authority;
+
+        let exhaustion = [
+            std::io::Error::from_raw_os_error(authority::EMFILE_RAW),
+            std::io::Error::from_raw_os_error(authority::ENFILE_RAW),
+            std::io::Error::from_raw_os_error(authority::WSAEMFILE_RAW),
+            std::io::Error::from_raw_os_error(authority::WSAENFILE_RAW),
+            std::io::Error::other("Too many open files"),
+        ];
+        for error in exhaustion {
+            assert!(is_fd_exhaustion(&error));
+            assert!(authority::is_fd_exhaustion(&error));
+        }
+
+        let not_exhaustion = [
+            std::io::Error::from_raw_os_error(11),
+            std::io::Error::from(std::io::ErrorKind::ConnectionReset),
+            std::io::Error::other("connection refused"),
+        ];
+        for error in not_exhaustion {
+            assert!(!is_fd_exhaustion(&error));
+            assert!(!authority::is_fd_exhaustion(&error));
+        }
+    }
 
     /// Normal completion drops the connection-scoped shutdown receiver
     /// without waiting for server shutdown (Plan 249 Track D).

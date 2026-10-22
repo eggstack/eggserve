@@ -13,11 +13,16 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, Semaphore};
 
+/// Accept-error classification authority (Plan 309).
+///
+/// One classification (severity, event kind, fatal decision, descriptor
+/// exhaustion, and the backoff ramp) serves both accept loops: the direct
+/// runtime below and the compatibility runtime in `eggserve-core`.
+pub mod accept_error;
 /// Outbound Hyper conversion boundary.
 ///
 /// Explicit low-level adapter for embedders that own a Hyper transport but
@@ -288,6 +293,9 @@ impl Server {
         let join = tokio::spawn(async move {
             let mut tasks = tokio::task::JoinSet::new();
             let mut terminal_error = None;
+            // Accept-error backoff ramp state (Plan 309). The index saturates
+            // at the last ramp step and resets after a successful accept.
+            let mut backoff_idx = 0usize;
             loop {
                 tokio::select! {
                     _ = task_shutdown.cancelled() => break,
@@ -303,6 +311,8 @@ impl Server {
                     accepted = listener.accept() => {
                         match accepted {
                             Ok((stream, remote_addr)) => {
+                                // A successful accept ends the backoff ramp.
+                                backoff_idx = 0;
                                 let Ok(permit) = permits.clone().try_acquire_owned() else {
                                     ops.counters()
                                         .connections_rejected
@@ -351,22 +361,29 @@ impl Server {
                                 });
                             }
                             Err(error) => {
-                                // Never silently drop accept errors: account
-                                // them and back off briefly so a persistent
-                                // failure cannot hot-spin the accept loop.
-                                ops.counters()
-                                    .listener_errors
-                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                ops.emit(
-                                    ops::Event::new(
-                                        ops::Severity::Debug,
-                                        ops::EventKind::ListenerTransientError,
-                                        ops::sanitize_text_field(&format!(
-                                            "accept error: {error}"
-                                        )),
-                                    ),
-                                );
-                                tokio::time::sleep(Duration::from_millis(10)).await;
+                                // Never silently drop accept errors: the
+                                // shared classification authority accounts
+                                // the error, emits the classified event, and
+                                // decides between a bounded shutdown-aware
+                                // backoff and terminating the accept loop.
+                                let classification =
+                                    accept_error::report_accept_error(&error, &ops);
+                                if classification.is_fatal {
+                                    // A fatal accept error cannot be
+                                    // recovered by retrying: stop the
+                                    // runtime through the same shutdown
+                                    // path the server already uses.
+                                    task_shutdown.shutdown();
+                                    break;
+                                }
+                                if classification.should_backoff {
+                                    let delay = accept_error::accept_backoff(backoff_idx);
+                                    backoff_idx = backoff_idx.saturating_add(1);
+                                    tokio::select! {
+                                        _ = tokio::time::sleep(delay) => {}
+                                        _ = task_shutdown.cancelled() => break,
+                                    }
+                                }
                             }
                         }
                     }
@@ -544,6 +561,7 @@ impl Drop for ServerCompletion {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
 
     #[test]
     fn generic_runtime_has_no_static_configuration() {

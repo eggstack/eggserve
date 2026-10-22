@@ -1,9 +1,9 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
 use eggserve_core::primitives::canonical::{
     normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
 };
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     if data.len() < 5 {
@@ -32,7 +32,11 @@ fuzz_target!(|data: &[u8]| {
         status.is_server_error(),
     ];
     let active = classes.iter().filter(|&&c| c).count();
-    assert!(active <= 1, "multiple classes active for code {}", raw_status);
+    assert!(
+        active <= 1,
+        "multiple classes active for code {}",
+        raw_status
+    );
     if status.is_informational() {
         assert!(!status.permits_payload_body());
     }
@@ -44,7 +48,7 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(back, raw_status);
 
     // Build body
-    let body = if body_byte % 3 == 0 {
+    let body = if (body_byte as usize).is_multiple_of(3) {
         ResponseBody::Empty
     } else {
         ResponseBody::Bytes(vec![body_byte; body_byte as usize % 64])
@@ -69,11 +73,11 @@ fuzz_target!(|data: &[u8]| {
         builder = builder.push_header(field.name.clone(), field.value.clone());
     }
     for i in 0..header_count {
-        let name = match HeaderName::new(&format!("x-h-{}", i)) {
+        let name = match HeaderName::new(format!("x-h-{}", i)) {
             Ok(n) => n,
             Err(_) => continue,
         };
-        let value = match HeaderValue::new(&format!("v-{}", i)) {
+        let value = match HeaderValue::new(format!("v-{}", i)) {
             Ok(v) => v,
             Err(_) => continue,
         };
@@ -100,11 +104,18 @@ fuzz_target!(|data: &[u8]| {
             "transfer-encoding survived normalization"
         );
 
-        // HEAD responses must have empty body
+        // HEAD responses must not carry a payload body. The normalizer keeps
+        // the equivalent-GET representation length in `EmptyWithLength`, so
+        // "no body" means "no payload bytes", not "zero representation
+        // length" (RFC 9110 §9.3.2).
         if is_head_request {
             assert!(
-                norm2.body().unwrap().is_empty(),
-                "HEAD response has non-empty body"
+                matches!(
+                    norm2.body(),
+                    None | Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_))
+                ),
+                "HEAD response has a payload body: {:?}",
+                norm2.body()
             );
         }
 
@@ -122,11 +133,26 @@ fuzz_target!(|data: &[u8]| {
             if let Some(cl) = norm2.headers().get_first("content-length") {
                 let expected_len = norm2.body().map_or(0, |b| b.len());
                 assert_eq!(
-                    cl.as_str(),
+                    cl.to_str().expect("normalized content-length is ASCII"),
                     expected_len.to_string(),
                     "content-length mismatch"
                 );
             }
+        }
+
+        // A HEAD response advertises the equivalent-GET representation length
+        // (RFC 9110 §9.3.2): the payload is suppressed, the length survives.
+        if status.permits_payload_body() && is_head_request {
+            let expected_len = norm2.body().map_or(0, |b| b.len());
+            let cl = norm2
+                .headers()
+                .get_first("content-length")
+                .expect("HEAD response with a known length keeps its Content-Length");
+            assert_eq!(
+                cl.to_str().expect("normalized content-length is ASCII"),
+                expected_len.to_string(),
+                "HEAD content-length mismatch"
+            );
         }
     }
 });

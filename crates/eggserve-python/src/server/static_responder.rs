@@ -204,14 +204,24 @@ impl PyStaticResponder {
                 self.policy.directory_listing,
                 policy::DirectoryListingPolicy::Enabled
             ) {
+                // The static authority owns the listing renderer and both
+                // listing bounds. The bridge enumerates entries and hands them
+                // to `eggserve-static`; it never renders, escapes, truncates,
+                // or bounds listing HTML itself, so the Python surface emits
+                // the same bytes and enforces the same byte ceiling as the
+                // Rust surface.
                 let entries = dir
-                    .list(&self.root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)
+                    .list(&self.root, eggserve_static::DEFAULT_MAX_LISTING_ENTRIES)
                     .map_err(|e| {
                     pyo3::exceptions::PyRuntimeError::new_err(format!(
                         "directory listing failed: {e}"
                     ))
                 })?;
-                let body = directory_listing_bytes(&entries);
+                let body = eggserve_static::render_directory_listing(
+                    &entries,
+                    eggserve_static::DEFAULT_MAX_LISTING_RESPONSE_BYTES,
+                )
+                .map_err(|error| super::errors::listing_error_to_pyerr(&error))?;
                 let body_len = body.len();
                 let mut response = PyResponse::bytes(200, body, None)?;
                 response
@@ -391,43 +401,6 @@ pub(super) fn build_error_response(status: u16, reason: &str) -> PyResult<PyResp
         body: std::sync::Mutex::new(PyResponseBody::Bytes(reason.as_bytes().to_vec())),
         extra_headers: Vec::new(),
     })
-}
-
-pub(super) fn directory_listing_bytes(entries: &[eggserve_static::ListingEntry]) -> Vec<u8> {
-    fn escape(value: &str) -> String {
-        use std::fmt::Write;
-
-        let mut out = String::with_capacity(value.len());
-        for c in value.chars() {
-            match c {
-                '&' => out.push_str("&amp;"),
-                '<' => out.push_str("&lt;"),
-                '>' => out.push_str("&gt;"),
-                '"' => out.push_str("&quot;"),
-                '\'' => out.push_str("&#x27;"),
-                c if !c.is_control() => out.push(c),
-                c => write!(&mut out, "&#x{:X};", c as u32)
-                    .expect("writing to String cannot fail"),
-            }
-        }
-        out
-    }
-    let mut html = String::from(
-        "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\"><title>Directory listing</title></head>\n<body><h1>Directory listing</h1><ul>\n",
-    );
-    for entry in entries {
-        // Display is lossy; the link target was encoded from raw bytes at
-        // enumeration so distinct non-UTF-8 names never share one link.
-        let visible = escape(&entry.name);
-        let href = escape(&entry.href);
-        if entry.is_dir {
-            html.push_str(&format!("<li><a href=\"{href}/\">{visible}/</a></li>\n"));
-        } else {
-            html.push_str(&format!("<li><a href=\"{href}\">{visible}</a></li>\n"));
-        }
-    }
-    html.push_str("</ul>\n</body>\n</html>\n");
-    html.into_bytes()
 }
 
 #[pyclass(frozen, from_py_object, name = "StaticPolicyWrapper")]

@@ -16,7 +16,7 @@ Fuzz targets for eggserve's path confinement, request parsing, response planning
 | `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
 | `fuzz_normalize_response` | StatusCode validation, response building, response normalization, Content-Length reconciliation |
 | `fuzz_request_body` | RequestBody state machine, one-shot enforcement |
-| `fuzz_directory_buffer` | Directory listing buffer, HTML well-formedness (Windows-only — empty harness on Linux/macOS) |
+| `fuzz_directory_buffer` | NT `FILE_ID_BOTH_DIR_INFO` directory-buffer parsing (runs on every platform — the record layout is a wire format, not a Windows API binding) |
 
 ## Running
 
@@ -54,6 +54,12 @@ cargo fuzz run request_target -- -max_total_time=60
 - Platform checks: drive prefix requires `X:` pattern, clean components pass
 - Header validation: no NUL/CR/LF in values, empty names rejected
 - Response normalization: body-forbidden statuses empty, TE stripped, CL correct
+- Directory buffer: entry budget bounds the listing, dotfile flag matches the parsed name, `.`/`..`
+  never leak into a listing, the parse is deterministic, and a rejected buffer stays rejected under
+  a wider entry budget
+
+Every assertion must be able to fail: no variant match over every enum variant, and no
+`!x.is_empty() || x.is_empty()`.
 
 ## Seed corpora
 
@@ -70,4 +76,7 @@ Deterministic property tests using proptest run in normal CI via `cargo test`. S
 ## CI integration
 
 - **Normal CI**: Property tests run as part of `cargo test`. Corpus regression tests via `cargo test -p eggserve-core --test corpus_replay` replay every committed seed.
+- **Fuzz build gate**: CI compiles this crate with `cd fuzz && cargo check --bins`, so a target that
+  no longer builds against the current API fails CI instead of rotting. The crate is its own
+  workspace and has its own lockfile; it never touches the repository-root `Cargo.lock`.
 - **Manual fuzzing**: `cargo fuzz run <target>` for extended fuzzing sessions

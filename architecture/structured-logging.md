@@ -201,14 +201,23 @@ rejections keep their own categorical events).
 
 Accept errors are classified by `io::ErrorKind`:
 - **Transient** (Interrupted, ConnectionRefused, etc.) → Debug severity, bounded backoff
-- **Resource exhaustion** (EMFILE/ENFILE) → Error severity, rate-limited retry
-- **Persistent** (unknown errors) → Error severity, no backoff
+- **Resource exhaustion** (EMFILE/ENFILE, and out-of-memory) → Error severity, `resource_exhaustion`, backoff
+- **Persistent** (unknown errors) → Error severity, `listener_persistent_error`, no backoff, **fatal**
+
+There is one classification authority: `eggserve_server::accept_error`
+(Plan 309). It owns the severity/event-kind mapping, the fatal decision, the
+descriptor-exhaustion predicate, and the backoff ramp. Both accept loops use
+it — the direct `eggserve-server` accept loop and the compatibility
+`accept_loop_multi` — so the two cannot drift apart.
 
 Backoff is per path and interruptible by shutdown via `tokio::select!`:
-- **Direct** `eggserve-server` accept loop: fixed 10 ms sleep on accept errors.
-- **Core** compatibility `accept_loop_multi`: bounded exponential backoff
-  starting at 1 ms (`BACKOFF_MS` ramp, via `classify_accept_error()`),
-  shared across the `tcp-0` / `unix-0` listener families.
+- **Direct** `eggserve-server` accept loop: the shared ramp
+  `[1, 2, 4, 8, 50, 100, 250, 500]` ms, saturating at 500 ms, resetting
+  after a successful accept. A fatal accept error ends the loop through the
+  server's normal shutdown path.
+- **Core** compatibility `accept_loop_multi`: the same shared ramp, shared
+  across the `tcp-0` / `unix-0` listener families. Its emission is
+  additionally rate-limited (first occurrence, then every 10th).
 
 ## Log Sink Failure Behavior
 

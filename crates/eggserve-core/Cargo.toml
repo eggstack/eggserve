@@ -73,7 +73,9 @@ tokio-rustls = { version = "0.26", optional = true, default-features = false, fe
 [target.'cfg(unix)'.dependencies]
 # Plan 219: the static confinement implementation (and its `rustix::fs` use)
 # lives once in `eggserve-static`. Core keeps `rustix` only for listener
-# accept/socket validation (`rustix::net`, plus ungated `rustix::io::Errno`).
+# accept/socket validation (`rustix::net`). The descriptor-exhaustion
+# predicate moved to `eggserve_server::accept_error` (Plan 309), so core no
+# longer needs `rustix::io::Errno`.
 rustix = { version = "1", features = ["net"] }
 
 [dev-dependencies]

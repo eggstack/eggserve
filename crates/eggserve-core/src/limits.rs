@@ -21,7 +21,12 @@ pub use crate::runtime_limits::{
 };
 
 /// Default maximum number of entries to enumerate in a directory listing.
-pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
+///
+/// Re-exported from the static authority so the entry ceiling has one source
+/// of truth: the Rust service, the compatibility core, and the Python bridge
+/// all read the same constant instead of drifting apart. The value is
+/// unchanged (4096).
+pub use eggserve_static::DEFAULT_MAX_LISTING_ENTRIES;
 pub const MAX_LISTING_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 /// Upper bound for `max_listing_entries`. This is an entry count, not a
 /// byte size; it numerically matches the historical acceptance range.
@@ -123,7 +128,7 @@ impl Default for Limits {
             body_read_timeout: DEFAULT_BODY_READ_TIMEOUT,
             graceful_shutdown_timeout: DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             max_listing_entries: DEFAULT_MAX_LISTING_ENTRIES,
-            max_listing_response_bytes: 1024 * 1024, // 1 MiB
+            max_listing_response_bytes: eggserve_static::DEFAULT_MAX_LISTING_RESPONSE_BYTES,
             stream_chunk_size: DEFAULT_STREAM_CHUNK_SIZE,
             max_extra_headers: DEFAULT_MAX_EXTRA_HEADERS,
             max_extra_header_bytes: DEFAULT_MAX_EXTRA_HEADER_BYTES,
@@ -746,5 +751,25 @@ mod tests {
         };
         let errs = limits.validate().unwrap_err();
         assert!(errs.iter().any(|e| e.field == "response_write_timeout"));
+    }
+
+    #[test]
+    fn listing_bounds_come_from_the_static_authority() {
+        // The compatibility core does not own the listing ceilings: it
+        // re-exports the static authority's constants so the Rust service,
+        // the core, and the Python bridge read one source of truth and
+        // cannot drift apart.
+        assert_eq!(
+            DEFAULT_MAX_LISTING_ENTRIES,
+            eggserve_static::DEFAULT_MAX_LISTING_ENTRIES
+        );
+        assert_eq!(DEFAULT_MAX_LISTING_ENTRIES, 4096);
+        let limits = Limits::default();
+        assert_eq!(limits.max_listing_entries, DEFAULT_MAX_LISTING_ENTRIES);
+        assert_eq!(
+            limits.max_listing_response_bytes,
+            eggserve_static::DEFAULT_MAX_LISTING_RESPONSE_BYTES
+        );
+        assert_eq!(limits.max_listing_response_bytes, 1024 * 1024);
     }
 }

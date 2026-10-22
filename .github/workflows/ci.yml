@@ -84,6 +84,10 @@ jobs:
         # covered by `cargo test --workspace`. Without this gate its targets
         # can rot without detection — four of eleven did before Plan 310.
         run: cargo check --manifest-path fuzz/Cargo.toml --bins --locked
+      - name: Lint and format-check fuzz harness
+        run: |
+          cargo clippy --manifest-path fuzz/Cargo.toml --bins -- -D warnings
+          cargo fmt --manifest-path fuzz/Cargo.toml --all -- --check
       - name: Server TLS lint and tests
         run: |
           cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings

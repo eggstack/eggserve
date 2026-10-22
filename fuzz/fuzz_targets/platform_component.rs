@@ -1,6 +1,8 @@
 #![no_main]
+use eggserve_static::path::platform::{
+    check_component, has_windows_drive_prefix, is_windows_reserved_name,
+};
 use libfuzzer_sys::fuzz_target;
-use eggserve_static::path::platform::{check_component, has_windows_drive_prefix, is_windows_reserved_name};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {
@@ -27,12 +29,30 @@ fuzz_target!(|data: &[u8]| {
             assert!(!name.is_empty());
             let upper = name.to_ascii_uppercase();
             assert!(
-                matches!(upper.as_str(),
-                    "CON" | "PRN" | "AUX" | "NUL"
-                    | "COM1" | "COM2" | "COM3" | "COM4" | "COM5"
-                    | "COM6" | "COM7" | "COM8" | "COM9"
-                    | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5"
-                    | "LPT6" | "LPT7" | "LPT8" | "LPT9"
+                matches!(
+                    upper.as_str(),
+                    "CON"
+                        | "PRN"
+                        | "AUX"
+                        | "NUL"
+                        | "COM1"
+                        | "COM2"
+                        | "COM3"
+                        | "COM4"
+                        | "COM5"
+                        | "COM6"
+                        | "COM7"
+                        | "COM8"
+                        | "COM9"
+                        | "LPT1"
+                        | "LPT2"
+                        | "LPT3"
+                        | "LPT4"
+                        | "LPT5"
+                        | "LPT6"
+                        | "LPT7"
+                        | "LPT8"
+                        | "LPT9"
                 ),
                 "reserved_name returned true for non-reserved: {}",
                 upper

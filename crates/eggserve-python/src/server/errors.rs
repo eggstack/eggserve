@@ -53,6 +53,26 @@ impl ServerRequestError {
 }
 
 // ---------------------------------------------------------------------------
+// Static listing refusal (Plan 311)
+// ---------------------------------------------------------------------------
+
+/// Map a directory-listing refusal from the static authority onto a Python
+/// exception.
+///
+/// The static authority refuses to render a directory listing larger than the
+/// configured response-byte ceiling. That is a server-side denial-of-service
+/// bound, not a client error, so the bridge raises `RuntimeError` (the same
+/// mapping the bridge already uses for internal static failures). The bridge
+/// never truncates the listing, never emits a partial or oversized body, and
+/// never panics on the refusal.
+pub(super) fn listing_error_to_pyerr(error: &eggserve_server::ServiceError) -> PyErr {
+    pyo3::exceptions::PyRuntimeError::new_err(format!(
+        "directory listing failed: {}",
+        error.message()
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // Raw body error for channel communication (no Python objects)
 // ---------------------------------------------------------------------------
 

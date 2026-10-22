@@ -1,7 +1,7 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
 use eggserve_core::primitives::http::{validate_method, validate_request_body};
 use eggserve_core::primitives::method::{Method, MethodError};
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {
@@ -12,7 +12,10 @@ fuzz_target!(|data: &[u8]| {
                 assert_eq!(method.as_str(), s);
                 assert!(!method.as_str().is_empty());
                 if method.is_safe() {
-                    assert!(matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS" | "TRACE"));
+                    assert!(matches!(
+                        method.as_str(),
+                        "GET" | "HEAD" | "OPTIONS" | "TRACE"
+                    ));
                 }
                 if method.is_idempotent() {
                     assert!(matches!(
@@ -36,15 +39,12 @@ fuzz_target!(|data: &[u8]| {
 
         // Fuzz validate_method (read-only method validation)
         let validate_result = validate_method(s);
-        match validate_result {
-            Ok(method) => {
-                assert!(
-                    method == eggserve_core::primitives::http::ReadOnlyMethod::Get
-                        || method == eggserve_core::primitives::http::ReadOnlyMethod::Head
-                );
-                assert!(method.as_str() == s);
-            }
-            Err(_) => {}
+        if let Ok(method) = validate_result {
+            assert!(
+                method == eggserve_core::primitives::http::ReadOnlyMethod::Get
+                    || method == eggserve_core::primitives::http::ReadOnlyMethod::Head
+            );
+            assert!(method.as_str() == s);
         }
 
         // Fuzz body validation with arbitrary CL/TE values

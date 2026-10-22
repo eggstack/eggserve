@@ -11,7 +11,10 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-tokio = { version = "1", features = ["rt", "macros"] }
+# `rt-multi-thread` is required by `tokio::runtime::Runtime::new()`, which the
+# `fuzz_request_body` target drives. The feature pulls in no new package: the
+# multi-thread scheduler is part of `tokio` itself.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 bytes = "1"
 futures-util = "0.3"
 

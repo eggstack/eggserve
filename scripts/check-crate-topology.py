@@ -368,6 +368,15 @@ def main() -> int:
     if check_plan308_builder_delegation() != 0:
         return 1
 
+    if check_plan309_accept_error_authority() != 0:
+        return 1
+
+    if check_plan310_fuzz_target_inventory() != 0:
+        return 1
+
+    if check_plan311_listing_renderer_authority() != 0:
+        return 1
+
     if check_plan247_leaf_surfaces() != 0:
         return 1
 
@@ -613,6 +622,508 @@ def check_plan308_builder_delegation() -> int:
             f"compatibility builder grows a local setter `{name}` that the "
             "direct builder does not have (Plan 308: a new compatibility-only "
             "setter needs an explicit classification)",
+            file=sys.stderr,
+        )
+        return 1
+
+    return 0
+
+
+def _free_fn_body(source: str, name: str) -> str:
+    """Return the brace-matched body of a free function `name` in `source`.
+
+    Unlike `_rust_fn_bodies` this does not require a `pub fn` prefix, so it
+    also finds `pub(super) fn` and `pub(super) async fn` definitions.
+    """
+    import re
+
+    match = re.search(r"\bfn\s+" + re.escape(name) + r"\s*\(", source)
+    if not match:
+        return ""
+    open_brace = source.find("{", match.end())
+    if open_brace < 0:
+        return ""
+    depth = 0
+    for index in range(open_brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[open_brace : index + 1]
+    return ""
+
+
+def check_plan309_accept_error_authority() -> int:
+    """Enforce the single accept-error classification authority (Plan 309).
+
+    `eggserve_server::accept_error` owns the accept-error classification:
+    the severity/event-kind mapping, the fatal decision, descriptor-exhaustion
+    detection, and the backoff ramp. Both accept loops must use it — the
+    direct runtime's own accept loop and the compatibility loop in
+    `eggserve-core`. The compatibility loop may keep its own emission,
+    rate-limiting, and sleep policy, but it must not re-implement the
+    classification or the exhaustion predicate locally.
+    """
+    repo = Path(__file__).resolve().parent.parent
+    authority_path = repo / "crates/eggserve-server/src/accept_error.rs"
+    compat_path = repo / "crates/eggserve-core/src/server/accept.rs"
+    direct_path = repo / "crates/eggserve-server/src/lib.rs"
+
+    # A. The authority exists and owns the classification surface.
+    if not authority_path.exists():
+        print(
+            "crates/eggserve-server/src/accept_error.rs is missing: the "
+            "accept-error classification authority must live in the crate "
+            "that owns the H1 runtime (Plan 309)",
+            file=sys.stderr,
+        )
+        return 1
+    authority = authority_path.read_text()
+    for required in (
+        "pub fn classify_accept_error(",
+        "pub fn is_fd_exhaustion(",
+        "pub fn accept_backoff(",
+        "pub const ACCEPT_BACKOFF_MS: [u64; 8] = [1, 2, 4, 8, 50, 100, 250, 500];",
+    ):
+        if required not in authority:
+            print(
+                f"the accept-error authority no longer exposes `{required}` "
+                "(Plan 309: one classification authority for both accept loops)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # B. The compatibility loop delegates to the authority.
+    if not compat_path.exists():
+        print(
+            "crates/eggserve-core/src/server/accept.rs is missing: the "
+            "compatibility accept loop must delegate to the shared authority "
+            "(Plan 309)",
+            file=sys.stderr,
+        )
+        return 1
+    compat_all = compat_path.read_text()
+    # The production path is everything before the first `#[cfg(test)]`; the
+    # thin `is_fd_exhaustion` wrapper is test-only, so its delegation marker
+    # is checked against the whole file.
+    compat_prod = compat_all.split("#[cfg(test)]")[0]
+    for marker in (
+        "eggserve_server::accept_error::classify_accept_error(",
+        "eggserve_server::accept_error::accept_backoff(",
+        "eggserve_server::accept_error::is_fd_exhaustion(",
+    ):
+        if marker not in compat_all:
+            print(
+                f"the compatibility accept loop does not delegate to "
+                f"`{marker[:-1]}` (Plan 309: one accept-error classification "
+                "authority for both accept loops)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # C. A local classification or exhaustion predicate must not come back in
+    #    the compatibility crate's production path.
+    for marker in (
+        "Errno::MFILE",
+        "Errno::NFILE",
+        "10023",
+        "10024",
+        '.contains("too many open files")',
+        '.contains("Too many open files")',
+        '.contains("emfile")',
+        '.contains("EMFILE")',
+        '.contains("enfile")',
+        '.contains("ENFILE")',
+        "static BACKOFF_MS",
+        "std::io::ErrorKind::Interrupted",
+        "std::io::ErrorKind::ConnectionRefused",
+        "std::io::ErrorKind::ConnectionReset",
+        "std::io::ErrorKind::ConnectionAborted",
+        "std::io::ErrorKind::BrokenPipe",
+        "std::io::ErrorKind::WouldBlock",
+        "std::io::ErrorKind::TimedOut",
+        "std::io::ErrorKind::OutOfMemory",
+        "std::io::ErrorKind::Other",
+    ):
+        if marker in compat_prod:
+            print(
+                f"the compatibility accept loop re-implements the accept-error "
+                f"classification locally (`{marker}`); Plan 309 keeps the "
+                "classification and the descriptor-exhaustion predicate in "
+                "`eggserve_server::accept_error`",
+                file=sys.stderr,
+            )
+            return 1
+
+    # C2. The compatibility wrapper itself must delegate rather than map
+    #     error kinds onto severities of its own.
+    compat_body = _free_fn_body(compat_prod, "classify_accept_error")
+    if not compat_body:
+        print(
+            "could not locate the compatibility accept loop's "
+            "`classify_accept_error` wrapper (Plan 309)",
+            file=sys.stderr,
+        )
+        return 1
+    if "eggserve_server::accept_error::classify_accept_error(" not in compat_body:
+        print(
+            "the compatibility accept loop's `classify_accept_error` wrapper "
+            "does not call the shared authority (Plan 309: one classification "
+            "authority for both accept loops)",
+            file=sys.stderr,
+        )
+        return 1
+    for marker in ("EventKind::Listener", "EventKind::Resource", "Severity::"):
+        if marker in compat_body:
+            print(
+                f"the compatibility accept loop's `classify_accept_error` "
+                f"wrapper still maps error kinds onto severities itself "
+                f"(`{marker}`); Plan 309 keeps that mapping in "
+                "`eggserve_server::accept_error`",
+                file=sys.stderr,
+            )
+            return 1
+
+    # D. The direct accept loop must use the authority too, otherwise the two
+    #    loops drift apart again.
+    if not direct_path.exists():
+        print(
+            "crates/eggserve-server/src/lib.rs is missing (Plan 309)",
+            file=sys.stderr,
+        )
+        return 1
+    direct = direct_path.read_text()
+    for marker in (
+        "accept_error::report_accept_error(",
+        "accept_error::accept_backoff(",
+    ):
+        if marker not in direct:
+            print(
+                f"the direct runtime's accept loop does not use `{marker[:-1]}` "
+                "(Plan 309: both accept loops classify accept errors the same "
+                "way)",
+                file=sys.stderr,
+            )
+            return 1
+    for marker in (
+        "tokio::time::sleep(Duration::from_millis(10))",
+        "ListenerTransientError",
+    ):
+        if marker in direct:
+            print(
+                f"the direct runtime's accept loop still hard-codes "
+                f"`{marker}`; Plan 309 routes every accept error through the "
+                "shared classification authority",
+                file=sys.stderr,
+            )
+            return 1
+
+    # E. No `rustix` in the direct crate: the descriptor-exhaustion predicate
+    #    is expressed with raw OS codes so the direct graph stays unchanged.
+    server_manifest = repo / "crates/eggserve-server/Cargo.toml"
+    if server_manifest.exists() and "rustix" in server_manifest.read_text():
+        print(
+            "eggserve-server must not depend on rustix: the descriptor-"
+            "exhaustion predicate uses raw OS codes so the Plan 276/291 "
+            "direct-graph proofs stay valid (Plan 309)",
+            file=sys.stderr,
+        )
+        return 1
+
+    return 0
+
+
+
+def check_plan310_fuzz_target_inventory() -> int:
+    """Enforce the fuzz target / corpus / replay inventory (Plan 310).
+
+    The fuzz crate is a separate workspace, so `cargo test --workspace` never
+    sees it. Without an inventory gate a target, its seed corpus, and its
+    deterministic corpus-replay test can drift apart — and the replay can go
+    vacuous, which is exactly what happened before Plan 310 (the replay
+    pointed at a non-existent corpus directory and iterated over zero inputs
+    while reporting success).
+
+    The three sets must stay equal, so a target can only disappear
+    deliberately, from all three places at once:
+
+    1. the `[[bin]]` entries in `fuzz/Cargo.toml`,
+    2. the seed corpus directories under `fuzz/corpus/`,
+    3. the `corpus_replay_*` tests in `crates/eggserve-core/tests/corpus_replay.rs`.
+    """
+    import re
+
+    repo = Path(__file__).resolve().parent.parent
+    manifest_path = repo / "fuzz/Cargo.toml"
+    targets_dir = repo / "fuzz/fuzz_targets"
+    corpus_dir = repo / "fuzz/corpus"
+    replay_path = repo / "crates/eggserve-core/tests/corpus_replay.rs"
+
+    if not manifest_path.exists():
+        print(
+            "fuzz/Cargo.toml is missing: the fuzz crate is a separate "
+            "workspace and needs its own inventory gate (Plan 310)",
+            file=sys.stderr,
+        )
+        return 1
+    manifest = manifest_path.read_text()
+
+    # 1. Declared targets.
+    declared: dict[str, str] = {}
+    for block in re.findall(r"\[\[bin\]\](.*?)(?=\n\[|\Z)", manifest, re.S):
+        name_match = re.search(r'name\s*=\s*"([^"]+)"', block)
+        path_match = re.search(r'path\s*=\s*"([^"]+)"', block)
+        if not name_match:
+            continue
+        declared[name_match.group(1)] = (
+            path_match.group(1) if path_match else f"fuzz_targets/{name_match.group(1)}.rs"
+        )
+
+    if not declared:
+        print(
+            "fuzz/Cargo.toml declares no [[bin]] fuzz targets (Plan 310: the "
+            "fuzz crate must declare its targets)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Every declared target needs a source file at its declared path.
+    for name, relative in sorted(declared.items()):
+        if not (repo / "fuzz" / relative).exists():
+            print(
+                f"fuzz target `{name}` declares path `{relative}`, which does "
+                "not exist (Plan 310: a declared target must have a source)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 2. Corpus directories.
+    corpus_dirs = set()
+    if corpus_dir.exists():
+        corpus_dirs = {
+            entry.name for entry in corpus_dir.iterdir() if entry.is_dir()
+        }
+    else:
+        print(
+            "fuzz/corpus/ is missing: the seed corpora must be committed "
+            "(Plan 310)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 3. Corpus-replay tests.
+    replay = replay_path.read_text() if replay_path.exists() else ""
+    replays = set(re.findall(r"fn\s+(corpus_replay_[A-Za-z0-9_]+)\s*\(", replay))
+    replayed = set()
+    for test_name in replays:
+        target = test_name[len("corpus_replay_") :]
+        # `fuzz_header_block` replays under `corpus_replay_header_block`.
+        replayed.add(target)
+    # The replay test asserts its corpus directory exists, so it cannot pass
+    # vacuously over an empty corpus.
+    if "require_corpus(" not in replay:
+        print(
+            "the corpus replay does not use `require_corpus(...)`: a replay "
+            "that iterates an empty corpus passes vacuously (Plan 310)",
+            file=sys.stderr,
+        )
+        return 1
+    if "/../../fuzz/corpus" not in replay:
+        print(
+            "the corpus replay does not resolve the corpus at "
+            "`../../fuzz/corpus`; it must point at the repository-root corpus "
+            "directory, not `crates/fuzz/corpus` (Plan 310)",
+            file=sys.stderr,
+        )
+        return 1
+
+    def _replay_matches(target: str) -> bool:
+        candidates = {target}
+        if target.startswith("fuzz_"):
+            candidates.add(target[len("fuzz_") :])
+        for candidate in candidates:
+            if f"corpus_replay_{candidate}" in replays:
+                return True
+        return False
+
+    for name in sorted(declared):
+        if name not in corpus_dirs:
+            print(
+                f"fuzz target `{name}` has no seed corpus directory "
+                f"`fuzz/corpus/{name}` (Plan 310: target, corpus, and replay "
+                "must stay in step)",
+                file=sys.stderr,
+            )
+            return 1
+        if not _replay_matches(name):
+            print(
+                f"fuzz target `{name}` has no corpus-replay coverage in "
+                "`crates/eggserve-core/tests/corpus_replay.rs` (Plan 310: "
+                "target, corpus, and replay must stay in step)",
+                file=sys.stderr,
+            )
+            return 1
+
+    for name in sorted(corpus_dirs - set(declared)):
+        print(
+            f"corpus directory `fuzz/corpus/{name}` has no declared fuzz "
+            "target (Plan 310: a target can only be removed deliberately, "
+            "from the manifest, the corpus, and the replay together)",
+            file=sys.stderr,
+        )
+        return 1
+
+    for name in sorted(replayed - set(declared)):
+        if not any(
+            candidate in declared
+            for candidate in (name, f"fuzz_{name}")
+        ):
+            print(
+                f"corpus replay `corpus_replay_{name}` has no declared fuzz "
+                "target (Plan 310: target, corpus, and replay must stay in "
+                "step)",
+                file=sys.stderr,
+            )
+            return 1
+
+    return 0
+
+
+def check_plan311_listing_renderer_authority() -> int:
+    """Enforce the single directory-listing renderer authority (Plan 311).
+
+    `eggserve-static` owns directory-listing rendering: it owns the HTML
+    shape, the HTML escaping, the entry-count bound, and the response-byte
+    ceiling. The Python bridge used to carry a second renderer with a weaker
+    guarantee — it bounded the entry count but not the response bytes — so
+    the two surfaces could enforce different denial-of-service limits for the
+    same directory.
+
+    The bridge must call the authority, and no crate may grow a second
+    renderer.
+    """
+    repo = Path(__file__).resolve().parent.parent
+    static_lib = repo / "crates/eggserve-static/src/lib.rs"
+    python_src = repo / "crates/eggserve-python/src"
+    core_limits = repo / "crates/eggserve-core/src/limits.rs"
+
+    # A. The static crate owns the renderer, its bounds, and the escaping.
+    if not static_lib.exists():
+        print(
+            "crates/eggserve-static/src/lib.rs is missing (Plan 311)",
+            file=sys.stderr,
+        )
+        return 1
+    static_source = static_lib.read_text()
+    for required in (
+        "pub fn render_directory_listing(",
+        "pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;",
+        "pub const DEFAULT_MAX_LISTING_RESPONSE_BYTES: usize = 1024 * 1024;",
+    ):
+        if required not in static_source:
+            print(
+                f"eggserve-static no longer exposes `{required}`: it owns the "
+                "directory-listing renderer, the entry bound, and the "
+                "response-byte ceiling (Plan 311)",
+                file=sys.stderr,
+            )
+            return 1
+    if "fn html_escape(" not in static_source:
+        print(
+            "eggserve-static no longer has an `html_escape` helper (Plan 311: "
+            "the listing renderer owns the HTML escaping)",
+            file=sys.stderr,
+        )
+        return 1
+    if "pub fn html_escape(" in static_source:
+        print(
+            "eggserve-static's `html_escape` must stay crate-private: a "
+            "public escaper invites a second renderer (Plan 311)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # B. The Python bridge calls the authority and owns no renderer.
+    if not python_src.exists():
+        print(
+            "crates/eggserve-python/src is missing (Plan 311)",
+            file=sys.stderr,
+        )
+        return 1
+    python_sources = sorted(python_src.rglob("*.rs"))
+    if not python_sources:
+        print(
+            "crates/eggserve-python/src contains no Rust sources (Plan 311)",
+            file=sys.stderr,
+        )
+        return 1
+    joined = "\n".join(path.read_text() for path in python_sources)
+    if "eggserve_static::render_directory_listing(" not in joined:
+        print(
+            "the Python bridge does not call "
+            "`eggserve_static::render_directory_listing(...)` (Plan 311: the "
+            "static authority owns listing rendering)",
+            file=sys.stderr,
+        )
+        return 1
+    if "eggserve_static::DEFAULT_MAX_LISTING_RESPONSE_BYTES" not in joined:
+        print(
+            "the Python bridge does not pass the authority's "
+            "`DEFAULT_MAX_LISTING_RESPONSE_BYTES` to the renderer (Plan 311: "
+            "the response-byte ceiling must come from the static authority, "
+            "not from a literal in the bridge)",
+            file=sys.stderr,
+        )
+        return 1
+    if "eggserve_static::DEFAULT_MAX_LISTING_ENTRIES" not in joined:
+        print(
+            "the Python bridge does not bound enumeration with the "
+            "authority's `DEFAULT_MAX_LISTING_ENTRIES` (Plan 311: one source "
+            "of truth for the entry bound)",
+            file=sys.stderr,
+        )
+        return 1
+    for marker in (
+        "fn escape(",
+        "html_escape",
+        "<!DOCTYPE html>",
+        "Directory listing",
+        "</ul>",
+        "directory_listing_bytes",
+    ):
+        if marker in joined:
+            print(
+                f"the Python bridge carries a second directory-listing "
+                f"renderer (`{marker}`); Plan 311 makes eggserve-static the "
+                "sole listing renderer, so the response-byte ceiling applies "
+                "to both surfaces",
+                file=sys.stderr,
+            )
+            return 1
+
+    # C. The compatibility crate reads the entry bound from the authority.
+    if not core_limits.exists():
+        print(
+            "crates/eggserve-core/src/limits.rs is missing (Plan 311)",
+            file=sys.stderr,
+        )
+        return 1
+    limits = core_limits.read_text()
+    if "eggserve_static::DEFAULT_MAX_LISTING_ENTRIES" not in limits:
+        print(
+            "the compatibility crate no longer reads the listing entry bound "
+            "from `eggserve_static::DEFAULT_MAX_LISTING_ENTRIES` (Plan 311: "
+            "one source of truth for the bound)",
+            file=sys.stderr,
+        )
+        return 1
+    if "pub const DEFAULT_MAX_LISTING_ENTRIES" in limits:
+        print(
+            "the compatibility crate redefines `DEFAULT_MAX_LISTING_ENTRIES` "
+            "instead of re-exporting the static authority's constant (Plan "
+            "311: one source of truth for the bound)",
             file=sys.stderr,
         )
         return 1
@@ -2672,7 +3183,346 @@ def run_self_tests() -> int:
         )
         check("plan308-unclassified-setter", check_plan308_builder_delegation() == 1)
 
-    # 8. Live-tree positives: the real repository still passes.
+    # 8. Plan 309: one accept-error classification authority.
+    good_authority = (
+        "pub const ACCEPT_BACKOFF_MS: [u64; 8] = [1, 2, 4, 8, 50, 100, 250, 500];\n"
+        "pub fn classify_accept_error(error: &std::io::Error) -> u8 { 0 }\n"
+        "pub fn is_fd_exhaustion(error: &std::io::Error) -> bool { false }\n"
+        "pub fn accept_backoff(index: usize) -> std::time::Duration {\n"
+        "    std::time::Duration::from_millis(0)\n"
+        "}\n"
+    )
+    good_compat_accept = (
+        "pub(super) async fn classify_accept_error(e: &std::io::Error) -> bool {\n"
+        "    let classification =\n"
+        "        eggserve_server::accept_error::classify_accept_error(e);\n"
+        "    let _ = eggserve_server::accept_error::accept_backoff(0);\n"
+        "    classification.is_fatal\n"
+        "}\n"
+        "\n"
+        "#[cfg(test)]\n"
+        "pub(super) fn is_fd_exhaustion(error: &std::io::Error) -> bool {\n"
+        "    eggserve_server::accept_error::is_fd_exhaustion(error)\n"
+        "}\n"
+    )
+    good_direct_lib = (
+        "pub mod accept_error;\n"
+        "fn serve() {\n"
+        "    let classification = accept_error::report_accept_error(&error, &ops);\n"
+        "    let delay = accept_error::accept_backoff(backoff_idx);\n"
+        "}\n"
+    )
+
+    def make_309(root: Path) -> None:
+        write(root, "crates/eggserve-server/src/accept_error.rs", good_authority)
+        write(root, "crates/eggserve-core/src/server/accept.rs", good_compat_accept)
+        write(root, "crates/eggserve-server/src/lib.rs", good_direct_lib)
+
+    with fake_repo() as root:
+        make_309(root)
+        check("plan309-good", check_plan309_accept_error_authority() == 0)
+
+        write(
+            root,
+            "crates/eggserve-core/src/server/accept.rs",
+            good_compat_accept.replace(
+                "    let classification =\n",
+                "    let _ = crate::ops::EventKind::ListenerTransientError;\n"
+                "    let classification =\n",
+            ),
+        )
+        check(
+            "plan309-compat-local-severity-map",
+            check_plan309_accept_error_authority() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-core/src/server/accept.rs",
+            good_compat_accept.replace(
+                "    let classification =\n",
+                '    let _ = error.to_string().contains("emfile");\n'
+                "    let classification =\n",
+            ),
+        )
+        check(
+            "plan309-compat-local-exhaustion",
+            check_plan309_accept_error_authority() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-core/src/server/accept.rs",
+            good_compat_accept.replace(
+                "    let classification =\n",
+                "    static BACKOFF_MS: [u64; 8] = [1, 2, 4, 8, 50, 100, 250, 500];\n"
+                "    let _ = BACKOFF_MS;\n"
+                "    let classification =\n",
+            ),
+        )
+        check(
+            "plan309-compat-local-ramp",
+            check_plan309_accept_error_authority() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-core/src/server/accept.rs",
+            good_compat_accept.replace(
+                "    eggserve_server::accept_error::classify_accept_error(e);\n", ""
+            ),
+        )
+        check(
+            "plan309-compat-dropped-delegation",
+            check_plan309_accept_error_authority() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-server/src/lib.rs",
+            good_direct_lib.replace(
+                "    let delay = accept_error::accept_backoff(backoff_idx);\n",
+                "    let delay = accept_error::accept_backoff(backoff_idx);\n"
+                "    tokio::time::sleep(Duration::from_millis(10)).await;\n",
+            ),
+        )
+        check(
+            "plan309-direct-flat-backoff",
+            check_plan309_accept_error_authority() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-server/src/lib.rs",
+            good_direct_lib.replace(
+                "    let delay = accept_error::accept_backoff(backoff_idx);\n",
+                "    let delay = accept_error::accept_backoff(backoff_idx);\n"
+                "    let _ = crate::ops::EventKind::ListenerTransientError;\n",
+            ),
+        )
+        check(
+            "plan309-direct-hardcoded-kind",
+            check_plan309_accept_error_authority() == 1,
+        )
+
+        make_309(root)
+        (root / "crates/eggserve-server/src/accept_error.rs").unlink()
+        check(
+            "plan309-missing-authority",
+            check_plan309_accept_error_authority() == 1,
+        )
+
+        make_309(root)
+        write(root, "crates/eggserve-server/Cargo.toml", "[dependencies]\nrustix = \"1\"\n")
+        check(
+            "plan309-rustix-in-direct-crate",
+            check_plan309_accept_error_authority() == 1,
+        )
+
+    # 9. Plan 310: the fuzz target / corpus / replay inventory.
+    good_fuzz_manifest = (
+        "[[bin]]\n"
+        'name = "range_header"\n'
+        'path = "fuzz_targets/range_header.rs"\n'
+        "\n"
+        "[[bin]]\n"
+        'name = "fuzz_header_block"\n'
+        'path = "fuzz_targets/fuzz_header_block.rs"\n'
+    )
+    good_replay = (
+        "const CORPUS_DIR: &str = concat!(env!(\"CARGO_MANIFEST_DIR\"), "
+        "\"/../../fuzz/corpus\");\n"
+        "fn require_corpus(target: &str) { let _ = target; }\n"
+        "fn corpus_replay_range_header() { require_corpus(\"range_header\"); }\n"
+        "fn corpus_replay_header_block() { require_corpus(\"fuzz_header_block\"); }\n"
+    )
+
+    def make_310(root: Path) -> None:
+        write(root, "fuzz/Cargo.toml", good_fuzz_manifest)
+        write(root, "fuzz/fuzz_targets/range_header.rs", "fn main() {}\n")
+        write(root, "fuzz/fuzz_targets/fuzz_header_block.rs", "fn main() {}\n")
+        write(root, "fuzz/corpus/range_header/seed", "x")
+        write(root, "fuzz/corpus/fuzz_header_block/seed", "x")
+        write(root, "crates/eggserve-core/tests/corpus_replay.rs", good_replay)
+
+    with fake_repo() as root:
+        make_310(root)
+        check("plan310-good", check_plan310_fuzz_target_inventory() == 0)
+
+        make_310(root)
+        (root / "fuzz/corpus/range_header/seed").unlink()
+        (root / "fuzz/corpus/range_header").rmdir()
+        check(
+            "plan310-missing-corpus",
+            check_plan310_fuzz_target_inventory() == 1,
+        )
+
+        make_310(root)
+        write(
+            root,
+            "crates/eggserve-core/tests/corpus_replay.rs",
+            good_replay.replace(
+                "fn corpus_replay_range_header() { require_corpus(\"range_header\"); }\n",
+                "",
+            ),
+        )
+        check(
+            "plan310-missing-replay",
+            check_plan310_fuzz_target_inventory() == 1,
+        )
+
+        make_310(root)
+        write(root, "fuzz/corpus/orphan_target/seed", "x")
+        check(
+            "plan310-orphan-corpus",
+            check_plan310_fuzz_target_inventory() == 1,
+        )
+
+        make_310(root)
+        write(
+            root,
+            "fuzz/Cargo.toml",
+            good_fuzz_manifest.replace(
+                'path = "fuzz_targets/range_header.rs"',
+                'path = "fuzz_targets/does_not_exist.rs"',
+            ),
+        )
+        check(
+            "plan310-missing-target-source",
+            check_plan310_fuzz_target_inventory() == 1,
+        )
+
+        make_310(root)
+        write(
+            root,
+            "crates/eggserve-core/tests/corpus_replay.rs",
+            good_replay.replace(
+                "fn require_corpus(target: &str) { let _ = target; }\n", ""
+            ),
+        )
+        check(
+            "plan310-vacuous-replay",
+            check_plan310_fuzz_target_inventory() == 1,
+        )
+
+        make_310(root)
+        write(
+            root,
+            "crates/eggserve-core/tests/corpus_replay.rs",
+            good_replay.replace("/../../fuzz/corpus", "/../fuzz/corpus"),
+        )
+        check(
+            "plan310-wrong-corpus-path",
+            check_plan310_fuzz_target_inventory() == 1,
+        )
+
+    # 10. Plan 311: one directory-listing renderer authority.
+    good_static_lib = (
+        "pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;\n"
+        "pub const DEFAULT_MAX_LISTING_RESPONSE_BYTES: usize = 1024 * 1024;\n"
+        "pub fn render_directory_listing(\n"
+        "    entries: &[ListingEntry],\n"
+        "    max_response_bytes: usize,\n"
+        ") -> Result<Vec<u8>, ServiceError> { Ok(Vec::new()) }\n"
+        "fn html_escape(value: &str) -> String { value.to_string() }\n"
+    )
+    good_python_responder = (
+        "fn serve(entries: &[eggserve_static::ListingEntry]) -> Vec<u8> {\n"
+        "    let _ = eggserve_static::DEFAULT_MAX_LISTING_ENTRIES;\n"
+        "    let body = eggserve_static::render_directory_listing(\n"
+        "        entries,\n"
+        "        eggserve_static::DEFAULT_MAX_LISTING_RESPONSE_BYTES,\n"
+        "    );\n"
+        "    body.unwrap_or_default()\n"
+        "}\n"
+    )
+    good_core_limits = "pub use eggserve_static::DEFAULT_MAX_LISTING_ENTRIES;\n"
+
+    def make_311(root: Path) -> None:
+        write(root, "crates/eggserve-static/src/lib.rs", good_static_lib)
+        write(
+            root,
+            "crates/eggserve-python/src/server/static_responder.rs",
+            good_python_responder,
+        )
+        write(root, "crates/eggserve-core/src/limits.rs", good_core_limits)
+
+    with fake_repo() as root:
+        make_311(root)
+        check("plan311-good", check_plan311_listing_renderer_authority() == 0)
+
+        write(
+            root,
+            "crates/eggserve-python/src/server/static_responder.rs",
+            good_python_responder
+            + "fn escape(value: &str) -> String { value.to_string() }\n",
+        )
+        check(
+            "plan311-python-second-renderer",
+            check_plan311_listing_renderer_authority() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-python/src/server/static_responder.rs",
+            good_python_responder
+            + 'const MARKUP: &str = "<!DOCTYPE html>";\n',
+        )
+        check(
+            "plan311-python-html-literal",
+            check_plan311_listing_renderer_authority() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-python/src/server/static_responder.rs",
+            good_python_responder.replace(
+                "eggserve_static::render_directory_listing(\n", "render_listing(\n"
+            ),
+        )
+        check(
+            "plan311-python-dropped-delegation",
+            check_plan311_listing_renderer_authority() == 1,
+        )
+
+        make_311(root)
+        write(
+            root,
+            "crates/eggserve-core/src/limits.rs",
+            "pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;\n",
+        )
+        check(
+            "plan311-core-redefined-constant",
+            check_plan311_listing_renderer_authority() == 1,
+        )
+
+        make_311(root)
+        write(
+            root,
+            "crates/eggserve-static/src/lib.rs",
+            good_static_lib.replace(
+                "fn html_escape(", "pub fn html_escape("
+            ),
+        )
+        check(
+            "plan311-static-public-escaper",
+            check_plan311_listing_renderer_authority() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-python/src/server/static_responder.rs",
+            good_python_responder.replace(
+                "eggserve_static::DEFAULT_MAX_LISTING_RESPONSE_BYTES,",
+                "1024 * 1024,",
+            ),
+        )
+        check(
+            "plan311-python-wrong-byte-ceiling",
+            check_plan311_listing_renderer_authority() == 1,
+        )
+
+    # 11. Live-tree positives: the real repository still passes.
     globals()["__file__"] = saved_file
     check("live-plan249", check_plan249_h1_authority() == 0)
     check("live-plan253", check_plan253_overlap() == 0)
@@ -2680,6 +3530,9 @@ def run_self_tests() -> int:
     check("live-plan225", check_plan225_facade() == 0)
     check("live-plan306", check_plan306_error_authority() == 0)
     check("live-plan308", check_plan308_builder_delegation() == 0)
+    check("live-plan309", check_plan309_accept_error_authority() == 0)
+    check("live-plan310", check_plan310_fuzz_target_inventory() == 0)
+    check("live-plan311", check_plan311_listing_renderer_authority() == 0)
     globals()["__file__"] = saved_file
 
     if failures:

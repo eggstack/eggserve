@@ -953,7 +953,7 @@ impl PyResolvedDirectory {
                     let entries = dir
                         .list(
                             self.root.as_ref(),
-                            eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES,
+                            eggserve_static::DEFAULT_MAX_LISTING_ENTRIES,
                         )
                         .map_err(io_err_to_pyerr)?;
                     let py_list = PyList::empty(py);

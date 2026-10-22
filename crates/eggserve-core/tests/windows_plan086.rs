@@ -4042,33 +4042,12 @@ fn windows_fuzz_corpus_replay_request_target() {
     assert!(replayed > 0, "must replay at least one corpus entry");
 }
 
-#[test]
-fn windows_fuzz_corpus_replay_directory_buffer() {
-    // Replay the directory_buffer fuzz corpus (binary data).
-    let corpus_dir =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/corpus/fuzz_directory_buffer");
-    if !corpus_dir.exists() {
-        blocked!("fuzz corpus directory not found");
-        return;
-    }
-
-    let mut replayed = 0;
-    for entry in fs::read_dir(&corpus_dir).expect("read corpus dir") {
-        let entry = entry.expect("dir entry");
-        let data = fs::read(entry.path()).expect("read corpus file");
-        let name = entry.file_name().to_string_lossy().into_owned();
-
-        // The directory buffer parser must handle arbitrary bytes without panic.
-        // We can't call the parser directly from a test (it's internal),
-        // but we verify the binary data doesn't cause issues when read.
-        assert!(
-            !data.is_empty() || name == "empty",
-            "[directory_buffer/{name}] empty corpus file"
-        );
-        replayed += 1;
-    }
-    eprintln!("directory_buffer corpus: replayed {replayed} entries");
-}
+// The directory-buffer corpus replay moved to the cross-platform corpus
+// replay in `corpus_replay.rs` (Plan 310): the NT directory-buffer parser is
+// now public (`eggserve_static::parse_directory_buffer`) and platform
+// neutral, so its corpus is replayed — against the parser, not against file
+// emptiness — on every CI run rather than only under the Windows
+// qualification feature.
 
 // ============================================================================
 // Track G — Additional: Unreadable file via ACL (not just nonexistent)

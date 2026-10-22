@@ -99,6 +99,29 @@ for source-compatible logging/customization. They do not create a Python-owned
 subclass logging hooks are `log_request()`, `log_error()`, and
 `log_message()` (all no-ops by default, safe to override).
 
+## Directory listings
+
+Directory listing is opt-in: `SimpleHTTPRequestHandler.directory_listing = True`
+(the stock class keeps it `False`), and the safe default refuses to render a
+listing at all.
+
+When it is enabled, the listing body is produced by the `eggserve-static`
+authority, not by the Python bridge. The Python surface therefore emits
+byte-identical listing HTML to the Rust surface, and the same bounds apply to
+both:
+
+- at most 4096 entries are enumerated (`DEFAULT_MAX_LISTING_ENTRIES`);
+- the rendered listing must fit in 1 MiB (`DEFAULT_MAX_LISTING_RESPONSE_BYTES`).
+
+A listing that would exceed the byte ceiling is refused whole: the bridge
+never truncates the listing, never emits a partial or oversized body, and never
+panics. The native `StaticResponder.respond()` raises `RuntimeError` with a
+`directory listing failed: ...` message; the HTTP facade converts that
+exception into the same generic 500 it produces for any other handler failure,
+and the server keeps serving afterwards.
+
+The listing response is `200` with `Content-Type: text/html; charset=utf-8`.
+
 ## Intentional incompatibilities
 
 These behaviors are unavailable by design, not pending work:

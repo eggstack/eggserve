@@ -154,10 +154,23 @@ capability bridge), neutral tunnel execution
 longer route through the compatibility core. The narrow remaining core uses
 are explicit Plan 225 blockers: the extended `Server`/`ServerHandle`/
 `RuntimeConfig` with TLS, `LifecycleState`, `ServeConfig` +
-`validate_static_metadata`, and static listing budgets — confined to
-`runtime.rs`, `static_responder.rs`, `lifecycle.rs`, and one listing call.
+`validate_static_metadata` — confined to `runtime.rs`, `static_responder.rs`,
+and `lifecycle.rs`.
 The extension-backed CLI stays via `eggserve_bin::run_cli` (confirmed used,
 not removed; narrow CLI contract, not a general Rust embedding API).
+
+Plan 311 removed the bridge's own directory-listing renderer.
+`static_responder.rs` now enumerates entries with `SecureRoot::list` and hands
+them to `eggserve_static::render_directory_listing`, with
+`eggserve_static::DEFAULT_MAX_LISTING_ENTRIES` (4096) and
+`eggserve_static::DEFAULT_MAX_LISTING_RESPONSE_BYTES` (1 MiB) as the single
+source of truth for the listing bounds (the compatibility core re-exports the
+entry ceiling from the same authority). The bridge no longer escapes,
+truncates, or bounds listing HTML, so the Python surface is byte-identical to
+the Rust surface. A listing over the byte ceiling is refused by the authority;
+`server/errors.rs` maps that refusal to a clean `RuntimeError`
+(`directory listing failed: ...`), which the facade converts into the same
+generic 500 it produces for any other handler failure.
 
 The canonical executable facade demonstrations are
 [`examples/python_http_server_static.py`](../examples/python_http_server_static.py)

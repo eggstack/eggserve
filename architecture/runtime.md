@@ -390,12 +390,41 @@ Race safety: state is stored in an `AtomicU8` with `compare_exchange` for all tr
 
 Listener errors are classified by `io::ErrorKind` into transient, resource-exhaustion, and persistent categories. All errors emit structured log events.
 
-- **Direct** `eggserve-server` accept loop: fixed 10 ms sleep on accept
-  errors (`Duration::from_millis(10)` in `crates/eggserve-server/src/lib.rs`).
-- **Core** compatibility `accept_loop_multi`: bounded exponential backoff
-  starting at 1 ms (`BACKOFF_MS` ramp in
-  `crates/eggserve-core/src/server/accept.rs`, via
-  `classify_accept_error()`), shared across families.
+**One classification authority serves both accept loops** (Plan 309):
+`eggserve_server::accept_error` owns the severity/event-kind mapping, the
+fatal decision, the descriptor-exhaustion predicate, and the backoff ramp.
+The direct `eggserve-server` accept loop and the compatibility
+`eggserve-core` accept loop both call it; the compatibility crate keeps no
+local copy.
+
+| `io::ErrorKind` | Severity | Event kind | Backoff | Fatal |
+|---|---|---|---|---|
+| `Interrupted` | `Debug` | `listener_transient_error` | yes | no |
+| `ConnectionRefused`, `ConnectionReset`, `ConnectionAborted`, `BrokenPipe` | `Debug` | `listener_transient_error` | yes | no |
+| `WouldBlock`, `TimedOut` | `Warn` | `listener_transient_error` | yes | no |
+| `OutOfMemory` | `Error` | `resource_exhaustion` | yes | no |
+| descriptor exhaustion (any kind) | `Error` | `resource_exhaustion` | yes | no |
+| any other kind | `Error` | `listener_persistent_error` | no | yes |
+
+Descriptor exhaustion is recognized from the raw OS error number
+(`EMFILE`/`ENFILE` on Unix, `WSAEMFILE`/`WSAENFILE` on Windows — matched by
+value on every platform, so a cross-platform code is still exhaustion). A
+non-OS error falls back to a case-insensitive message match
+(`"too many open files"`, `"emfile"`, `"enfile"`); that fallback is the
+documented last resort, not the primary signal.
+
+- **Direct** `eggserve-server` accept loop: the shared classification, the
+  shared ramp (`ACCEPT_BACKOFF_MS` = 1, 2, 4, 8, 50, 100, 250, 500 ms,
+  saturating), and a shutdown-interruptible sleep. A **fatal** accept error
+  terminates the accept loop through the server's normal shutdown path
+  (`ServerShutdown::shutdown()` → drain) instead of being retried forever.
+  The ramp index resets after a successful accept. Every accept error is
+  counted (`listener_errors`) and emitted; the direct loop does not
+  rate-limit.
+- **Core** compatibility `accept_loop_multi`: the same classification and
+  ramp, shared across listener families, with the loop's own rate-limited
+  emission (first occurrence, then every 10th consecutive error of the same
+  event kind) and the same shutdown-interruptible sleep.
 
 Plan 201 runs one `accept_loop_multi` over every adopted listener (TCP plus,
 on Unix, UDS) through the same admission/backoff/pipeline — not a second

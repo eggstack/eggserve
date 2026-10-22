@@ -24,6 +24,11 @@ use eggserve_primitives::body::{BodySource, BodySourceError};
 use eggserve_primitives::policy::{DotfilePolicy, StaticPolicy, SymlinkPolicy};
 use eggserve_primitives::response::{BodyPlan, FileRange, StaticResponsePlan};
 
+// The directory-buffer parser is platform-neutral: the `FILE_ID_BOTH_DIR_INFO`
+// record layout is a wire format, not a Windows API binding, so the parser
+// lives outside the `cfg(windows)` module and is exercised on every platform.
+pub(crate) mod dirbuf;
+
 #[cfg(unix)]
 pub(crate) mod unix;
 

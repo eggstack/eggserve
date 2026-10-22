@@ -692,6 +692,78 @@ The compatibility builder now delegates every shared setter to
 `eggserve_server::RuntimeConfigBuilder`; the setter names, semantics,
 validation, clamping, and `Option`/`None` handling are unchanged.
 
+## Plan 309: accept-error classification parity (experimental; additive)
+
+The direct runtime's accept loop and the compatibility accept loop now share
+**one** classification authority, `eggserve_server::accept_error`. The
+compatibility loop's observable behavior is unchanged; the direct loop's is
+not.
+
+### What changed in the direct runtime
+
+- Accept errors are now classified by `io::ErrorKind` into transient,
+  resource-exhaustion, and persistent categories, with a meaningful severity
+  and event kind. Previously every accept error produced one undifferentiated
+  `Debug` / `ListenerTransientError` event.
+- The backoff is the shared ramp `[1, 2, 4, 8, 50, 100, 250, 500]` ms,
+  saturating at 500 ms and resetting after a successful accept. Previously it
+  was a flat 10 ms.
+- A **fatal** accept error (an `ErrorKind::Other` that is not descriptor
+  exhaustion) now ends the accept loop through the server's existing shutdown
+  path. Previously it was retried forever.
+
+### What a direct embedder should check
+
+If you read `listener_errors` or match on the accept-error event kind, review
+`docs/ops-logging.md` — the severity and event kind for an accept error now
+carry the classification. If you relied on the direct server retrying a
+persistent accept error indefinitely, that behavior is gone by design.
+
+The compatibility crate's surface is unchanged. The CLI and the Python facade
+are unchanged.
+
+## Plan 311: one directory-listing renderer (Python byte change)
+
+The Python facade no longer renders directory listings itself. It now calls the
+`eggserve-static` authority (`render_directory_listing`), so the Python and
+Rust surfaces emit byte-identical listing HTML and enforce the same
+denial-of-service bound.
+
+### What changed
+
+- **Listing bytes (Python clients).** The Python listing body now uses the
+  Rust surface's HTML wrapper: `<head>`, `<meta charset="utf-8">`,
+  `<title>`, `</head>`, `<body>`, and `<h1>` are separated by newlines instead
+  of being concatenated. The listing grows by exactly five bytes (`\n`) for
+  any directory; the per-entry `<li>` links and the closing
+  `</ul>\n</body>\n</html>\n` are unchanged. Clients that byte-compare a
+  listing body must be updated; clients that parse the HTML are unaffected.
+- **Listing byte ceiling (Python clients).** A rendered listing larger than
+  1 MiB is now refused instead of served. Previously the Python path bounded
+  only the entry count (4096) and could emit an arbitrarily large body. The
+  refusal is a clean failure: the native `StaticResponder.respond()` raises
+  `RuntimeError` (`directory listing failed: directory listing exceeds
+  configured bound`), and the HTTP facade converts it into the same generic
+  500 it produces for any other handler failure. The listing is never
+  truncated and no partial body is emitted.
+- The Rust surface's listing bytes are unchanged.
+
+### What a Python embedder should check
+
+- If you compare a listing body byte-for-byte (or snapshot it), update the
+  expectation to the Rust surface's format.
+- If you serve directories whose rendered listing can exceed 1 MiB (roughly
+  2000 long-named entries), expect a generic 500 instead of a large 200
+  response. Reduce the entry count or split the directory.
+- No constructor signature, default, or public symbol changed; the listing
+  response is still `200` with `Content-Type: text/html; charset=utf-8`, and
+  listings remain opt-in.
+
+`eggserve-static` gained two additive public items (`render_directory_listing`,
+`DEFAULT_MAX_LISTING_ENTRIES`, `DEFAULT_MAX_LISTING_RESPONSE_BYTES`);
+`eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES` is now a re-export of
+the static authority's constant (same value, 4096).
+
 ## Breaking Change Policy
 
 Patch releases preserve stable source compatibility. Before 1.0, intentional

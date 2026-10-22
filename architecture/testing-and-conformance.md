@@ -178,7 +178,7 @@ repository root.
 | `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
 | `fuzz_normalize_response` | StatusCode validation, response building, response normalization, Content-Length reconciliation |
 | `fuzz_request_body` | RequestBody state machine |
-| `fuzz_directory_buffer` | Directory listing buffer behavior (Windows-only harness; stale `eggserve_core::fs` import pending a dedicated fuzz-hook refresh, empty on Linux/macOS) |
+| `fuzz_directory_buffer` | NT `FILE_ID_BOTH_DIR_INFO` directory-listing buffer parsing. The parser is public and platform neutral (`eggserve_static::parse_directory_buffer`), so the target runs on every platform — previously it was gated `#![cfg(windows)]` and inert on Linux/macOS. |
 
 ### Seed Corpora
 
@@ -187,7 +187,14 @@ repository root.
 ### CI Integration
 
 - **Property tests** run in normal `cargo test` (assertions on arbitrary input)
-- **Corpus regression replay** via `cargo test -p eggserve-core --test corpus_replay`
+- **Corpus regression replay** via `cargo test -p eggserve-core --test corpus_replay`.
+  Each of the eleven fuzz targets has a matching `corpus_replay_*` test, and
+  each replay asserts its corpus directory exists via `require_corpus(...)`,
+  so a replay cannot pass vacuously over an empty corpus.
+- **Fuzz harness build gate** via `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`,
+  plus a clippy lane and a format check. The fuzz crate is a separate
+  workspace, so `cargo test --workspace` never covered it — four of eleven
+  targets did not compile while the repository was otherwise green.
 
 ### Fuzzing Invariants
 

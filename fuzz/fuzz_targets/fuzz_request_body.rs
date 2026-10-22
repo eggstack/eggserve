@@ -1,6 +1,6 @@
 #![no_main]
+use eggserve_core::primitives::request_body::{IncomingError, RequestBody};
 use libfuzzer_sys::fuzz_target;
-use eggserve_core::primitives::request_body::{RequestBody, IncomingError};
 
 fuzz_target!(|data: &[u8]| {
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -33,9 +33,11 @@ fuzz_target!(|data: &[u8]| {
     let result = rt.block_on(body.read_all());
     assert!(result.unwrap().is_empty());
 
-    // Test consumption tracking.
+    // Test consumption tracking. An empty body is complete at construction
+    // (there is nothing to consume); a non-empty body must not be reported
+    // as consumed before it has been read.
     let body = RequestBody::from_bytes(data.to_vec(), u64::MAX);
-    assert!(!body.was_fully_consumed());
+    assert_eq!(body.was_fully_consumed(), data.is_empty());
     let _ = rt.block_on(body.read_all());
 
     // === Streaming tests ===
@@ -64,9 +66,12 @@ fuzz_target!(|data: &[u8]| {
     let result = rt.block_on(body.read_all());
     assert!(result.is_ok(), "exact-limit body should succeed");
 
-    // Test one-over-limit body.
+    // Test one-over-limit body. The limit must sit strictly below the body
+    // length: a body whose length equals the limit is accepted (the exact
+    // limit is legal), so the limit is clamped to `len - 1`.
     if data.len() > 1 && limit < u64::MAX {
-        let body = RequestBody::from_bytes(data.to_vec(), limit);
+        let over_limit = limit.min(data.len() as u64 - 1);
+        let body = RequestBody::from_bytes(data.to_vec(), over_limit);
         let result = rt.block_on(body.read_all());
         assert!(result.is_err(), "one-over-limit body should fail");
     }
@@ -100,12 +105,13 @@ fuzz_target!(|data: &[u8]| {
 
     // Create a stream from fuzz data to simulate chunked transfer.
     if !data.is_empty() {
-        use futures_util::stream;
         use bytes::Bytes;
+        use futures_util::stream;
 
         // Split fuzz data into a stream of small chunks.
         let chunk_size = (data[0] as usize % 64) + 1;
-        let chunks: Vec<_> = data.chunks(chunk_size)
+        let chunks: Vec<_> = data
+            .chunks(chunk_size)
             .map(|c| Ok::<_, IncomingError>(Bytes::copy_from_slice(c)))
             .collect();
         let body_stream = stream::iter(chunks);
@@ -122,21 +128,23 @@ fuzz_target!(|data: &[u8]| {
     // === Premature EOF simulation ===
 
     if data.len() > 2 {
-        use futures_util::stream;
         use bytes::Bytes;
+        use futures_util::stream;
 
         // Declare more bytes than the stream provides.
         let declared = (data.len() as u64) + 100;
         let data_owned = data.to_vec();
-        let body_stream = stream::once(async move {
-            Ok::<_, IncomingError>(Bytes::from(data_owned))
-        });
+        let body_stream =
+            stream::once(async move { Ok::<_, IncomingError>(Bytes::from(data_owned)) });
         let body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
         let result = rt.block_on(body.read_all());
         // Should fail with PrematureEof.
         if let Err(e) = result {
             assert!(
-                matches!(e, eggserve_core::primitives::request_body_error::RequestBodyError::PrematureEof { .. }),
+                matches!(
+                    e,
+                    eggserve_core::primitives::request_body_error::RequestBodyError::PrematureEof { .. }
+                ),
                 "expected PrematureEof, got: {:?}",
                 e
             );
@@ -150,12 +158,13 @@ fuzz_target!(|data: &[u8]| {
     // both CL and TE, the request should be rejected at the HTTP level.
     // At the body level, we just verify the body primitives don't panic.
     if data.len() > 10 {
-        use futures_util::stream;
         use bytes::Bytes;
+        use futures_util::stream;
 
         // Create a body with the fuzz data as the content.
         let data_owned = data.to_vec();
-        let chunks: Vec<_> = data_owned.chunks(128)
+        let chunks: Vec<_> = data_owned
+            .chunks(128)
             .map(|c| Ok::<_, IncomingError>(Bytes::copy_from_slice(c)))
             .collect();
         let body_stream = stream::iter(chunks);
@@ -163,7 +172,15 @@ fuzz_target!(|data: &[u8]| {
         let result = rt.block_on(body.read_all());
         if let Err(e) = result {
             // Should be LimitExceeded or Transport error, not a panic.
-            assert!(e.is_limit_exceeded() || matches!(e, eggserve_core::primitives::request_body_error::RequestBodyError::Transport(_)));
+            assert!(
+                e.is_limit_exceeded()
+                    || matches!(
+                        e,
+                        eggserve_core::primitives::request_body_error::RequestBodyError::Transport(
+                            _
+                        )
+                    )
+            );
         }
     }
 
@@ -175,8 +192,19 @@ fuzz_target!(|data: &[u8]| {
         // Read one chunk to enter Streaming state.
         let first = rt.block_on(body.next_chunk()).unwrap();
         if first.is_some() {
-            // State should be Streaming.
-            assert_eq!(body.state(), eggserve_core::primitives::request_body::BodyState::Streaming);
+            // The body left the unread state. A chunk read that exhausts the
+            // body completes it, so the state is Streaming (bytes remain) or
+            // Complete (this chunk was the last one) — never Unread, never
+            // Error.
+            assert!(
+                matches!(
+                    body.state(),
+                    eggserve_core::primitives::request_body::BodyState::Streaming
+                        | eggserve_core::primitives::request_body::BodyState::Complete
+                ),
+                "unexpected body state after a chunk read: {:?}",
+                body.state()
+            );
             // Continue reading remaining chunks.
             while let Ok(Some(_chunk)) = rt.block_on(body.next_chunk()) {}
         }
@@ -186,7 +214,10 @@ fuzz_target!(|data: &[u8]| {
 
     {
         let body = RequestBody::empty();
-        assert_eq!(body.state(), eggserve_core::primitives::request_body::BodyState::Unread);
+        assert_eq!(
+            body.state(),
+            eggserve_core::primitives::request_body::BodyState::Unread
+        );
         let _ = rt.block_on(body.read_all());
         // Empty body completes immediately.
     }
@@ -200,12 +231,13 @@ fuzz_target!(|data: &[u8]| {
     // === Many tiny chunks ===
 
     if !data.is_empty() {
-        use futures_util::stream;
         use bytes::Bytes;
+        use futures_util::stream;
 
         // Create a stream with many single-byte chunks.
         let data_owned = data.to_vec();
-        let chunks: Vec<_> = data_owned.iter()
+        let chunks: Vec<_> = data_owned
+            .iter()
             .map(|&b| Ok::<_, IncomingError>(Bytes::copy_from_slice(&[b])))
             .collect();
         let body_stream = stream::iter(chunks);

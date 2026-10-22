@@ -119,6 +119,8 @@ cmd_fast() {
   # `cargo test --workspace` never covers it. Build it here so a target that
   # rots against the current API fails a routine local check.
   run cargo check --manifest-path "$REPO_ROOT/fuzz/Cargo.toml" --bins --locked
+  run cargo clippy --manifest-path "$REPO_ROOT/fuzz/Cargo.toml" --bins -- -D warnings
+  run cargo fmt --manifest-path "$REPO_ROOT/fuzz/Cargo.toml" --all -- --check
   cmd_platform_check
 }
 

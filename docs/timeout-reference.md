@@ -6,7 +6,7 @@ This document defines every timeout and lifecycle deadline in the eggserve runti
 
 | # | Name | Config field | Default | Clock starts | Progress resets | What constitutes progress | Enforcement owner | Terminal behavior | Cleanup |
 |---|------|-------------|---------|-------------|----------------|--------------------------|-------------------|-------------------|---------|
-| 1 | Listener backoff | *(internal)* | 1–50ms exponential | On accept error | On each backoff step | Successful accept or different error kind | `classify_accept_error()` in accept loop | Error classified as fatal → break accept loop | Backoff state resets on success |
+| 1 | Listener backoff | *(internal)* | 1–500ms exponential | On accept error | On each backoff step | Successful accept or different error kind | `eggserve_server::accept_error` (shared by both accept loops) | Error classified as fatal → break accept loop | Backoff state resets on success |
 | 2 | TLS handshake timeout | `tls_handshake_timeout` | 10s | TCP accept (TLS path) | No | N/A | `accept_tls()` in accept loop | Handshake aborted, connection dropped | Stream/acceptor dropped |
 | 3 | Request-header timeout | `header_read_timeout` | 10s | HTTP/1 connection created | No | Complete header block received | Hyper `http1::Builder::header_read_timeout` | 408 Request Timeout | Hyper closes connection |
 | 4 | Request-body timeout | `body_read_timeout` | 30s | Body ingestion begins | No | Body fully consumed (all frames read) | `serve_connection_with_service()` | 408 Request Timeout response | Body dropped, connection kept alive |
@@ -32,8 +32,8 @@ and shutdown limits continue to apply.
 - **Clock starts**: Immediately after an accept error.
 - **Progress resets**: Yes — on successful accept, `backoff_idx` resets to 0. On a different error kind, `error_repeat_count` resets to 1 and `backoff_idx` resets to 0 so a new kind starts its own ramp.
 - **Progress definition**: Successful `listener.accept()` call.
-- **Enforcement**: `classify_accept_error()` applies bounded exponential backoff: `[1, 2, 4, 8, 50]` ms. The backoff is interruptible by the shutdown broadcast channel.
-- **Terminal behavior**: Fatal errors (persistent non-transient errors) break the accept loop, transitioning to Draining → Stopped.
+- **Enforcement**: one authority, `eggserve_server::accept_error`, applies the bounded exponential backoff ramp `[1, 2, 4, 8, 50, 100, 250, 500]` ms (`ACCEPT_BACKOFF_MS`) in both accept loops. The ramp index saturates at the last step, so the delay never exceeds 500 ms. The backoff sleep is interruptible by shutdown — the compatibility loop selects on the shutdown broadcast channel, the direct loop selects on the runtime's shutdown signal — so shutdown is never delayed by the backoff.
+- **Terminal behavior**: Fatal errors (persistent non-transient errors) break the accept loop, transitioning to Draining → Stopped. In the direct runtime the fatal path stops the runtime through the server's normal shutdown path instead of retrying forever.
 - **Cleanup**: Backoff state (`backoff_idx`, `error_repeat_count`, `last_error_kind`) resets on success; `backoff_idx` also resets when the error kind changes.
 
 ### 2. TLS handshake timeout

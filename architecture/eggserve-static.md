@@ -29,6 +29,22 @@ planning glue, and `StaticService` request-to-response rendering over
 | `mime.rs` | crate-private `mime_for_path` over a `phf::Map`, case-insensitive fallback, `application/octet-stream` default; keyed by `safe_relative_components` only |
 | `planner.rs` | pure `plan_file_response`, `plan_file_response_with_preconditions`, `plan_file_response_with_preconditions_and_metadata`, conditional/range/ETag/listing helpers; no Hyper types |
 | `lib.rs` service | `StaticService::{builder, from_root, root}` + `StaticServiceBuilder::{policy, default_content_type, extra_response_headers, error_policy, listing_limits, build}` (defaults: safe policy, `application/octet-stream`, `Minimal`, 4096 entries / 1 MiB); `impl Service` with `RequestBodyPolicy::Reject` |
+| `lib.rs` listing authority (Plan 311) | public `render_directory_listing(entries, max_response_bytes) -> Result<Vec<u8>, ServiceError>` — the single listing renderer (fixed HTML wrapper + one escaped `<li>` link per entry), plus the shared bound constants `DEFAULT_MAX_LISTING_ENTRIES` (4096) and `DEFAULT_MAX_LISTING_RESPONSE_BYTES` (1 MiB) |
+
+## Listing authority (Plan 311)
+
+`render_directory_listing` is the only place a directory listing is rendered.
+The static service calls it, and every compatibility surface that can serve a
+listing (notably the Python bridge) calls the same function with the same
+bounds, so the emitted bytes and the denial-of-service ceiling cannot drift
+between surfaces.
+
+The renderer refuses (`Err(ServiceError)`) instead of truncating: the
+prefix/suffix pre-check and the per-link re-check both enforce
+`max_response_bytes`. `DEFAULT_MAX_LISTING_ENTRIES` and
+`DEFAULT_MAX_LISTING_RESPONSE_BYTES` are the single source of truth for the
+entry and byte ceilings; `eggserve-core::limits` re-exports the entry ceiling
+and the Python bridge reads both from this crate.
 
 ## Service behavior (owned here)
 

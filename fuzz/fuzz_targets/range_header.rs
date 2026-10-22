@@ -1,23 +1,45 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
-use eggserve_core::primitives::response::RangeRequestOutcome;
 use eggserve_core::primitives::planner::evaluate_range_header;
+use eggserve_core::primitives::response::RangeRequestOutcome;
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {
         // Use first byte as file size (0..255) for bounded testing
-        let file_size = if data.is_empty() { 100 } else { data[0] as u64 + 1 };
+        let file_size = if data.is_empty() {
+            100
+        } else {
+            data[0] as u64 + 1
+        };
 
         let outcome = evaluate_range_header(s, file_size);
 
         match outcome {
             RangeRequestOutcome::Satisfiable(range) => {
-                // Range must be within file bounds
-                assert!(range.start < file_size, "start {} beyond file_size {}", range.start, file_size);
-                assert!(range.end_inclusive < file_size, "end {} beyond file_size {}", range.end_inclusive, file_size);
-                assert!(range.start <= range.end_inclusive, "start {} > end {}", range.start, range.end_inclusive);
+                // Range must be within file bounds.
+                // `FileRange` keeps its endpoints private so the length
+                // invariant cannot be bypassed; read them through the
+                // accessors.
+                assert!(
+                    range.start() < file_size,
+                    "start {} beyond file_size {}",
+                    range.start(),
+                    file_size
+                );
+                assert!(
+                    range.end_inclusive() < file_size,
+                    "end {} beyond file_size {}",
+                    range.end_inclusive(),
+                    file_size
+                );
+                assert!(
+                    range.start() <= range.end_inclusive(),
+                    "start {} > end {}",
+                    range.start(),
+                    range.end_inclusive()
+                );
                 // Content-Length must be positive
-                assert!(range.len() > 0);
+                assert!(!range.is_empty());
                 // Content-Length must not exceed file_size
                 assert!(range.len() <= file_size);
             }

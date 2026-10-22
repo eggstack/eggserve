@@ -31,9 +31,11 @@ strip = "symbols"
 # static authority (SecureRoot/planner capability bridge), and the neutral
 # TLS substrate. The compatibility core remains for the extended server
 # orchestration (Server/ServerHandle/RuntimeConfig with TLS, lifecycle,
-# ServeConfig/static orchestration, static listing budgets) and the
-# extension-backed CLI (`eggserve-bin::run_cli`, confirmed used) until
-# Plan 225 closes the facade.
+# ServeConfig/static orchestration) and the extension-backed CLI
+# (`eggserve-bin::run_cli`, confirmed used) until Plan 225 closes the facade.
+# The bridge's static listing budgets (entry count and response-byte ceiling)
+# come from `eggserve-static` directly, not from the compatibility core
+# (Plan 311).
 eggserve-core = { path = "../eggserve-core", version = "0.5.0", features = ["tls", "python-bindings-internal"] }
 eggserve-bin = { path = "../eggserve-bin", version = "0.2.3", features = ["tls"] }
 eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.3" }

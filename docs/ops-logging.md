@@ -178,6 +178,27 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `resource_exhaustion` | ERROR | File descriptor exhaustion |
 | `log_sink_failure` | ERROR | Logging backend failed (retained kind; composite reports via `dropped_log_events`, not a synthetic event) |
 
+#### Accept-error severity and event kind
+
+Accept errors use one classification in both accept loops (the direct
+`eggserve-server` runtime and the compatibility runtime). The authority is
+`eggserve_server::accept_error`; the mapping is:
+
+| Accept error | Severity | Event kind | Loop outcome |
+|--------------|----------|------------|--------------|
+| `Interrupted` | DEBUG | `listener_transient_error` | back off, keep accepting |
+| `ConnectionRefused` / `ConnectionReset` / `ConnectionAborted` / `BrokenPipe` | DEBUG | `listener_transient_error` | back off, keep accepting |
+| `WouldBlock` / `TimedOut` | WARN | `listener_transient_error` | back off, keep accepting |
+| `OutOfMemory` | ERROR | `resource_exhaustion` | back off, keep accepting |
+| Descriptor exhaustion (`EMFILE` / `ENFILE` / `WSAEMFILE` / `WSAENFILE`) | ERROR | `resource_exhaustion` | back off, keep accepting |
+| Any other error kind | ERROR | `listener_persistent_error` | fatal — the accept loop stops through the runtime's shutdown path |
+
+Every accept error increments `listener_errors` and emits one event; accept
+errors are never silently dropped. The direct loop emits every occurrence;
+the compatibility loop rate-limits (first occurrence, then every 10th
+consecutive error of the same event kind). The accept-error text is
+sanitized before it reaches the sink.
+
 ## Operational Counters
 
 `RuntimeState::ops_snapshot()` / `ServerHandle::ops_snapshot()` return a
@@ -231,10 +252,15 @@ point-in-time snapshot of one runtime's counters
 
 ### Log flooding from listener errors
 
-Repeated accept errors (e.g., file descriptor exhaustion) are rate-limited:
+Repeated accept errors (e.g., file descriptor exhaustion) are rate-limited in
+the compatibility runtime:
 - First occurrence is always emitted
 - Subsequent identical errors emit a summary every 10 occurrences
 - Counter resets on successful accept or different error kind
+
+The direct `eggserve-server` runtime emits every accept error instead of
+rate-limiting it; the backoff ramp (1 ms growing to 500 ms) is what bounds
+the event rate there.
 
 ### Python server logging
 

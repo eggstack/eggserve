@@ -64,6 +64,19 @@ responses. At most 32 pairs and 8 KiB of combined header names and values are
 accepted by default. Runtime-owned and hop-by-hop headers are rejected during
 server construction.
 
+## Directory listings
+
+`directory_listing = True` is the explicit opt-in; the safe default refuses to
+render a listing. The listing body comes from the `eggserve-static` authority,
+so the Python facade serves byte-identical listing HTML to the Rust surface and
+enforces the same bounds: at most 4096 enumerated entries
+(`DEFAULT_MAX_LISTING_ENTRIES`) and a rendered listing of at most 1 MiB
+(`DEFAULT_MAX_LISTING_RESPONSE_BYTES`). A listing over the byte ceiling is
+refused rather than truncated: `StaticResponder.respond()` raises
+`RuntimeError`, and the HTTP facade turns that into a generic 500 while the
+server keeps serving. The listing response is `200` with
+`Content-Type: text/html; charset=utf-8`.
+
 ## HTTPS
 
 ```python

@@ -1,6 +1,6 @@
 #![no_main]
-use libfuzzer_sys::fuzz_target;
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderError, HeaderName, HeaderValue};
+use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     // Split input: first section for name, second for value, third for block ops
@@ -8,7 +8,9 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
     let name_end = (data[0] as usize).min(data.len() - 1).max(1);
-    let value_end = (data[1] as usize % data.len()).max(name_end + 1).min(data.len());
+    let value_end = (data[1] as usize % data.len())
+        .max(name_end + 1)
+        .min(data.len());
     let block_byte = data[2];
     let lookup_byte = data[3];
 
@@ -40,15 +42,29 @@ fuzz_target!(|data: &[u8]| {
         let result = HeaderValue::new(value_str);
         match result {
             Ok(value) => {
-                assert_eq!(value.as_str(), value_str);
-                assert_eq!(format!("{}", value), value_str);
+                // The stored octets are the input with the surrounding
+                // optional whitespace (SP/HTAB) removed, per the documented
+                // `OWS` invariant on `HeaderValue`. `HeaderValue` exposes the
+                // stored text through `to_str()` (which fails only for
+                // non-UTF-8 octets — impossible for a UTF-8 input).
+                let expected = value_str.trim_matches(|c: char| c == ' ' || c == '\t');
+                assert_eq!(
+                    value
+                        .to_str()
+                        .expect("value constructed from UTF-8 input is valid UTF-8"),
+                    expected
+                );
+                assert_eq!(format!("{}", value), expected);
             }
             Err(e) => {
                 assert_eq!(e, HeaderError::InvalidValue);
+                // The rejected value must contain a byte outside the accepted
+                // domain: only HTAB, SP–`~` and obs-text are accepted, so any
+                // other CTL (CR, LF, NUL, …) and DEL are refused.
                 assert!(
                     value_str
                         .bytes()
-                        .any(|b| b == b'\r' || b == b'\n' || b == 0),
+                        .any(|b| !(b >= 32 && b != 127 || b == b'\t')),
                     "error reported but no forbidden byte found in: {:?}",
                     value_str
                 );
