@@ -1,6 +1,6 @@
 # Static Confinement Roadmap
 
-Status: closed
+Status: active (reopened for Milestone 3 — verification-harness integrity)
 
 Long-term references:
 
@@ -50,7 +50,11 @@ Checked by `scripts/check-crate-topology.py` (`eggserve-static` sole authority; 
 
 ## 4. Current state
 
-Closed. `eggserve-static` is the single implementation authority; `eggserve-core` keeps re-export facades only. Windows handle-relative confinement qualified functional-only (two NTFS open-descendant root-rename cases skipped); Unix descriptor-relative traversal is the safe-default path.
+Closed on capability. `eggserve-static` is the single implementation authority; `eggserve-core` keeps re-export facades only. Windows handle-relative confinement qualified functional-only (two NTFS open-descendant root-rename cases skipped); Unix descriptor-relative traversal is the safe-default path.
+
+The roadmap is reopened solely because its **verification strategy claim is false at the baseline**. §9 states "11 fuzz targets (corpus replay in `cargo test`)", and Milestone 1's exit conditions state "fuzzer invariants hold". In fact, four of the eleven fuzz targets do not compile (`range_header`, `fuzz_header_block`, `fuzz_normalize_response`, `fuzz_request_body`), and `fuzz_directory_buffer` is inert on Linux and broken on Windows because it still imports the `eggserve_core::fs::windows` module that Plan 219 deleted. Nothing in routine CI builds the `fuzz/` crate — it is a separate workspace with its own lockfile — so the breakage is invisible. The *invariants* are still covered, because `crates/eggserve-core/tests/corpus_replay.rs` replays the committed corpus deterministically in routine CI; what is missing is the unbounded-exploration layer and the build gate.
+
+Milestone 3 repairs the harness and adds the build gate. No confinement capability is reopened.
 
 ## 5. Target architecture
 
@@ -100,6 +104,33 @@ Exit conditions: authority conformance fixture + H1 parity suite green; topology
 
 Deferred work: none.
 
+### Milestone 3 — Fuzz-harness repair and build gate
+
+Class: invariant
+
+Objective: restore the fuzz harness so it builds and runs, and make its
+build part of routine verification, so the confinement invariants have the
+unbounded-exploration layer their exit conditions claim.
+
+Dependencies: Milestones 1–2 (hard, closed); the `eggserve-static`
+ownership of the Windows directory-buffer parser (hard, closed).
+
+Deliverable boundary: all eleven targets compiling; the Windows
+directory-buffer target bound to its real owner with no tautological
+assertion; a routine-CI build gate for the `fuzz/` crate; corrected
+`docs/fuzzing.md`; a target-by-target corpus-replay coverage mapping.
+
+User or operator value: a change that breaks a confinement invariant is
+caught by the fuzzer, not only by the deterministic corpus replay — and a
+fuzz target that cannot compile can no longer hide behind the fact that
+nobody builds it.
+
+Exit conditions: `cargo check --bins` in `fuzz/` is clean; routine CI
+builds the crate and demonstrably fails on a deliberately broken target;
+the roadmap's verification-strategy claim matches reality.
+
+Deferred work: none.
+
 ## 8. Cross-cutting requirements
 
 Storage: read-only serving; no migration. Protocol: origin-form only; absolute-form rejected by static (Plan 278 seam stays H1-embedding-only). Security: `docs/threat-model.md` layers 1–3. Concurrency: file-stream semaphore + bounded chunk reads (128 KiB default, Plans 232–233). Observability: `OpsContext` events, sanitized paths. Perf: per-trial retained evidence, never single best numbers.
@@ -108,13 +139,17 @@ Storage: read-only serving; no migration. Protocol: origin-form only; absolute-f
 
 Rust unit/integration suites + `conformance_matrix.toml` replay + 11 fuzz targets (corpus replay in `cargo test`) + topology gate + Windows adversarial suites (manual qualification lane).
 
+The 11-target claim is restored by Milestone 3. Until that milestone closes, the accurate statement is: **6 of 11 fuzz targets compile; the corpus replay in `crates/eggserve-core/tests/corpus_replay.rs` covers the invariants deterministically in routine CI; the `fuzz/` crate is not built by CI.** Milestone 3 restores the harness and adds the build gate.
+
 ## 10. Risks and decision points
 
-None open. Any future confinement-boundary change requires an ADR.
+None open on the confinement boundary. Any future confinement-boundary change requires an ADR.
+
+Milestone 3 risk: repairing a fuzz target may reveal a production defect in the confinement path. Such a defect must be routed to a separate corrective plan, not absorbed into the harness repair, and must never be "fixed" by weakening an assertion.
 
 ## 11. Completion definition
 
-Authority collapse proven by fixture + gate, facades classified, no second implementation, evidence in `release/plan-225-compatibility-facade-closure.md` and `release/plan-248-maintainability-convergence-closure.md`. Met.
+Authority collapse proven by fixture + gate, facades classified, no second implementation, evidence in `release/plan-225-compatibility-facade-closure.md` and `release/plan-248-maintainability-convergence-closure.md`. Met for capability. The roadmap returns to closed status when Milestone 3 restores the fuzz harness and its build gate, and its verification-strategy claim is true.
 
 ## 12. Milestone status
 
@@ -122,3 +157,4 @@ Authority collapse proven by fixture + gate, facades classified, no second imple
 |---|---|---|---|---|
 | 1 | closed | legacy `plans/002-*`, `007-*`, `017-*`, `062-*`–`065-*` | `release/plan-034-*` lineage; `plan-225-*` facade proof | — |
 | 2 | closed | legacy `plans/081-*`, `219-*`, `245-*` | `release/plan-225-compatibility-facade-closure.md` | — |
+| 3 | ready | `plans/implementation/static-confinement/310-fuzz-harness-repair-and-build-gate.md` | `plans/closure/static-confinement/310-fuzz-harness-repair-and-build-gate.md` | — |

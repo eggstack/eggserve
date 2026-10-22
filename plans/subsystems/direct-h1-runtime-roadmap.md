@@ -51,7 +51,7 @@ Consumes: `primitives` only; never static/core. `http2`/`tls` are inert compatib
 
 ## 4. Current state
 
-Core capability closure remains complete through `eggserve-server 0.3.1`. Milestones 294–297 are closed as a bounded direct-Tower/application-server polish campaign, and Milestone 299 is closed as the scoped H1 response-trailer wire-correctness repair for the F3 gap discovered by 294; neither reopens the completed performance/footprint campaign. Milestone 300 (Plan 300) is the active operational publication of that qualified state as the 0.4.0 line plus wheel 0.2.4; it ships no further production behavior. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
+Core capability closure remains complete through `eggserve-server 0.3.1`. Milestones 294–297 are closed as a bounded direct-Tower/application-server polish campaign, and Milestone 299 is closed as the scoped H1 response-trailer wire-correctness repair for the F3 gap discovered by 294; neither reopens the completed performance/footprint campaign. Milestone 9 (Plan 300) published the 0.4.0 line on 2026-09-25 and is now **conditionally closed** by Milestone 10's closure record: the publication is real and fully evidenced, but the published artifact predates the post-tag corrective batch (`v0.4.0..465b80c` — B1–B89 plus the CI fix), so the live crates still carry those defects. Milestone 11 prepared the corrective `0.5.0` line and gated it locally; the upload, tag, release, and wheel steps remain outstanding because they need the maintainer's registry credentials and a green exact-SHA hosted CI run on the bump commit. Milestones 12–14 are closed: the runtime error representation has one authority in `eggserve-primitives` (Milestone 12, byte-identical wire output), the Plan 253 connection-overlap ledger is corrected, measured, and drift-bounded (Milestone 13), and the compatibility configuration carries the four direct-H1 ownership values with unchanged defaults while its builder delegates to the direct builder (Milestone 14). Milestone 15 (one accept-error classification authority) is the remaining item in this corrective program. Single-H1-authority + shutdown corrective (249–250), supervisory lifecycle + total-lifetime opt-out (270–271), absolute-form seam (278–279), policy/admission/connection-policy/rejection/tunnel program (280–286, published `0.3.0`), parser/header/metadata follow-up with registry proof (288–291, published `0.3.1`). Defaults unchanged; H2/H3 untouched; runtime failures stay under `ResponsePolicy` with explicit service/runtime provenance.
 
 ## 5. Target architecture
 
@@ -74,10 +74,26 @@ direct H1 parity + tunnel convergence (closed: 215–217)
                                |
                                +--> direct Tower/footprint polish (294–297, closed)
                                |
-                               `--> H1 response-trailer wire correctness (299)
+                               `--> H1 response-trailer wire correctness (299, closed)
+                               |
+                               +--> 0.4.0 publication closure (304)
+                                        |
+                                        `--> corrective 0.4.x publication (305)
+
+corrective program over the compatibility/direct overlap
+    |
+    +--> runtime error-representation single authority (306)
+             |
+             +--> connection-overlap classification accuracy (307)
+             |
+             +--> compatibility config projection parity (308)
+             |
+             `--> accept-error classification parity (309)
 ```
 
 Milestone 294 was the hard evidence dependency for 295 and 296; 297 closed that campaign after retained 295/296 work. Milestone 299 is independent of further performance work: its hard dependencies are the existing canonical trailer contract (Plan 198), the closed direct H1 authority/ownership work through 291, and the raw-wire F3 reproduction retained by 294/297.
+
+Milestone 304 closes the publication that Milestone 9 performed; Milestone 305 has a hard dependency on 304 and an operational dependency on the maintainer's registry credentials. Milestones 306–309 have no hard dependency on each other beyond the shared consolidation pattern, but each depends on the closed H1 authority work through 291, and Milestone 307 has an interface dependency on Milestone 306's gate pattern.
 
 Parser work (288) and metadata work (289) ran in parallel from one baseline; combined qualification (290) gated publication (291): interface dependency between 288/289, hard dependency of 290 on both, operational dependency of 291 on 290's semver decision + registry state.
 
@@ -203,6 +219,140 @@ User or operator value: the existing experimental trailer capability stops silen
 
 Exit conditions: raw TCP tests observe the terminal trailer section for opted-in HTTP/1.1, suppression remains correct elsewhere, framing/security invariants remain singular, and the closure record classifies any additive public API and release impact.
 
+### Milestone 10 — 0.4.0 publication closure
+
+Class: polish
+
+Objective: close Plan 300 against the publication that actually happened,
+and reconcile the planning control surface that still reports it as
+outstanding.
+
+Dependencies: Milestones 1–9 (hard, closed); live crates.io/PyPI state
+(operational, satisfied).
+
+Deliverable boundary: closure record + registry/roadmap reconciliation.
+The outcome is **conditionally closed**: the published 0.4.0 artifact
+predates the post-tag corrective batch (`v0.4.0..465b80c`), which
+Milestone 11 republishes.
+
+User or operator value: downstream consumers learn exactly what the live
+0.4.0 artifacts contain — including the defects they still carry — instead
+of reading a control surface that says the release has not happened.
+
+Exit conditions: Plan 300 closure record with per-crate timestamps and
+checksums; registry and roadmap no longer report Plan 300 as active.
+
+### Milestone 11 — Corrective 0.4.x publication
+
+Class: invariant
+
+Objective: publish the corrective batch committed after the `v0.4.0` tag
+so the live artifacts stop shipping the B1–B89 defects and the CI fix.
+
+Dependencies: Milestone 10 (hard, closed); the corrective commits are
+already landed in the tree.
+
+Deliverable boundary: version/requirement/lockfile metadata, publication,
+registry-only consumer proof, tag + release, wheel, changelog and
+migration-guide entries. No new production behavior.
+
+User or operator value: consumers of the published line stop receiving the
+defective behaviors (conditional-request correctness, framing strictness,
+range interaction, confinement parity, failure mapping, robustness).
+
+Exit conditions: closure record with semver rationale, per-crate
+timestamps/checksums, consumer proof, and changelog/migration-guide
+entries.
+
+### Milestone 12 — Runtime error-representation single authority
+
+Class: invariant
+
+Objective: collapse the parallel runtime error-body construction in
+`eggserve-core/src/response.rs` and `eggserve-server/src/response.rs` onto
+the `eggserve-primitives` authority, and add the gate rule that prevents
+the collapse from reversing.
+
+Dependencies: Plan 215 facade authority (hard, closed); the primitives
+error authority (hard, closed).
+
+Deliverable boundary: one error-representation implementation; byte-identical
+error output proven against a baseline capture; topology-gate facade rule
+plus `--self-test` mutation.
+
+User or operator value: the error representation the CLI and the wheel
+emit is produced by the same authority the primitives crate documents as
+the sole one, so a policy change cannot miss a surface.
+
+Exit conditions: the equivalence matrix is green and the gate fails when a
+parallel implementation is reintroduced.
+
+### Milestone 13 — Connection-overlap classification accuracy
+
+Class: invariant
+
+Objective: make the Plan 253 classification ledger true, bound the drift
+of the classified parallel pairs mechanically, and collapse the duplicated
+Alt-Svc advertisement policy.
+
+Dependencies: Plan 253 ledger (hard, closed); Milestone 12 (interface —
+same consolidation pattern).
+
+Deliverable boundary: corrected ledger; machine-checked per-pair drift
+ceiling with a `--self-test` mutation; one Alt-Svc advertisement authority
+in `eggserve-primitives`; dead classified helpers removed or justified.
+
+User or operator value: the classification stops understating the
+divergence, the divergence cannot silently grow, and the H1/H2/H3 Alt-Svc
+advertisement can no longer desynchronize.
+
+Exit conditions: the drift rule fires on a perturbed tree; the Alt-Svc
+header bytes are unchanged across the decision matrix.
+
+### Milestone 14 — Compatibility config projection parity
+
+Class: capability
+
+Objective: make the Plan 278/289 ownership knobs reachable through the
+compatibility config, and converge the duplicated `RuntimeConfigBuilder`
+setters.
+
+Dependencies: Milestones 1–3 ownership seams (hard, closed); Milestones
+12/13 (interface).
+
+Deliverable boundary: compatibility config carries the four ownership
+values with unchanged defaults; the compatibility builder delegates the 28
+duplicated setters; a gate rule prevents re-duplication. **No CLI flag
+and no Python option** — exposing them on those surfaces is a separate
+plan.
+
+User or operator value: a compatibility-crate embedder can reach the
+direct-H1 opt-ins instead of being silently pinned to the defaults, with
+no change to any default behavior.
+
+Exit conditions: the default path is byte-identical to the baseline and
+each knob is demonstrably reachable.
+
+### Milestone 15 — Accept-error classification parity
+
+Class: invariant
+
+Objective: use one accept-error classification authority in both the direct
+and the compatibility accept loop.
+
+Dependencies: Milestone 1 single H1 authority (hard, closed); the
+compatibility implementation as the reference behavior (hard, closed).
+
+Deliverable boundary: one classification authority; the direct loop gains
+exhaustion detection, severity mapping, fatal classification, and the
+backoff ramp; a gate rule prevents local re-implementation.
+
+User or operator value: a direct embedder no longer hot-spins on
+descriptor exhaustion and no longer retries a fatal accept error forever.
+
+Exit conditions: both loops classify an injected error identically and the
+backoff saturates at 500 ms.
+
 ## 8. Cross-cutting requirements
 
 Config: `RuntimeConfig` validated once; `Duration::ZERO` opts out of only the total lifetime. Security: TE+CL framing validation, bounded parser ceilings, sanitized errors, permits released once. Concurrency: JoinSet drain, level-triggered idempotent shutdown, `max_in_flight_requests` pre-response bound. Observability: explicit `OpsContext`, no library `println!`. Compat: exhaustive `RuntimeConfig` literals classified at each publication decision.
@@ -223,7 +373,7 @@ Direct-vs-compatibility parity suite, tunnel suites, app-server consumer + appli
 
 ## 11. Completion definition
 
-The capability milestones 1–3 remain closed and the 294–297 polish campaign is closed. The subsystem can return to closed status after Milestone 299 restores H1 response-trailer wire delivery (or records an evidence-backed contract correction) with no unresolved medium+ trailer correctness defect.
+The capability milestones 1–3 remain closed and the 294–297 polish campaign is closed. The subsystem can return to closed status after Milestone 299 restores H1 response-trailer wire delivery (or records an evidence-backed contract correction) with no unresolved medium+ trailer correctness defect, and after the corrective program (Milestones 304–309) has closed its findings: the publication is honestly recorded, the corrective line is published, the runtime error representation and the accept-error classification each have one authority, the Plan 253 classification is accurate and drift-bounded, and the compatibility projection preserves its defaults.
 
 ## 12. Milestone status
 
@@ -237,4 +387,10 @@ The capability milestones 1–3 remain closed and the 294–297 polish campaign 
 | 6 | closed | `plans/implementation/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | `plans/closure/direct-h1-runtime/296-direct-profile-footprint-capability-split.md` | — |
 | 7 | closed | `plans/implementation/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | `plans/closure/direct-h1-runtime/297-direct-application-server-qualification-closure.md` | — |
 | 8 | closed | `plans/implementation/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | `plans/closure/direct-h1-runtime/299-h1-response-trailer-wire-correctness.md` | — |
-| 9 | active | `plans/implementation/direct-h1-runtime/300-release-0-4-0-publication.md` | — | crates.io token + `pypi` approval (operational) |
+| 9 | conditionally closed | `plans/implementation/direct-h1-runtime/300-release-0-4-0-publication.md` | `plans/closure/direct-h1-runtime/300-release-0-4-0-publication.md` | Publication completed 2026-09-25 and is fully evidenced (per-crate checksums, exact-SHA CI run `36176532051`, registry-only consumer proofs, tag + GitHub Release, PyPI wheel set + post-publish smokes). Open condition: the published artifact predates `v0.4.0..465b80c` (B1–B89 + the CI fix) → Milestone 11 |
+| 10 | closed | `plans/implementation/direct-h1-runtime/304-040-publication-closure.md` | `plans/closure/direct-h1-runtime/300-release-0-4-0-publication.md` | — |
+| 11 | conditionally closed | `plans/implementation/direct-h1-runtime/305-corrective-040x-publication.md` | `plans/closure/direct-h1-runtime/305-corrective-040x-publication.md` | The corrective `0.5.0` line (`primitives 0.2.3`; `server`/`static`/`h3`/`core 0.5.0`; `bin 0.2.3`; wheel `0.2.5`) is prepared and gated locally. **Open condition:** the upload, tag, GitHub Release, and wheel steps are outstanding — they need the maintainer's crates.io token, the `pypi` environment approval, and a pushed bump commit whose exact-SHA hosted CI is green. |
+| 12 | closed | `plans/implementation/direct-h1-runtime/306-runtime-error-representation-single-authority.md` | `plans/closure/direct-h1-runtime/306-runtime-error-representation-single-authority.md` | One runtime-error authority; wire output proven byte-identical (44-cell matrix + wire-level TCP); dead helper cluster removed; gate rule `check_plan306_error_authority` |
+| 13 | closed | `plans/implementation/direct-h1-runtime/307-connection-overlap-classification-accuracy.md` | `plans/closure/direct-h1-runtime/307-connection-overlap-classification-accuracy.md` | Ledger corrected, measured, and drift-bounded (`check_plan253_drift`); Alt-Svc advertisement single-sourced; six dead helpers removed. Reported follow-ups: the `alt-svc` ownership question when H3 is off, and the now write-only `LifecycleDisposition` fields |
+| 14 | closed | `plans/implementation/direct-h1-runtime/308-compatibility-config-projection-parity.md` | `plans/closure/direct-h1-runtime/308-compatibility-config-projection-parity.md` | Four ownership values carried with unchanged defaults; 37/38 shared builder setters delegate; gate rule `check_plan308_builder_delegation`. Reported follow-ups: `response_metadata_ownership` is not reachable through the compatibility path, and `server/http3.rs` keeps a second hardcoded projection |
+| 15 | ready | `plans/implementation/direct-h1-runtime/309-accept-error-classification-parity.md` | `plans/closure/direct-h1-runtime/309-accept-error-classification-parity.md` | — |

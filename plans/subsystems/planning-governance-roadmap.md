@@ -1,6 +1,6 @@
 # Planning Governance Roadmap
 
-Status: closed (Milestones 1 and 302 closed)
+Status: active (Milestones 1 and 302 closed; Milestone 314 ready)
 
 Long-term references:
 
@@ -57,7 +57,9 @@ None. Planning governance is an internal coordination contract.
 
 Plan 292 created the CodeGG-style hierarchy and its acceptance structure is materially in use: Plan 293 and Milestones 294–297 have implementation plans, closure records, registry entries, and subsystem-roadmap state.
 
-After Plan 297 closure, the control surface still contains stale bootstrap/campaign wording: Plan 292 is still represented as active scaffolding; the direct-H1 registry/roadmap wording retains completed 294–297 campaign language; the blocked-work paragraph refers to 297 as merely ready; and agent guidance contains hard-coded “294+” next-work wording.
+After Plan 297 closure, the control surface still contains stale bootstrap/campaign wording: Plan 292 is still represented as active scaffolding; the direct-H1 registry/roadmap wording retains completed 294–297 campaign language; the blocked-work paragraph refers to 297 as merely ready; and agent guidance contains hard-coded "294+" next-work wording. Milestone 298 reconciled that state.
+
+A second staleness class appeared after the 0.4.0 publication on 2026-09-25. The registry still reported Plan 300 as `active` with a missing crates.io token and `pypi` approval (reconciled by Milestone 304), and six documentation and agent-facing surfaces still describe that publication as pending — most consequentially `.opencode/skills/eggserve-dev/SKILL.md`, which tells agents to pin the pre-0.4.0 versions as current. Milestone 314 sweeps those surfaces.
 
 The immutable Plan 292 file itself still says ACTIVE. Current governance forbids rewriting that legacy bootstrap file, so closure must be represented by new-system evidence and registry/roadmap state.
 
@@ -74,10 +76,16 @@ Plan 292 bootstrap (legacy, acceptance to verify)
     |
     +--> Plans 294–297 new-style runtime campaign (closed)
     |
-    `--> Milestone 298 control-surface reconciliation
+    +--> Milestone 298 control-surface reconciliation (closed)
+    |
+    +--> Milestone 302 agent/skill/docs staleness sweep (closed)
+    |
+    `--> Milestone 314 publication-state staleness sweep
 ```
 
 Milestone 298 has hard evidence dependencies on the actual files/pointers required by Plan 292 acceptance and on accepted 293/294–297 closure records. All are present at planning time but must be verified during execution.
+
+Milestone 314 has an interface dependency on Milestone 304's closure record, which supplies the published-state facts it corrects.
 
 ## 7. Milestones
 
@@ -116,6 +124,33 @@ User or operator value: future agents work from accurate, non-stale sources
 Exit conditions: every finding in the 302 implementation plan §3 corrected
 with manifest/registry evidence; topology + conformance-matrix gates pass;
 `cargo fmt --check` passes; registry + closure record complete.
+
+### Milestone 314 — Publication-state staleness sweep
+
+Class: polish
+
+Objective: correct the six surfaces that still describe the published 0.4.0
+line as pending — including the agent-facing skill, which instructs
+agents to pin `server 0.3.1` / `static`/`h3`/`core 0.3.0` /
+`primitives 0.2.1` / `bin 0.2.1` as the current versions — and record that
+the published artifact predates the post-tag corrective batch.
+
+Dependencies: Milestone 304's closure record (interface — the facts it
+corrects).
+
+Deliverable boundary: skill/agent-guide/architecture/release-process text
+only. **No `CHANGELOG.md` entry** — Plan 305 owns the changelog, and it
+must describe the artifact consumers can actually reach, including the
+corrective line.
+
+User or operator value: agents stop advising two-patch-lines-stale
+dependency versions, and consumers are not sent to a published artifact
+with known gaps without being told.
+
+Exit conditions: no surface describes the 0.4.0 publication as pending or
+conditional; no historical `0.3.x` statement was altered; the skill no
+longer contains "until then", "once Plan 300 publishes", or "300
+(active)"; the changelog is unchanged.
 
 ## 8. Cross-cutting requirements
 
@@ -159,7 +194,7 @@ Plan 292 acceptance checklist, link/path existence checks, registry/roadmap cons
 
 ## 11. Completion definition
 
-The planning-governance roadmap closes when Milestone 298 has an accepted closure record and the registry contains no stale bootstrap/campaign state identified by that plan.
+The planning-governance roadmap closes when Milestone 298 has an accepted closure record and the registry contains no stale bootstrap/campaign state identified by that plan, and when Milestone 314 has an accepted closure record and no surface describes the published 0.4.0 line as pending.
 
 ## 12. Milestone status
 
@@ -167,3 +202,4 @@ The planning-governance roadmap closes when Milestone 298 has an accepted closur
 |---|---|---|---|---|
 | 1 | closed | `plans/implementation/planning-governance/298-planning-control-surface-reconciliation.md` | `plans/closure/planning-governance/298-planning-control-surface-reconciliation.md` | — |
 | 302 | closed | `plans/implementation/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | `plans/closure/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | — |
+| 314 | ready | `plans/implementation/planning-governance/314-publication-state-staleness-sweep.md` | `plans/closure/planning-governance/314-publication-state-staleness-sweep.md` | Milestone 304 (interface) |
