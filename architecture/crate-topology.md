@@ -150,8 +150,16 @@ and Plan 300 (active) moves the line to `server`/`static`/`h3`/`core 0.4.0`,
 `primitives 0.2.2`, `bin 0.2.2`, wheel `0.2.4`.
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
 and legacy configuration; request/service/tunnel/canonical types are facades
-over the direct authorities (no second envelope, taxonomy, normalization, or
-state machine), and static/path/filesystem types are facades over the
+over the direct authorities — the canonical request/response vocabulary has
+one envelope, one taxonomy, and one normalization
+(`eggserve-primitives::canonical::normalize_response`), the runtime-error
+representation has one authority
+(`eggserve-primitives::canonical::runtime_error_with_policy`), and there is
+no second request/response state machine outside the eight classified
+connection pairs listed under
+[Connection overlap classification (Plan 253)](#connection-overlap-classification-plan-253).
+Those eight pairs are classified parallel implementations with an enforced
+drift bound, not shared kernels. Static/path/filesystem types are facades over the
 `eggserve-static` authority (no second parser, resolver, planner, or MIME
 table; `src/fs`, `src/path`, and `src/mime.rs` are deleted and the
 topology gate rejects their return). The current line is the
@@ -240,23 +248,104 @@ adapter with no second state machine.
 Executable H1 authority is single-owned by `eggserve-server` (Plan 249), but
 both crates keep eight similarly named connection modules because core still
 owns H2 execution and multiprotocol composition. Every overlap ends in one
-of four states; no overlapping production module is unclassified:
+of four states; no overlapping production module is unclassified.
 
-| Pair | Relationship | Classification | Drift guard |
-|---|---|---|---|
-| `connection/transport.rs` | byte-identical | accepted bounded duplication (sharing needs a new public Tokio transport type: mandatory DEFER) | `check_plan253_overlap` pair presence + crate-private + direct-vs-compatibility H1 parity suite |
-| `connection/deferred_body.rs` | identical modulo the primitives import prefix | accepted bounded duplication (same DEFER reason) | same as above |
-| `connection/lifecycle.rs` | logic identical; visibility/docs differ (direct shares the registry with H3) | accepted bounded duplication (same DEFER reason) | same as above |
-| `connection/request.rs` | substantially identical; `expected_scheme` is the shared H2 hook | accepted bounded duplication (same DEFER reason) | same as above + H1/H2 canonical conversion tests |
-| `connection/response.rs` | shared kernel; direct adds H3-shared invocation/finalization, core adds the H3 Alt-Svc post-pass | single direct authority for the kernel; core/H3 Alt-Svc stays a feature-gated composition adapter | same as above + response-policy vectors |
-| `connection/pipeline.rs` | shared kernel shape; core carries the H2 classifier/`is_h2` branches, `is_end_stream`, and inline tunnel spawn | composition adapter (H2 transport glue over the shared kernel; kernel merge is DEFER) | `direct_h1_parity`, `direct_service_convergence`, `cross_protocol_conformance` |
-| `connection/activity.rs` | shared counters/guards/tunnel-drain shape; core adds H2 producer-stall state and request drain | core H2-specific delta (shared-core extraction is DEFER) | H2 response-progress tests + parity suite |
-| `connection/driver.rs` | intentionally split: direct drives Hyper H1, core drives Hyper H2 plus the `Auto`/replay classifier | single direct authority (H1) / core H2-specific (H2) | Plan 249 no-core-H1 assertions + parity suites |
+**All eight pairs are classified parallel implementations, not shared
+kernels.** The two copies of each pair are independent implementations with
+no shared connection kernel: six of the eight core copies (`transport`,
+`deferred_body`, `lifecycle`, `request`, `response`, `activity`) contain
+**zero** `eggserve_server::` references, and the seventh (`driver`) has
+exactly one — inside a doc comment. The eighth (`pipeline`) calls only the
+direct tunnel **execution** authority
+(`eggserve_server::tunnel::{TunnelCapability, TunnelShared, TunnelAcceptance,
+run_tunnel}`, Plan 223), which is a deliberately shared neutral authority
+rather than a shared connection kernel. Nothing in this table is a shared
+kernel; the duplication is bounded, classified, and drift-checked.
 
-Track C result: no removable H1-only/dead compatibility machinery remains —
-every core helper has a live H2 caller, and the H2-only modules are already
-`#[cfg(feature = "http2")]`-gated so default builds compile only the
+### Measured drift baseline (Plan 307)
+
+The drift bound is measured on **normalized** content, not bytes, so a
+comment-only edit, an import-prefix edit, or a reformat never trips the
+gate. The normalization is:
+
+1. strip Rust comments (block and line), honouring string, raw-string, and
+   char literals so `//` inside a literal is never read as a comment;
+2. drop blank lines and collapse every internal whitespace run to one space;
+3. rewrite crate paths to their canonical owner — `PRIM::` for
+   `eggserve_primitives::` and core's `crate::primitives::` / `crate::policy::`,
+   `SRV::` for `eggserve_server::`, the direct copy's `crate::`, and core's
+   `crate::server::` / `crate::ops::` / `crate::response::`;
+4. compare the resulting line sequences.
+
+Two metrics are recorded per pair: `similarity` (the matched-line ratio over
+the normalized sequences, in `0.0..1.0`) and `changed lines` (normalized
+lines present on only one side). `diff -u` line counts are recorded too, as
+the raw byte-level measurement.
+
+| Pair | `diff -u` lines (direct/core) | Normalized lines (direct/core) | Similarity | Changed lines | Recorded ceiling (similarity floor / changed-line ceiling) |
+|---|---|---|---|---|---|
+| `connection/transport.rs` | 0 (100/100) | 78/78 | 1.0000 | 0 | 0.9950 / 0 |
+| `connection/deferred_body.rs` | 40 (127/122) | 88/88 | 1.0000 | 0 | 0.9950 / 0 |
+| `connection/lifecycle.rs` | 76 (214/206) | 155/155 | 0.9677 | 10 | 0.9400 / 14 |
+| `connection/request.rs` | 308 (595/537) | 458/413 | 0.9185 | 71 | 0.8900 / 75 |
+| `connection/response.rs` | 995 (815/481) | 673/353 | 0.4074 | 608 | 0.3800 / 639 |
+| `connection/pipeline.rs` | 1447 (1423/1402) | 1152/1125 | 0.7282 | 619 | 0.7000 / 650 |
+| `connection/activity.rs` | 348 (513/582) | 363/426 | 0.8644 | 107 | 0.8400 / 113 |
+| `connection/driver.rs` | 661 (514/729) | 383/582 | 0.6280 | 359 | 0.6000 / 377 |
+
+The gate fails a pair when its similarity falls below the recorded floor or
+its changed-line count rises above the recorded ceiling. The two bounds are
+complementary: the similarity floor catches an edit on either side, and the
+changed-line ceiling catches one-sided growth that the ratio alone absorbs.
+The two pairs that are classified as *identical* carry a `0` changed-line
+ceiling, so any normalized divergence in them is a deliberate, ledger-visible
+event.
+
+### Per-pair classification
+
+| Pair | What is actually shared | What actually differs | Classification | Drift guard |
+|---|---|---|---|---|
+| `connection/transport.rs` | Nothing: the two copies are byte-identical (`diff -u` reports 0 lines) and normalize to the same 78 lines. | Nothing measurable. | accepted bounded duplication (sharing needs a new public Tokio transport type: mandatory DEFER) | `check_plan253_overlap` pair presence + crate-private + drift bound + direct-vs-compatibility H1 parity suite |
+| `connection/deferred_body.rs` | The deferred-body watchdog and terminal-state tracker. | Only the primitives import prefix (`eggserve_primitives::` vs core's `crate::primitives::`) and one doc note the core copy omits (the B57 "untracked by the server `JoinSet`" caveat); after normalization the two copies are identical (1.0000 / 0 changed lines). | accepted bounded duplication (same DEFER reason) | same as above |
+| `connection/lifecycle.rs` | The `LifecycleDisposition` vocabulary and the per-connection request registry; the direct copy additionally shares the registry with the H3 adapter. | Visibility (`pub` vs `pub(crate)`) and doc wording. The three disposition accessors that had no caller were removed from **both** copies in Plan 307. | accepted bounded duplication (same DEFER reason) | same as above + drift bound |
+| `connection/request.rs` | The canonical request conversion, body-policy selection, and Hyper body bridge. | **The Plan 278 absolute-form seam is direct-only**: the direct copy carries `Http1RequestTargetMode`, `RequestTarget::from_absolute_components`, `select_body_policy_with_ceiling`, and `Option<usize>` ceilings; the core copy has none of them and rejects absolute-form unconditionally. `expected_scheme` is the shared H2 hook, but it is not the only difference. | accepted bounded duplication (same DEFER reason) | same as above + H1/H2 canonical conversion tests + drift bound |
+| `connection/response.rs` | The response finalization *shape*: normalization, panic containment, body-error mapping, and the final-boundary privacy pass. | **Classified parallel implementation, not a shared kernel.** The direct copy implements the Plan 289 metadata-ownership model (`ResponseProvenance`, `PolicyOwner`), so a *successful* service response can carry its own `Date`/`Server` when the operator opts in; the compatibility copy has no provenance concept and unconditionally removes `Date` (`crates/eggserve-core/src/server/connection/response.rs:206`). The direct copy also carries the typed runtime-rejection taxonomy (`present_runtime_rejection`) and the canonical finalizer (`finalize_canonical_response`) that the compatibility copy lacks. Measured body-level comparison: of the seven production functions the two copies share, `apply_http1_disposition`, `body_error_disposition`, and `contain_service_panic` are byte-identical, while `body_error_to_response`, `service_error_to_response`, `normalize_then_convert_with_h1_trailer_head`, and `finalize_runtime_response` differ. | classified parallel implementation (the direct-vs-compat `Date`/`Server` split is documented and intentional; merging the kernels or making the compatibility path adopt provenance is out of scope) | `check_plan253_overlap` drift bound + response-policy vectors + `core/tests/alt_svc_advertisement.rs` |
+| `connection/pipeline.rs` | The service-dispatch and response-commitment shape. | **The configuration shapes differ**: the direct copy takes `Arc<H1ConnectionPolicy>` with `Option<Arc<Semaphore>>` service/tunnel semaphores, while the core copy takes `Arc<RuntimeConfig>` with mandatory `&Arc<Semaphore>` semaphores (the `Option<usize>` body ceilings are a direct `request.rs` difference, recorded in that row). The function sets differ too: `finish_invocation_response` is direct-only, and the core copy defines a local H2-aware `classify_tunnel` (which also takes an `h2_protocol_raw` parameter) where the direct copy calls the HTTP/1-only `eggserve_server::tunnel::classify_tunnel`. The core copy also carries the H2 classifier/`is_h2` branches, `is_end_stream`, and inline tunnel spawn. | classified parallel implementation (H2 transport glue over the shared dispatch shape; kernel merge is DEFER) | `direct_h1_parity`, `direct_service_convergence`, `cross_protocol_conformance` + drift bound |
+| `connection/activity.rs` | The counters, admission guard, and tunnel-drain shape. | The core copy adds H2 producer-stall state and request drain. | core H2-specific delta (shared-core extraction is DEFER) | H2 response-progress tests + parity suite + drift bound |
+| `connection/driver.rs` | The connection-task skeleton. | Intentionally split: the direct copy drives Hyper H1, the core copy drives Hyper H2 plus the `Auto`/replay classifier. | single direct authority (H1) / core H2-specific (H2) | Plan 249 no-core-H1 assertions + parity suites + drift bound |
+
+### Dead compatibility machinery
+
+Track C result: the removable dead compatibility machinery inside the
+classified pairs has been removed, and what remains is deliberate. Plan 307
+deleted the `#[allow(dead_code)]` helpers that had no caller in any build:
+`normalize_then_convert` (core), `wrap_incoming_body` (core), and
+`normalize_then_convert_with_provenance` (direct); the three dead
+`LifecycleDisposition` accessors were deleted from **both** lifecycle copies.
+No new `#[allow(dead_code)]` was introduced. The `H2-only` modules remain
+`#[cfg(feature = "http2")]`-gated, so default builds compile only the
 delegating facade plus classifier/replay composition.
+
+One dead helper remains outside the Plan 307 file scope and is reported
+rather than removed here: `crates/eggserve-server/src/connection/request.rs`
+still carries an `#[allow(dead_code)]` `wrap_incoming_body` with no caller.
+It is the direct-side twin of the core helper Plan 307 removed, and removing
+it needs the same zero-caller verification in the direct crate.
+
+### Alt-Svc advertisement authority (Plan 307)
+
+The runtime-owned `Alt-Svc` advertisement has a single transport-neutral
+authority: `eggserve_primitives::canonical` owns
+`ALT_SVC_HEADER_NAME`, `ALT_SVC_MAX_AGE` (the advertisement window),
+`alt_svc_advertisement_value` (the decision), and
+`apply_alt_svc_advertisement` (remove-then-decide-and-insert for the
+canonical header block). The compatibility H2/H3 path
+(`crates/eggserve-core/src/server/connection/response.rs`) and the H3
+adapter (`crates/eggserve-h3/src/adapter.rs::apply_alt_svc`) both call it;
+only the header-container mechanics stay with each caller. The advertisement
+window literal exists exactly once in the workspace — in the constant — and
+both paths are proven byte-identical by
+`crates/eggserve-core/tests/alt_svc_advertisement.rs`.
 
 ## Enforcement
 
@@ -329,5 +418,6 @@ classifier, `PrefixedIo` replay composition, and direct calls into
 `eggserve_server::connection::*`. The Plan 253 rules classify the remaining
 parallel connection helpers instead of deleting them: every pair must still
 exist, core parallels stay crate-private, the direct H3-shared re-export set
-is fixed, and H2-only core modules stay feature-gated (see the classification
-ledger above).
+is fixed, H2-only core modules stay feature-gated, and each pair's normalized
+drift must stay within its recorded ceiling (see the classification ledger
+above).

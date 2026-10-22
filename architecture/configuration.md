@@ -129,18 +129,47 @@ Hyper exposes no aggregate header-byte, request-target, or request-line knob: th
 
 | Canonical name | Owner | Default | Enforcing path |
 |---|---|---|---|
-| `http1_request_target_mode` | `RuntimeConfig` (`Http1RequestTargetMode`) | `OriginOnly` | `OriginOnly` = origin-form dispatch; `OriginOrAbsolute` opts into proxy-shaped absolute-form dispatch (path/query exposed separately; static resolution stays origin-only). Core projects `OriginOnly` explicitly onto the direct config. |
-| `policy_ownership` | `RuntimeConfig` (`H1PolicyOwnership`, 6 subfields) | all `EggServe` | Per-deadline/ceiling owner: `handler_deadline`, `request_body_deadline`, `keep_alive_idle_deadline`, `response_write_progress_deadline`, `global_request_body_ceiling`, `request_target_ceiling` (`PolicyOwner::EggServe` \| `External`). |
+| `http1_request_target_mode` | `RuntimeConfig` (`Http1RequestTargetMode`) | `OriginOnly` | `OriginOnly` = origin-form dispatch; `OriginOrAbsolute` opts into proxy-shaped absolute-form dispatch (path/query exposed separately; static resolution stays origin-only). The compatibility `RuntimeConfig` carries the same value (Plan 308) and still defaults to `OriginOnly`. |
+| `policy_ownership` | `RuntimeConfig` (`H1PolicyOwnership`, 6 subfields) | all `EggServe` | Per-deadline/ceiling owner: `handler_deadline`, `request_body_deadline`, `keep_alive_idle_deadline`, `response_write_progress_deadline`, `global_request_body_ceiling`, `request_target_ceiling` (`PolicyOwner::EggServe` \| `External`). Carried by the compatibility `RuntimeConfig` (Plan 308). |
 | `H1ConnectionPolicy::with_request_header_bytes_owner` | projected direct H1 policy | `EggServe` | Transfers only post-parse aggregate name+value byte enforcement. Hyper parser buffer and field-count limits, target validation, Host checks, and framing remain active. |
 | `H1ConnectionPolicy::with_response_metadata_ownership` | projected direct H1 policy (`ResponseMetadataOwnership`) | Date + Server `EggServe` | External ownership applies only to successful service responses. Runtime-generated errors stay under `ResponsePolicy`; external Date must be syntactically valid and duplicates fail to generic 500. |
-| `admission_ownership` | `RuntimeConfig` (`AdmissionOwnership`, 2 subfields) | all `EggServe` | Per-gate owner: `service_calls`, `tunnels` (`AdmissionOwner::EggServe` \| `External`); externally owned gates are absent from `RuntimeState` rather than approximated. |
-| `runtime_rejection_presenter` | `RuntimeConfig` (`Option<Arc<dyn RuntimeRejectionPresenter>>`) | `None` | Synchronous direct-H1 response-presentation hook: input is kind + runtime-selected status only; output is bounded headers + ≤64 KiB body and cannot choose status, framing, privacy, or disposition. Panics/invalid/oversized output fall back to the generic representation. |
+| `admission_ownership` | `RuntimeConfig` (`AdmissionOwnership`, 2 subfields) | all `EggServe` | Per-gate owner: `service_calls`, `tunnels` (`AdmissionOwner::EggServe` \| `External`); externally owned gates are absent from `RuntimeState` rather than approximated. Carried by the compatibility `RuntimeConfig` (Plan 308). |
+| `runtime_rejection_presenter` | `RuntimeConfig` (`Option<Arc<dyn RuntimeRejectionPresenter>>`) | `None` | Synchronous direct-H1 response-presentation hook: input is kind + runtime-selected status only; output is bounded headers + ≤64 KiB body and cannot choose status, framing, privacy, or disposition. Panics/invalid/oversized output fall back to the generic representation. Carried by the compatibility `RuntimeConfig` (Plan 308). |
 
 The Plan 282 `H1ConnectionPolicy` narrow projection
 (`RuntimeConfig::h1_connection_policy()`, projected once at the accept
 loop) carries the deadlines/ceilings/target-mode/ownership/presenter above
 but excludes bind/TLS-handshake/listener/file-stream settings (see
 `crates/eggserve-server/src/config.rs`).
+
+#### Compatibility-vs-direct reach matrix (Plan 308)
+
+The compatibility `RuntimeConfig` (`eggserve_core::server::RuntimeConfig`) is a
+facade over the direct `eggserve_server::RuntimeConfig`. Plan 308 makes the
+projection carry values instead of hardcoding the direct defaults; the
+compatibility builder delegates every shared setter to
+`eggserve_server::RuntimeConfigBuilder`, so the two builders cannot drift.
+
+| Knob | Direct crate | Compatibility `RuntimeConfig` | Compatibility builder setter | Compatibility H1 path | Compatibility H2/H3 path |
+|---|---|---|---|---|---|
+| `http1_request_target_mode` | `RuntimeConfig` field + builder setter | carried field | `http1_request_target_mode(..)` | honored (direct H1 driver) | not consulted; H2 stays origin-form-only |
+| `policy_ownership` | `RuntimeConfig` field + builder setter | carried field | `policy_ownership(..)` | honored | not consulted |
+| `admission_ownership` | `RuntimeConfig` field + builder setter | carried field | `admission_ownership(..)` | honored | not consulted (H3 ignores the H1 gates) |
+| `runtime_rejection_presenter` | `RuntimeConfig` field + builder setter | carried field | `runtime_rejection_presenter(..)` | honored | not consulted |
+| `H1ConnectionPolicy::with_request_header_bytes_owner` | projected direct H1 policy only | not carried | — | not reachable | n/a |
+| `H1ConnectionPolicy::with_response_metadata_ownership` | projected direct H1 policy only | not carried | — | not reachable | n/a |
+
+The two `H1ConnectionPolicy`-only transfers stay direct-only: the compatibility
+path projects the direct `RuntimeConfig` and lets the direct driver build its
+own policy, so those two post-projection `with_*` transfers have no
+compatibility counterpart. Making them reachable would need either a new field
+on the direct `RuntimeConfig` (a direct-crate public API change) or a switch of
+the compatibility H1 path to the policy-based driver entry point; both are
+separate plans.
+
+Compatibility-only fields (`tls_config`, `tls_reload_handle`,
+`tls_expose_peer_chain`, `http2`, `http3`) stay compatibility-owned and are
+never projected onto the direct crate.
 
 The legacy `MAX_MAX_BUF_SIZE` (4 MiB) and `MAX_MAX_HEADERS` (10,000) values
 remain public conservative guidance constants; they are no longer validator

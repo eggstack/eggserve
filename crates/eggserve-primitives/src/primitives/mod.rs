@@ -29,9 +29,10 @@ pub mod version;
 pub use authority::{Authority, AuthorityError};
 pub use body::{BodyKind, BodySource, BodySourceError};
 pub use canonical::{
-    is_hop_by_hop_header, normalize_metadata, normalize_response, runtime_error_with_policy,
-    BodyLength, NormalizeRequest, Response, ResponseBody, ResponseBuilder,
-    ResponseConstructionError, ResponseStream, ResponseStreamError, StatusCode,
+    alt_svc_advertisement_value, apply_alt_svc_advertisement, is_hop_by_hop_header,
+    normalize_metadata, normalize_response, runtime_error_with_policy, BodyLength,
+    NormalizeRequest, Response, ResponseBody, ResponseBuilder, ResponseConstructionError,
+    ResponseStream, ResponseStreamError, StatusCode, ALT_SVC_HEADER_NAME, ALT_SVC_MAX_AGE,
 };
 pub use connection_info::{ConnectionInfo, Scheme, SocketEndpoints, TlsInfo};
 pub use header_block::{

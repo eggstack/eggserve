@@ -268,6 +268,24 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `max_request_target_bytes` | 8192 | Request-target length (414 pre-service) |
 | `response_policy` | suppressed `Server`, system-clock `Date`, no denylist, minimal errors | Default final-boundary privacy; Hyper auto-`Date` disabled. Direct H1 has opt-in successful service-response Date/Server ownership. |
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
+| `http1_request_target_mode` | `OriginOnly` | Accepted HTTP/1 request-target forms; carried onto the direct H1 driver (Plan 308) |
+| `policy_ownership` | all `EggServe` | Ownership of the optional H1 deadlines/ceilings; carried onto the direct H1 driver (Plan 308) |
+| `admission_ownership` | all `EggServe` | Ownership of service-call/tunnel admission; carried onto the direct H1 driver (Plan 308) |
+| `runtime_rejection_presenter` | `None` | Optional bounded presenter for runtime-generated rejections; carried onto the direct H1 driver (Plan 308) |
+
+Plan 308 changes the compatibility projection from "hardcode the direct
+defaults" to "carry the configured value": `RuntimeConfig::direct_h1_config()`
+now forwards `http1_request_target_mode`, `policy_ownership`,
+`admission_ownership`, and `runtime_rejection_presenter` instead of writing
+the direct defaults. The defaults are unchanged (`OriginOnly`, all
+`EggServe`-owned, no presenter), so an unconfigured compatibility server
+behaves exactly as before. The compatibility builder delegates every shared
+setter to `eggserve_server::RuntimeConfigBuilder`; only the TLS/H2/H3 setters
+and the compatibility `build()` stay local. The two `H1ConnectionPolicy`-only
+transfers (`with_request_header_bytes_owner`,
+`with_response_metadata_ownership`) remain direct-only — see the
+compatibility-vs-direct reach matrix in
+[`configuration.md`](configuration.md).
 
 Note: shared runtime defaults/validation live once in `crate::runtime_limits`
 (Plan 179); `Limits` fields map onto `RuntimeConfig` by

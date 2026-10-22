@@ -64,21 +64,6 @@ impl LifecycleDisposition {
     pub(crate) const fn close_after_response_required(self) -> bool {
         self.close_after_response
     }
-
-    #[allow(dead_code)]
-    pub(crate) const fn request_body_cancellation_required(self) -> bool {
-        self.cancel_request_body
-    }
-
-    #[allow(dead_code)]
-    pub(crate) const fn graceful_drain_required(self) -> bool {
-        self.graceful_drain
-    }
-
-    #[allow(dead_code)]
-    pub(crate) const fn transport_termination_required(self) -> bool {
-        self.terminate_transport
-    }
 }
 
 /// Per-connection registry of live request lifecycles (Plan 174 Track D).

@@ -32,48 +32,39 @@ pub use http2::Http2Config;
 pub use http3::Http3Config;
 pub use runtime::RuntimeConfig;
 
+/// Direct-H1 ownership vocabulary reachable through the compatibility
+/// configuration.
+///
+/// These are the direct crate's own types (no compatibility duplicates), so
+/// a compatibility consumer and a direct embedder configure the same
+/// values with the same names.
+pub use eggserve_server::{
+    AdmissionOwner, AdmissionOwnership, H1PolicyOwnership, Http1RequestTargetMode, PolicyOwner,
+    RuntimeErrorPresentation, RuntimeRejection, RuntimeRejectionKind, RuntimeRejectionPresenter,
+};
+
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(feature = "tls")]
-use std::sync::Arc;
-
 /// Builder for [`RuntimeConfig`].
+///
+/// The shared H1 kernel is owned by the direct builder
+/// ([`eggserve_server::RuntimeConfigBuilder`]): every shared setter below
+/// delegates to it instead of re-implementing the value plumbing, so the
+/// compatibility builder cannot drift from the direct one. The
+/// compatibility-only fields (TLS, HTTP/2, HTTP/3) stay local because their
+/// orchestration remains compatibility-owned.
 #[derive(Debug, Default)]
 #[must_use]
 pub struct RuntimeConfigBuilder {
-    bind: Option<SocketAddr>,
-    max_connections: Option<usize>,
-    max_file_streams: Option<usize>,
-    stream_chunk_size: Option<usize>,
-    header_read_timeout: Option<Duration>,
-    tls_handshake_timeout: Option<Duration>,
-    connection_total_timeout: Option<Duration>,
-    handler_timeout: Option<Duration>,
-    body_read_timeout: Option<Duration>,
-    graceful_shutdown_timeout: Option<Duration>,
-    server_header: Option<String>,
-    response_policy: Option<crate::server::response_policy::ResponsePolicy>,
-    date_policy: Option<crate::server::response_policy::DatePolicy>,
-    stripped_response_headers: Option<Vec<String>>,
-    error_policy: Option<crate::policy::ErrorRepresentationPolicy>,
+    direct: eggserve_server::RuntimeConfigBuilder,
     #[cfg(feature = "tls")]
     tls_config: Option<Arc<rustls::ServerConfig>>,
     #[cfg(feature = "tls")]
     tls_reload_handle: Option<crate::tls::TlsReloadHandle>,
     #[cfg(feature = "tls")]
     tls_expose_peer_chain: Option<bool>,
-    max_request_body_bytes: Option<u64>,
-    max_buf_size: Option<usize>,
-    max_headers: Option<usize>,
-    max_header_bytes: Option<usize>,
-    max_request_target_bytes: Option<usize>,
-    max_in_flight_requests: Option<usize>,
-    keep_alive_idle_timeout: Option<Duration>,
-    max_requests_per_connection: Option<Option<u64>>,
-    response_write_timeout: Option<Duration>,
-    max_active_tunnels: Option<usize>,
-    trusted_proxy: Option<crate::primitives::proxy::TrustedProxyConfig>,
     #[cfg(feature = "http2")]
     http2: Option<Http2Config>,
     #[cfg(feature = "http3")]
@@ -81,9 +72,52 @@ pub struct RuntimeConfigBuilder {
 }
 
 impl RuntimeConfigBuilder {
+    /// Select the HTTP/1 request-target forms delivered to the service.
+    ///
+    /// Delegates to the direct runtime builder. Default: `OriginOnly`
+    /// (absolute-form request targets are rejected before service dispatch).
+    pub fn http1_request_target_mode(
+        mut self,
+        mode: eggserve_server::Http1RequestTargetMode,
+    ) -> Self {
+        self.direct = self.direct.http1_request_target_mode(mode);
+        self
+    }
+
+    /// Select explicit ownership for H1 deadlines and semantic ceilings.
+    ///
+    /// Delegates to the direct runtime builder. Default: every selected
+    /// policy stays EggServe-owned.
+    pub fn policy_ownership(mut self, ownership: eggserve_server::H1PolicyOwnership) -> Self {
+        self.direct = self.direct.policy_ownership(ownership);
+        self
+    }
+
+    /// Select explicit ownership for H1 service-call and tunnel admission.
+    ///
+    /// Delegates to the direct runtime builder. Default: admission stays
+    /// EggServe-owned.
+    pub fn admission_ownership(mut self, ownership: eggserve_server::AdmissionOwnership) -> Self {
+        self.direct = self.direct.admission_ownership(ownership);
+        self
+    }
+
+    /// Install a synchronous, bounded presenter for runtime-generated
+    /// rejections.
+    ///
+    /// Delegates to the direct runtime builder. Response framing, status
+    /// selection, and the stripped-header denylist stay runtime-owned.
+    pub fn runtime_rejection_presenter(
+        mut self,
+        presenter: Arc<dyn eggserve_server::rejection::RuntimeRejectionPresenter>,
+    ) -> Self {
+        self.direct = self.direct.runtime_rejection_presenter(presenter);
+        self
+    }
+
     /// Set the bind address.
     pub fn bind(mut self, addr: SocketAddr) -> Self {
-        self.bind = Some(addr);
+        self.direct = self.direct.bind(addr);
         self
     }
 
@@ -91,7 +125,7 @@ impl RuntimeConfigBuilder {
     ///
     /// Must be > 0. Default: 64.
     pub fn max_connections(mut self, max: usize) -> Self {
-        self.max_connections = Some(max);
+        self.direct = self.direct.max_connections(max);
         self
     }
 
@@ -99,7 +133,7 @@ impl RuntimeConfigBuilder {
     ///
     /// Must be > 0. Default: 32.
     pub fn max_file_streams(mut self, max: usize) -> Self {
-        self.max_file_streams = Some(max);
+        self.direct = self.direct.max_file_streams(max);
         self
     }
 
@@ -107,89 +141,80 @@ impl RuntimeConfigBuilder {
     ///
     /// Must be between 64 bytes and 1 MiB. Default: 128 KiB.
     pub fn stream_chunk_size(mut self, size: usize) -> Self {
-        self.stream_chunk_size = Some(size);
+        self.direct = self.direct.stream_chunk_size(size);
         self
     }
 
     /// Set the header-read timeout.
     pub fn header_read_timeout(mut self, timeout: Duration) -> Self {
-        self.header_read_timeout = Some(timeout);
+        self.direct = self.direct.header_read_timeout(timeout);
         self
     }
 
     /// Set the TLS handshake timeout.
     pub fn tls_handshake_timeout(mut self, timeout: Duration) -> Self {
-        self.tls_handshake_timeout = Some(timeout);
+        self.direct = self.direct.tls_handshake_timeout(timeout);
         self
     }
 
-    /// Set the connection total timeout.
+    /// Set the maximum connection lifetime.
+    ///
+    /// `Duration::ZERO` disables the total lifetime ceiling while the
+    /// independent runtime bounds stay active.
     pub fn connection_total_timeout(mut self, timeout: Duration) -> Self {
-        self.connection_total_timeout = Some(timeout);
+        self.direct = self.direct.connection_total_timeout(timeout);
         self
     }
 
-    /// Disable the total connection lifetime ceiling. Independent idle,
-    /// header, handler, body, response-write, and shutdown bounds remain.
+    /// Disable the total connection lifetime ceiling.
+    ///
+    /// Idle, header, handler, body, response-write, admission, and shutdown
+    /// bounds remain active.
     pub fn disable_connection_total_timeout(mut self) -> Self {
-        self.connection_total_timeout = Some(Duration::ZERO);
+        self.direct = self.direct.disable_connection_total_timeout();
         self
     }
 
     /// Set the handler invocation timeout.
-    ///
-    /// Must be <= `connection_total_timeout` when both are set explicitly;
-    /// the total connection lifetime is the hard ceiling.
     pub fn handler_timeout(mut self, timeout: Duration) -> Self {
-        self.handler_timeout = Some(timeout);
+        self.direct = self.direct.handler_timeout(timeout);
         self
     }
 
-    /// Set the body read timeout.
-    ///
-    /// This is a total deadline for body consumption, not an idle timeout.
-    /// Must be <= `connection_total_timeout` when both are set explicitly;
-    /// the total connection lifetime is the hard ceiling.
+    /// Set the body read timeout (total deadline, not idle).
     pub fn body_read_timeout(mut self, timeout: Duration) -> Self {
-        self.body_read_timeout = Some(timeout);
+        self.direct = self.direct.body_read_timeout(timeout);
         self
     }
 
     /// Set the graceful shutdown grace period.
     pub fn graceful_shutdown_timeout(mut self, timeout: Duration) -> Self {
-        self.graceful_shutdown_timeout = Some(timeout);
+        self.direct = self.direct.graceful_shutdown_timeout(timeout);
         self
     }
 
     /// Set the server identification header value.
     ///
-    /// If set, added as `Server` header on all responses. Default is
-    /// suppressed (`None`). Never emits implementation versions automatically.
+    /// Composed into the response policy at build time.
     pub fn server_header(mut self, header: String) -> Self {
-        self.server_header = Some(header);
+        self.direct = self.direct.server_header(header);
         self
     }
 
     /// Set the complete final-boundary response privacy policy.
-    ///
-    /// Individual `date_policy` / `stripped_response_headers` / `error_policy`
-    /// / `server_header` settings override the corresponding fields of this
-    /// policy when both are supplied.
     pub fn response_policy(
         mut self,
         policy: crate::server::response_policy::ResponsePolicy,
     ) -> Self {
-        self.response_policy = Some(policy);
+        self.direct = self.direct.response_policy(policy);
         self
     }
 
     /// Set the `Date` generation policy.
     ///
-    /// Default is [`crate::server::response_policy::DatePolicy::SystemClock`].
-    /// Use `Suppress` only as an explicit RFC 9110 tradeoff, or `Custom`
-    /// with a trusted time source for anonymity-sensitive origins.
+    /// Composed into the response policy at build time.
     pub fn date_policy(mut self, policy: crate::server::response_policy::DatePolicy) -> Self {
-        self.date_policy = Some(policy);
+        self.direct = self.direct.date_policy(policy);
         self
     }
 
@@ -199,7 +224,7 @@ impl RuntimeConfigBuilder {
     /// `date` cannot be denylisted (see
     /// [`crate::server::response_policy::validate_stripped_header_name`]).
     pub fn stripped_response_headers(mut self, headers: Vec<String>) -> Self {
-        self.stripped_response_headers = Some(headers);
+        self.direct = self.direct.stripped_response_headers(headers);
         self
     }
 
@@ -209,7 +234,143 @@ impl RuntimeConfigBuilder {
     /// `Empty` emits no body bytes for runtime-generated errors. Application
     /// `Ok` bodies are never rewritten.
     pub fn error_policy(mut self, policy: crate::policy::ErrorRepresentationPolicy) -> Self {
-        self.error_policy = Some(policy);
+        self.direct = self.direct.error_policy(policy);
+        self
+    }
+
+    /// Set the maximum request body size in bytes.
+    ///
+    /// This is the hard ceiling that no service can exceed. Default: 0
+    /// (bodies rejected). Set to a positive value to allow request bodies.
+    pub fn max_request_body_bytes(mut self, max: u64) -> Self {
+        self.direct = self.direct.max_request_body_bytes(max);
+        self
+    }
+
+    /// Set the HTTP/1 parser/read buffer ceiling in bytes.
+    ///
+    /// Must be between 8192 (Hyper minimum) and 4 MiB. Default: 64 KiB.
+    pub fn max_buf_size(mut self, max: usize) -> Self {
+        self.direct = self.direct.max_buf_size(max);
+        self
+    }
+
+    /// Set the maximum request header field count.
+    ///
+    /// Must be between 1 and 10_000. Default: 100 (Hyper's default, pinned
+    /// explicitly). Hyper answers excess with 431.
+    pub fn max_headers(mut self, max: usize) -> Self {
+        self.direct = self.direct.max_headers(max);
+        self
+    }
+
+    /// Set the aggregate post-parse request-header ceiling in name+value
+    /// bytes. Must be between 1 KiB and 1 MiB. Default: 32 KiB.
+    pub fn max_header_bytes(mut self, max: usize) -> Self {
+        self.direct = self.direct.max_header_bytes(max);
+        self
+    }
+
+    /// Set the maximum request-target length in bytes. Must be between 128
+    /// and 64 KiB. Default: 8192.
+    pub fn max_request_target_bytes(mut self, max: usize) -> Self {
+        self.direct = self.direct.max_request_target_bytes(max);
+        self
+    }
+
+    /// Set the maximum concurrent in-flight service executions.
+    ///
+    /// Must be > 0. Default: 64.
+    pub fn max_in_flight_requests(mut self, max: usize) -> Self {
+        self.direct = self.direct.max_in_flight_requests(max);
+        self
+    }
+
+    /// Set the keep-alive idle timeout.
+    ///
+    /// Independent of `connection_total_timeout`: this deadline resets on
+    /// request/transport activity, while the total lifetime never resets.
+    pub fn keep_alive_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.direct = self.direct.keep_alive_idle_timeout(timeout);
+        self
+    }
+
+    /// Set the maximum completed requests per connection.
+    ///
+    /// Pass `None` for unlimited (default). `Some(0)` is rejected.
+    pub fn max_requests_per_connection(mut self, max: Option<u64>) -> Self {
+        self.direct = self.direct.max_requests_per_connection(max);
+        self
+    }
+
+    /// Set the response write no-progress timeout.
+    ///
+    /// Fires only after the configured interval with zero forward socket
+    /// progress while a response body is outstanding.
+    pub fn response_write_timeout(mut self, timeout: Duration) -> Self {
+        self.direct = self.direct.response_write_timeout(timeout);
+        self
+    }
+
+    /// Set the maximum concurrent active tunnels.
+    ///
+    /// Must be > 0. Default: 64. Exhaustion fails new handshakes with 503.
+    pub fn max_active_tunnels(mut self, max: usize) -> Self {
+        self.direct = self.direct.max_active_tunnels(max);
+        self
+    }
+
+    /// Set the complete trusted-proxy policy (Plan 202).
+    ///
+    /// Defaults trust nothing. Use this for explicit `TrustedProxyConfig`
+    /// values; the convenience setters below mutate the same policy.
+    pub fn trusted_proxy(mut self, config: crate::primitives::proxy::TrustedProxyConfig) -> Self {
+        self.direct = self.direct.trusted_proxy(config);
+        self
+    }
+
+    /// Trust one immediate peer (`IP` or `IP/prefix`, no DNS).
+    ///
+    /// Repeatable via chaining. Loopback must be listed explicitly; it is
+    /// never implicitly trusted. Invalid entries fail at [`Self::build`].
+    pub fn trusted_proxy_peer(mut self, prefix: crate::primitives::proxy::IpPrefix) -> Self {
+        self.direct = self.direct.trusted_proxy_peer(prefix);
+        self
+    }
+
+    /// Trust Unix-domain listeners for header-derived forwarding.
+    ///
+    /// Never implicit. PROXY preambles are not read from Unix streams.
+    pub fn trust_unix_local(mut self, trust: bool) -> Self {
+        self.direct = self.direct.trust_unix_local(trust);
+        self
+    }
+
+    /// Enable or disable PROXY protocol preamble parsing (default disabled).
+    ///
+    /// When enabled, only explicitly trusted peers may send a preamble;
+    /// all other peers close before TLS/HTTP. Disabled listeners interpret
+    /// bytes normally with no auto-detection.
+    pub fn proxy_protocol_enabled(mut self, enabled: bool) -> Self {
+        self.direct = self.direct.proxy_protocol_enabled(enabled);
+        self
+    }
+
+    /// Set the PROXY preamble read timeout (default 5s, max 60s).
+    pub fn proxy_protocol_timeout(mut self, timeout: Duration) -> Self {
+        self.direct = self.direct.proxy_protocol_timeout(timeout);
+        self
+    }
+
+    /// Honor the standardized `Forwarded` header from trusted peers.
+    pub fn forwarded_standard(mut self, enabled: bool) -> Self {
+        self.direct = self.direct.forwarded_standard(enabled);
+        self
+    }
+
+    /// Honor legacy `X-Forwarded-*` headers from trusted peers.
+    pub fn forwarded_legacy(mut self, enabled: bool) -> Self {
+        self.direct = self.direct.forwarded_legacy(enabled);
         self
     }
 
@@ -242,149 +403,6 @@ impl RuntimeConfigBuilder {
         self
     }
 
-    /// Set the maximum request body size in bytes.
-    ///
-    /// This is the hard ceiling that no service can exceed. Default: 0
-    /// (bodies rejected). Set to a positive value to allow request bodies.
-    pub fn max_request_body_bytes(mut self, max: u64) -> Self {
-        self.max_request_body_bytes = Some(max);
-        self
-    }
-
-    /// Set the HTTP/1 parser/read buffer ceiling in bytes.
-    ///
-    /// Must be between 8192 (Hyper minimum) and 4 MiB. Default: 64 KiB.
-    pub fn max_buf_size(mut self, max: usize) -> Self {
-        self.max_buf_size = Some(max);
-        self
-    }
-
-    /// Set the maximum request header field count.
-    ///
-    /// Must be between 1 and 10_000. Default: 100 (Hyper's default, pinned
-    /// explicitly). Hyper answers excess with 431.
-    pub fn max_headers(mut self, max: usize) -> Self {
-        self.max_headers = Some(max);
-        self
-    }
-
-    /// Set the aggregate post-parse request-header ceiling in name+value
-    /// bytes. Must be between 1 KiB and 1 MiB. Default: 32 KiB.
-    pub fn max_header_bytes(mut self, max: usize) -> Self {
-        self.max_header_bytes = Some(max);
-        self
-    }
-
-    /// Set the maximum request-target length in bytes. Must be between 128
-    /// and 64 KiB. Default: 8192.
-    pub fn max_request_target_bytes(mut self, max: usize) -> Self {
-        self.max_request_target_bytes = Some(max);
-        self
-    }
-
-    /// Set the maximum concurrent in-flight service executions.
-    ///
-    /// Must be > 0. Default: 64.
-    pub fn max_in_flight_requests(mut self, max: usize) -> Self {
-        self.max_in_flight_requests = Some(max);
-        self
-    }
-
-    /// Set the keep-alive idle timeout.
-    ///
-    /// Independent of `connection_total_timeout`: this deadline resets on
-    /// request/transport activity, while the total lifetime never resets.
-    pub fn keep_alive_idle_timeout(mut self, timeout: Duration) -> Self {
-        self.keep_alive_idle_timeout = Some(timeout);
-        self
-    }
-
-    /// Set the maximum completed requests per connection.
-    ///
-    /// Pass `None` for unlimited (default). `Some(0)` is rejected.
-    pub fn max_requests_per_connection(mut self, max: Option<u64>) -> Self {
-        self.max_requests_per_connection = Some(max);
-        self
-    }
-
-    /// Set the response write no-progress timeout.
-    ///
-    /// Fires only after the configured interval with zero forward socket
-    /// progress while a response body is outstanding.
-    pub fn response_write_timeout(mut self, timeout: Duration) -> Self {
-        self.response_write_timeout = Some(timeout);
-        self
-    }
-
-    /// Set the maximum concurrent active tunnels.
-    ///
-    /// Must be > 0. Default: 64. Exhaustion fails new handshakes with 503.
-    pub fn max_active_tunnels(mut self, max: usize) -> Self {
-        self.max_active_tunnels = Some(max);
-        self
-    }
-
-    /// Set the complete trusted-proxy policy (Plan 202).
-    ///
-    /// Defaults trust nothing. Use this for explicit `TrustedProxyConfig`
-    /// values; the convenience setters below mutate the same policy.
-    pub fn trusted_proxy(mut self, config: crate::primitives::proxy::TrustedProxyConfig) -> Self {
-        self.trusted_proxy = Some(config);
-        self
-    }
-
-    fn trusted_proxy_mut(&mut self) -> &mut crate::primitives::proxy::TrustedProxyConfig {
-        if self.trusted_proxy.is_none() {
-            self.trusted_proxy = Some(crate::primitives::proxy::TrustedProxyConfig::default());
-        }
-        self.trusted_proxy.as_mut().expect("just initialized")
-    }
-
-    /// Trust one immediate peer (`IP` or `IP/prefix`, no DNS).
-    ///
-    /// Repeatable via chaining. Loopback must be listed explicitly; it is
-    /// never implicitly trusted. Invalid entries fail at [`Self::build`].
-    pub fn trusted_proxy_peer(mut self, prefix: crate::primitives::proxy::IpPrefix) -> Self {
-        self.trusted_proxy_mut().peers.push(prefix);
-        self
-    }
-
-    /// Trust Unix-domain listeners for header-derived forwarding.
-    ///
-    /// Never implicit. PROXY preambles are not read from Unix streams.
-    pub fn trust_unix_local(mut self, trust: bool) -> Self {
-        self.trusted_proxy_mut().trust_unix = trust;
-        self
-    }
-
-    /// Enable or disable PROXY protocol preamble parsing (default disabled).
-    ///
-    /// When enabled, only explicitly trusted peers may send a preamble;
-    /// all other peers close before TLS/HTTP. Disabled listeners interpret
-    /// bytes normally with no auto-detection.
-    pub fn proxy_protocol_enabled(mut self, enabled: bool) -> Self {
-        self.trusted_proxy_mut().proxy_protocol.enabled = enabled;
-        self
-    }
-
-    /// Set the PROXY preamble read timeout (default 5s, max 60s).
-    pub fn proxy_protocol_timeout(mut self, timeout: Duration) -> Self {
-        self.trusted_proxy_mut().proxy_protocol.timeout = timeout;
-        self
-    }
-
-    /// Honor the standardized `Forwarded` header from trusted peers.
-    pub fn forwarded_standard(mut self, enabled: bool) -> Self {
-        self.trusted_proxy_mut().forwarded.standard_enabled = enabled;
-        self
-    }
-
-    /// Honor legacy `X-Forwarded-*` headers from trusted peers.
-    pub fn forwarded_legacy(mut self, enabled: bool) -> Self {
-        self.trusted_proxy_mut().forwarded.legacy_enabled = enabled;
-        self
-    }
-
     /// Set the HTTP/2 transport policy and resource limits.
     #[cfg(feature = "http2")]
     pub fn http2(mut self, config: Http2Config) -> Self {
@@ -401,89 +419,12 @@ impl RuntimeConfigBuilder {
 
     /// Build the runtime configuration.
     ///
-    /// Shared runtime checks delegate to the canonical Plan 179 kernel; the
-    /// resulting error identifies the invalid field/constraint. Returns an
-    /// error if any shared value or the composed `ResponsePolicy` is invalid.
+    /// The shared H1 kernel, the composed `ResponsePolicy`, and the
+    /// trusted-proxy policy are validated by the direct builder, which is
+    /// the single authority for those constraints. The compatibility-only
+    /// HTTP/2 and HTTP/3 policies are validated locally.
     pub fn build(self) -> Result<RuntimeConfig, crate::server::errors::ServerError> {
-        use eggserve_server::runtime_limits as rl;
-        let shared = rl::SharedRuntimeValues {
-            max_connections: self.max_connections.unwrap_or(rl::DEFAULT_MAX_CONNECTIONS),
-            max_file_streams: self
-                .max_file_streams
-                .unwrap_or(rl::DEFAULT_MAX_FILE_STREAMS),
-            max_request_body_bytes: self
-                .max_request_body_bytes
-                .unwrap_or(rl::DEFAULT_MAX_REQUEST_BODY_BYTES),
-            header_read_timeout: self
-                .header_read_timeout
-                .unwrap_or(rl::DEFAULT_HEADER_READ_TIMEOUT),
-            tls_handshake_timeout: self
-                .tls_handshake_timeout
-                .unwrap_or(rl::DEFAULT_TLS_HANDSHAKE_TIMEOUT),
-            connection_total_timeout: self
-                .connection_total_timeout
-                .unwrap_or(rl::DEFAULT_CONNECTION_TOTAL_TIMEOUT),
-            handler_timeout: self.handler_timeout.unwrap_or(rl::DEFAULT_HANDLER_TIMEOUT),
-            body_read_timeout: self
-                .body_read_timeout
-                .unwrap_or(rl::DEFAULT_BODY_READ_TIMEOUT),
-            graceful_shutdown_timeout: self
-                .graceful_shutdown_timeout
-                .unwrap_or(rl::DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT),
-            stream_chunk_size: self
-                .stream_chunk_size
-                .unwrap_or(rl::DEFAULT_STREAM_CHUNK_SIZE),
-            max_buf_size: self.max_buf_size.unwrap_or(rl::DEFAULT_MAX_BUF_SIZE),
-            max_headers: self.max_headers.unwrap_or(rl::DEFAULT_MAX_HEADERS),
-            max_header_bytes: self
-                .max_header_bytes
-                .unwrap_or(rl::DEFAULT_MAX_HEADER_BYTES),
-            max_request_target_bytes: self
-                .max_request_target_bytes
-                .unwrap_or(rl::DEFAULT_MAX_REQUEST_TARGET_BYTES),
-            max_in_flight_requests: self
-                .max_in_flight_requests
-                .unwrap_or(rl::DEFAULT_MAX_IN_FLIGHT_REQUESTS),
-            keep_alive_idle_timeout: self
-                .keep_alive_idle_timeout
-                .unwrap_or(rl::DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT),
-            max_requests_per_connection: self.max_requests_per_connection.unwrap_or(None),
-            response_write_timeout: self
-                .response_write_timeout
-                .unwrap_or(rl::DEFAULT_RESPONSE_WRITE_TIMEOUT),
-            max_active_tunnels: self
-                .max_active_tunnels
-                .unwrap_or(rl::DEFAULT_MAX_ACTIVE_TUNNELS),
-        };
-        let violations = shared.validate();
-        if !violations.is_empty() {
-            let msg = violations
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join("; ");
-            return Err(crate::server::errors::ServerError::Config(msg));
-        }
-        let mut response_policy = self.response_policy.unwrap_or_default();
-        if let Some(server_header) = self.server_header {
-            response_policy.server_identification = Some(server_header);
-        }
-        if let Some(date_policy) = self.date_policy {
-            response_policy.date_policy = date_policy;
-        }
-        if let Some(stripped) = self.stripped_response_headers {
-            response_policy.stripped_response_headers = stripped;
-        }
-        if let Some(error_policy) = self.error_policy {
-            response_policy.error_policy = error_policy;
-        }
-        response_policy.validate().map_err(|e| {
-            crate::server::errors::ServerError::Config(format!("invalid response_policy: {e}"))
-        })?;
-        let trusted_proxy = self.trusted_proxy.unwrap_or_default();
-        trusted_proxy.validate().map_err(|e| {
-            crate::server::errors::ServerError::Config(format!("invalid trusted_proxy: {e}"))
-        })?;
+        let direct = self.direct.build()?;
         #[cfg(feature = "http2")]
         let http2 = self.http2.unwrap_or_default();
         #[cfg(feature = "http2")]
@@ -496,45 +437,21 @@ impl RuntimeConfigBuilder {
         if http3.enabled {
             http3.validate()?;
         }
-        Ok(RuntimeConfig {
-            bind: self
-                .bind
-                .unwrap_or_else(|| "127.0.0.1:8000".parse().unwrap()),
-            max_connections: shared.max_connections,
-            max_file_streams: shared.max_file_streams,
-            stream_chunk_size: shared.stream_chunk_size,
-            header_read_timeout: shared.header_read_timeout,
-            tls_handshake_timeout: shared.tls_handshake_timeout,
-            connection_total_timeout: shared.connection_total_timeout,
-            handler_timeout: shared.handler_timeout,
-            body_read_timeout: shared.body_read_timeout,
-            graceful_shutdown_timeout: shared.graceful_shutdown_timeout,
-            response_policy,
+        Ok(RuntimeConfig::from_direct_config(
+            direct,
             #[cfg(feature = "tls")]
-            tls_config: self.tls_config,
+            self.tls_config,
             #[cfg(feature = "tls")]
-            tls_reload_handle: self.tls_reload_handle,
+            self.tls_reload_handle,
             #[cfg(feature = "tls")]
-            tls_expose_peer_chain: self.tls_expose_peer_chain.unwrap_or(false),
-            max_request_body_bytes: shared.max_request_body_bytes,
-            max_buf_size: shared.max_buf_size,
-            max_headers: shared.max_headers,
-            max_header_bytes: shared.max_header_bytes,
-            max_request_target_bytes: shared.max_request_target_bytes,
-            max_in_flight_requests: shared.max_in_flight_requests,
-            keep_alive_idle_timeout: shared.keep_alive_idle_timeout,
-            max_requests_per_connection: shared.max_requests_per_connection,
-            response_write_timeout: shared.response_write_timeout,
-            max_active_tunnels: shared.max_active_tunnels,
-            trusted_proxy,
+            self.tls_expose_peer_chain.unwrap_or(false),
             #[cfg(feature = "http2")]
             http2,
             #[cfg(feature = "http3")]
             http3,
-        })
+        ))
     }
 }
-
 /// Try to convert a [`crate::config::ServeConfig`] into a [`RuntimeConfig`].
 ///
 /// This bridges the CLI/Python configuration model into the runtime model.
@@ -1287,5 +1204,227 @@ mod tests {
             .build()
             .unwrap_err();
         assert!(err.to_string().contains("connection_receive_window"));
+    }
+
+    // ------------------------------------------------------------------
+    // Plan 308: compatibility/direct projection parity
+    // ------------------------------------------------------------------
+
+    /// The compatibility projection must equal the direct default for every
+    /// shared field and every ownership knob.
+    #[test]
+    fn default_compatibility_projection_matches_the_direct_default() {
+        let projected = RuntimeConfig::default().direct_h1_config();
+        let direct = eggserve_server::RuntimeConfig::default();
+        assert_eq!(
+            projected.http1_request_target_mode,
+            direct.http1_request_target_mode
+        );
+        assert_eq!(projected.policy_ownership, direct.policy_ownership);
+        assert_eq!(projected.admission_ownership, direct.admission_ownership);
+        assert!(projected.runtime_rejection_presenter.is_none());
+        assert_eq!(projected.bind, direct.bind);
+        assert_eq!(projected.max_connections, direct.max_connections);
+        assert_eq!(projected.max_file_streams, direct.max_file_streams);
+        assert_eq!(projected.stream_chunk_size, direct.stream_chunk_size);
+        assert_eq!(projected.header_read_timeout, direct.header_read_timeout);
+        assert_eq!(
+            projected.tls_handshake_timeout,
+            direct.tls_handshake_timeout
+        );
+        assert_eq!(
+            projected.connection_total_timeout,
+            direct.connection_total_timeout
+        );
+        assert_eq!(projected.handler_timeout, direct.handler_timeout);
+        assert_eq!(projected.body_read_timeout, direct.body_read_timeout);
+        assert_eq!(
+            projected.graceful_shutdown_timeout,
+            direct.graceful_shutdown_timeout
+        );
+        assert_eq!(
+            projected.response_policy.server_identification,
+            direct.response_policy.server_identification
+        );
+        assert!(matches!(
+            (
+                &projected.response_policy.date_policy,
+                &direct.response_policy.date_policy
+            ),
+            (
+                crate::server::response_policy::DatePolicy::SystemClock,
+                crate::server::response_policy::DatePolicy::SystemClock
+            )
+        ));
+        assert_eq!(
+            projected.response_policy.error_policy,
+            direct.response_policy.error_policy
+        );
+        assert_eq!(
+            projected.response_policy.stripped_response_headers,
+            direct.response_policy.stripped_response_headers
+        );
+        assert_eq!(
+            projected.max_request_body_bytes,
+            direct.max_request_body_bytes
+        );
+        assert_eq!(projected.max_buf_size, direct.max_buf_size);
+        assert_eq!(projected.max_headers, direct.max_headers);
+        assert_eq!(projected.max_header_bytes, direct.max_header_bytes);
+        assert_eq!(
+            projected.max_request_target_bytes,
+            direct.max_request_target_bytes
+        );
+        assert_eq!(
+            projected.max_in_flight_requests,
+            direct.max_in_flight_requests
+        );
+        assert_eq!(
+            projected.keep_alive_idle_timeout,
+            direct.keep_alive_idle_timeout
+        );
+        assert_eq!(
+            projected.max_requests_per_connection,
+            direct.max_requests_per_connection
+        );
+        assert_eq!(
+            projected.response_write_timeout,
+            direct.response_write_timeout
+        );
+        assert_eq!(projected.max_active_tunnels, direct.max_active_tunnels);
+        assert_eq!(projected.trusted_proxy.peers, direct.trusted_proxy.peers);
+    }
+
+    /// Each of the four ownership knobs must reach the projected direct
+    /// configuration unchanged.
+    #[test]
+    fn ownership_knobs_round_trip_into_the_projected_direct_config() {
+        let config = RuntimeConfig::builder()
+            .http1_request_target_mode(Http1RequestTargetMode::OriginOrAbsolute)
+            .policy_ownership(H1PolicyOwnership {
+                handler_deadline: PolicyOwner::External,
+                ..H1PolicyOwnership::default()
+            })
+            .admission_ownership(AdmissionOwnership {
+                service_calls: AdmissionOwner::External,
+                ..AdmissionOwnership::default()
+            })
+            .build()
+            .unwrap();
+        let projected = config.direct_h1_config();
+        assert_eq!(
+            projected.http1_request_target_mode,
+            Http1RequestTargetMode::OriginOrAbsolute
+        );
+        assert_eq!(
+            projected.policy_ownership.handler_deadline,
+            PolicyOwner::External
+        );
+        assert_eq!(
+            projected.admission_ownership.service_calls,
+            AdmissionOwner::External
+        );
+        assert!(projected.runtime_rejection_presenter.is_none());
+        // The compatibility configuration keeps the same values.
+        assert_eq!(
+            config.http1_request_target_mode,
+            Http1RequestTargetMode::OriginOrAbsolute
+        );
+        assert_eq!(
+            config.policy_ownership.handler_deadline,
+            PolicyOwner::External
+        );
+        assert_eq!(
+            config.admission_ownership.service_calls,
+            AdmissionOwner::External
+        );
+    }
+
+    /// The rejection presenter must survive the projection.
+    #[test]
+    fn runtime_rejection_presenter_round_trips_into_the_projected_direct_config() {
+        #[derive(Debug)]
+        struct NoopPresenter;
+        impl RuntimeRejectionPresenter for NoopPresenter {
+            fn present(&self, _rejection: &RuntimeRejection) -> Option<RuntimeErrorPresentation> {
+                None
+            }
+        }
+        let config = RuntimeConfig::builder()
+            .runtime_rejection_presenter(Arc::new(NoopPresenter))
+            .build()
+            .unwrap();
+        assert!(config.runtime_rejection_presenter.is_some());
+        assert!(config
+            .direct_h1_config()
+            .runtime_rejection_presenter
+            .is_some());
+    }
+
+    /// The six setters whose semantics differ from a plain value copy keep
+    /// their exact behavior after the delegation change.
+    #[test]
+    fn non_duplicated_setters_keep_their_semantics() {
+        // `response_policy` replaces the whole policy.
+        let policy = crate::server::response_policy::ResponsePolicy {
+            server_identification: Some("example/1".to_owned()),
+            ..Default::default()
+        };
+        let config = RuntimeConfig::builder()
+            .response_policy(policy)
+            .build()
+            .unwrap();
+        assert_eq!(
+            config.response_policy.server_identification.as_deref(),
+            Some("example/1")
+        );
+        assert_eq!(config.server_header_value(), Some("example/1"));
+
+        // `date_policy` and `error_policy` compose into the response policy.
+        let config = RuntimeConfig::builder()
+            .response_policy(crate::server::response_policy::ResponsePolicy {
+                server_identification: Some("kept/1".to_owned()),
+                ..Default::default()
+            })
+            .date_policy(crate::server::response_policy::DatePolicy::Suppress)
+            .error_policy(crate::policy::ErrorRepresentationPolicy::Empty)
+            .build()
+            .unwrap();
+        assert_eq!(
+            config.response_policy.server_identification.as_deref(),
+            Some("kept/1")
+        );
+        assert!(matches!(
+            config.response_policy.date_policy,
+            crate::server::response_policy::DatePolicy::Suppress
+        ));
+        assert_eq!(
+            config.response_policy.error_policy,
+            crate::policy::ErrorRepresentationPolicy::Empty
+        );
+
+        // `trusted_proxy` replaces the policy; `trusted_proxy_peer` mutates it.
+        let config = RuntimeConfig::builder()
+            .trusted_proxy(crate::primitives::proxy::TrustedProxyConfig {
+                trust_unix: true,
+                ..Default::default()
+            })
+            .trusted_proxy_peer(crate::primitives::proxy::IpPrefix::parse("127.0.0.1/32").unwrap())
+            .build()
+            .unwrap();
+        assert!(config.trusted_proxy.trust_unix);
+        assert_eq!(config.trusted_proxy.peers.len(), 1);
+
+        // `build` still validates the shared kernel and the response policy.
+        let err = RuntimeConfig::builder()
+            .max_connections(0)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("max_connections"));
+        let err = RuntimeConfig::builder()
+            .stripped_response_headers(vec!["content-length".to_owned()])
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("runtime-owned"));
     }
 }

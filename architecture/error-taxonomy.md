@@ -16,6 +16,44 @@ The four `ServiceError` kinds (`Internal`, `Rejected(u16)`, `Panic`, `Timeout`) 
 
 ---
 
+## Runtime Error Representation — Single Authority
+
+**Location:** `eggserve-primitives::canonical::runtime_error_with_policy` (facades: `eggserve-core::primitives::canonical`, `eggserve-server::response::runtime_error_with_policy`)
+
+There is exactly **one** runtime-error representation table. It builds the
+canonical (transport-neutral) response for a runtime-generated error: the
+status is authoritative; a standard reason phrase produces a fixed
+`"<code> <reason>\n"` body; `Minimal` adds
+`Content-Type: text/plain; charset=utf-8`; `Empty` emits no body bytes; `405`
+adds `Allow: GET, HEAD`; and `HEAD`, `Empty`, and body-forbidden statuses
+(`1xx`/`204`/`205`/`304`) emit no payload (only `304` keeps a matching
+representation `Content-Length`). Framing stays runtime-owned.
+
+Both runtime crates delegate to it and hold no second table:
+
+| Crate | Delegating helper | Independent error-body construction |
+|---|---|---|
+| `eggserve-server` | `crate::response::runtime_error_with_policy` | none |
+| `eggserve-core` (H2 pipeline only) | `crate::response::runtime_error_with_policy` | none |
+
+The crate-private helpers in `crates/eggserve-server/src/response.rs` and
+`crates/eggserve-core/src/response.rs` (`canonical_error_with_policy`,
+`canonical_error_owned_with_policy`, and the `*_with_policy` wrappers) delegate
+to that authority and only convert the canonical response to the Hyper
+transport body. Their `body` argument is redundant and is retained only for
+call-site compatibility: the authority decides what is emitted, and a caller
+whose body drifts from the canonical representation is caught by a debug
+assertion instead of being silently ignored.
+
+Plan 306 collapsed the two former hand-rolled builders onto this authority and
+froze the pre-consolidation wire bytes as an equivalence test
+(`crates/eggserve-server/src/response.rs`,
+`crates/eggserve-core/src/response.rs`, plus the public-surface suites
+`crates/eggserve-server/tests/runtime_error_single_authority.rs` and
+`crates/eggserve-core/tests/runtime_error_single_authority_compat.rs`).
+
+---
+
 ## `PathRejection` — Path Parsing Errors
 
 **Location:** `eggserve-static::path::rejected` (facade: `eggserve-core::primitives`)
@@ -127,7 +165,9 @@ Errors from service handler invocation. The runtime converts these to HTTP respo
 **Representation (Plans 178/189):** status selection lives in `ServiceError`;
 the transport-neutral `primitives::canonical::runtime_error_with_policy`
 owns the generic representation, while the Hyper helper is only a conversion
-wrapper. H1, H2, and H3 use the same authority. Wire status and body never disagree: known statuses emit
+wrapper. H1, H2, and H3 use the same authority — see
+[Runtime Error Representation — Single Authority](#runtime-error-representation--single-authority);
+no crate holds a second representation table. Wire status and body never disagree: known statuses emit
 `"<code> <reason>\n"` from the standard phrase, unassigned codes keep
 their status with a neutral empty body, and `HEAD`/`Empty`/body-forbidden
 (`1xx`/`204`/`205`/`304`) emit no bytes. Normalization/framing remains

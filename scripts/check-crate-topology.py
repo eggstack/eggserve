@@ -359,6 +359,15 @@ def main() -> int:
     if check_plan253_overlap() != 0:
         return 1
 
+    if check_plan253_drift() != 0:
+        return 1
+
+    if check_plan306_error_authority() != 0:
+        return 1
+
+    if check_plan308_builder_delegation() != 0:
+        return 1
+
     if check_plan247_leaf_surfaces() != 0:
         return 1
 
@@ -396,6 +405,218 @@ def main() -> int:
         "Plan 253: classified connection overlap (bounded duplication, "
         "crate-private parallels, gated H2 ownership)"
     )
+    return 0
+
+
+def _impl_block(source: str, header: str) -> str:
+    """Return the brace-matched body of `header` in `source` ("" if absent)."""
+    start = source.find(header)
+    if start < 0:
+        return ""
+    open_brace = source.find("{", start)
+    if open_brace < 0:
+        return ""
+    depth = 0
+    for index in range(open_brace, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[open_brace : index + 1]
+    return ""
+
+
+def _rust_fn_bodies(block: str) -> dict[str, str]:
+    """Map `pub fn <name>` names to their brace-matched bodies inside `block`."""
+    import re
+
+    bodies: dict[str, str] = {}
+    pattern = re.compile(r"\bpub fn ([A-Za-z0-9_]+)\s*\(")
+    for match in pattern.finditer(block):
+        open_brace = block.find("{", match.end())
+        if open_brace < 0:
+            continue
+        depth = 0
+        for index in range(open_brace, len(block)):
+            char = block[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    bodies[match.group(1)] = block[open_brace : index + 1]
+                    break
+    return bodies
+
+
+def check_plan306_error_authority() -> int:
+    """Enforce the single runtime-error-representation authority (Plan 306).
+
+    `eggserve-primitives::canonical::runtime_error_with_policy` is the sole
+    authority for the runtime error representation. `eggserve-core/src/
+    response.rs` and `eggserve-server/src/response.rs` used to hand-roll a
+    second builder (header block + `normalize_metadata` + a body table); they
+    must now delegate to the authority and must not construct an error
+    response on their own.
+    """
+    import re
+
+    repo = Path(__file__).resolve().parent.parent
+    primitives = (
+        repo / "crates/eggserve-primitives/src/primitives/canonical/response.rs"
+    )
+    if "pub fn runtime_error_with_policy" not in primitives.read_text():
+        print(
+            "eggserve-primitives no longer owns the runtime-error authority "
+            "`canonical::runtime_error_with_policy` (Plan 306: one authority "
+            "for the runtime error representation)",
+            file=sys.stderr,
+        )
+        return 1
+
+    targets = (
+        repo / "crates/eggserve-core/src/response.rs",
+        repo / "crates/eggserve-server/src/response.rs",
+    )
+    call = re.compile(
+        r"((?:[A-Za-z_][A-Za-z0-9_]*::)*)\s*"
+        r"(normalize_metadata|normalize_response)\s*\("
+    )
+    for path in targets:
+        rel = path.relative_to(repo)
+        if not path.exists():
+            print(
+                f"{rel} is missing: the runtime-error delegation target must "
+                "exist (Plan 306)",
+                file=sys.stderr,
+            )
+            return 1
+        code = path.read_text().split("#[cfg(test)]")[0]
+        if "runtime_error_with_policy(" not in code:
+            print(
+                f"{rel} does not delegate to the runtime-error authority "
+                "`eggserve_primitives::canonical::runtime_error_with_policy` "
+                "(Plan 306: one authority for the runtime error representation)",
+                file=sys.stderr,
+            )
+            return 1
+        for match in call.finditer(code):
+            prefix = (match.group(1) or "").rstrip(":")
+            if not any(
+                prefix.endswith(allowed)
+                for allowed in (
+                    "eggserve_primitives::canonical",
+                    "crate::primitives::canonical",
+                )
+            ):
+                print(
+                    f"{rel} calls `{match.group(2)}` without the primitives "
+                    "canonical authority (Plan 306: the runtime error "
+                    "representation is built once, in eggserve-primitives)",
+                    file=sys.stderr,
+                )
+                return 1
+        # A hand-rolled builder that avoids the normalize APIs entirely
+        # (its own header block plus its own content-type/allow fields)
+        # must not come back either.
+        for marker in (
+            "HeaderBlock::new()",
+            'push_str("content-type"',
+            'push_str("allow"',
+        ):
+            if marker in code:
+                print(
+                    f"{rel} constructs a runtime error body itself "
+                    f"(`{marker}`); Plan 306 keeps the representation in "
+                    "eggserve_primitives::canonical::runtime_error_with_policy",
+                    file=sys.stderr,
+                )
+                return 1
+    return 0
+
+
+def check_plan308_builder_delegation() -> int:
+    """Enforce compatibility-builder delegation to the direct builder (Plan 308).
+
+    `eggserve-core`'s compatibility `RuntimeConfigBuilder` must delegate the
+    shared setters to `eggserve_server`'s builder instead of re-implementing
+    them. Only `build` (different return type plus the compatibility-only
+    TLS/H2/H3 fields) and the compatibility-only setters may stay local.
+    """
+    repo = Path(__file__).resolve().parent.parent
+    direct_path = repo / "crates/eggserve-server/src/config.rs"
+    compat_path = repo / "crates/eggserve-core/src/server/config.rs"
+    for path in (direct_path, compat_path):
+        if not path.exists():
+            print(
+                f"{path.relative_to(repo)} is missing: the builder delegation "
+                "check needs both builders (Plan 308)",
+                file=sys.stderr,
+            )
+            return 1
+
+    direct_block = _impl_block(direct_path.read_text(), "impl RuntimeConfigBuilder")
+    compat_block = _impl_block(compat_path.read_text(), "impl RuntimeConfigBuilder")
+    if not direct_block or not compat_block:
+        print(
+            "could not locate an `impl RuntimeConfigBuilder` block in both "
+            "builders (Plan 308)",
+            file=sys.stderr,
+        )
+        return 1
+
+    direct_fns = _rust_fn_bodies(direct_block)
+    compat_fns = _rust_fn_bodies(compat_block)
+    if not direct_fns or not compat_fns:
+        print(
+            "could not extract builder setters from both builders (Plan 308)",
+            file=sys.stderr,
+        )
+        return 1
+
+    local_allowed = {
+        "build",
+        "http2",
+        "http3",
+        "tls_config",
+        "tls_reload_handle",
+        "tls_expose_peer_chain",
+    }
+
+    for name in sorted(direct_fns):
+        if name not in compat_fns:
+            print(
+                f"compatibility builder drops the direct builder setter "
+                f"`{name}` (Plan 308: the compatibility surface must not lose "
+                "a direct-builder knob)",
+                file=sys.stderr,
+            )
+            return 1
+        if name in local_allowed:
+            continue
+        if f"self.direct = self.direct.{name}(" not in compat_fns[name]:
+            print(
+                f"compatibility builder setter `{name}` does not delegate to "
+                "`eggserve_server::RuntimeConfigBuilder` (Plan 308: shared "
+                "setters delegate instead of re-implementing the direct "
+                "builder)",
+                file=sys.stderr,
+            )
+            return 1
+
+    for name in sorted(compat_fns):
+        if name in direct_fns or name in local_allowed:
+            continue
+        print(
+            f"compatibility builder grows a local setter `{name}` that the "
+            "direct builder does not have (Plan 308: a new compatibility-only "
+            "setter needs an explicit classification)",
+            file=sys.stderr,
+        )
+        return 1
+
     return 0
 
 
@@ -560,6 +781,192 @@ def check_plan249_h1_authority() -> int:
         )
         return 1
 
+    return 0
+
+
+PLAN253_DRIFT_CEILINGS = {
+    "transport": {"similarity_floor": 0.9950, "changed_lines_ceiling": 0},
+    "deferred_body": {"similarity_floor": 0.9950, "changed_lines_ceiling": 0},
+    "lifecycle": {"similarity_floor": 0.9400, "changed_lines_ceiling": 14},
+    "request": {"similarity_floor": 0.8900, "changed_lines_ceiling": 75},
+    "response": {"similarity_floor": 0.3800, "changed_lines_ceiling": 639},
+    "pipeline": {"similarity_floor": 0.7000, "changed_lines_ceiling": 650},
+    "activity": {"similarity_floor": 0.8400, "changed_lines_ceiling": 113},
+    "driver": {"similarity_floor": 0.6000, "changed_lines_ceiling": 377},
+}
+
+
+def _strip_rust_comments(source: str) -> str:
+    """Strip Rust comments, honouring string, raw-string, and char literals.
+
+    A naive `//` regex would corrupt a literal such as `"https://example"`.
+    Comment text is replaced by a single space so tokens never merge.
+    """
+    import re
+
+    out: list[str] = []
+    index = 0
+    length = len(source)
+    lifetime = re.compile(r"'[A-Za-z_][A-Za-z0-9_]*")
+    while index < length:
+        char = source[index]
+        if char == "r" and index + 1 < length and source[index + 1] in '"#':
+            cursor = index + 1
+            hashes = 0
+            while cursor < length and source[cursor] == "#":
+                hashes += 1
+                cursor += 1
+            if cursor < length and source[cursor] == '"':
+                cursor += 1
+                while cursor < length:
+                    if source[cursor] == '"':
+                        probe = cursor + 1
+                        count = 0
+                        while (
+                            probe < length
+                            and source[probe] == "#"
+                            and count < hashes
+                        ):
+                            count += 1
+                            probe += 1
+                        if count == hashes:
+                            cursor = probe
+                            break
+                    cursor += 1
+                out.append(source[index:cursor])
+                index = cursor
+                continue
+        if char == '"':
+            cursor = index + 1
+            while cursor < length:
+                if source[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if source[cursor] == '"':
+                    cursor += 1
+                    break
+                cursor += 1
+            out.append(source[index:cursor])
+            index = cursor
+            continue
+        if char == "'":
+            match = lifetime.match(source, index)
+            if match and (match.end() >= length or source[match.end()] != "'"):
+                out.append(match.group(0))
+                index = match.end()
+                continue
+            cursor = index + 1
+            while cursor < length:
+                if source[cursor] == "\\":
+                    cursor += 2
+                    continue
+                if source[cursor] == "'":
+                    cursor += 1
+                    break
+                cursor += 1
+            out.append(source[index:cursor])
+            index = cursor
+            continue
+        if source.startswith("//", index):
+            newline = source.find("\n", index)
+            index = length if newline < 0 else newline
+            out.append(" ")
+            continue
+        if source.startswith("/*", index):
+            depth = 1
+            cursor = index + 2
+            while cursor < length and depth:
+                if source.startswith("/*", cursor):
+                    depth += 1
+                    cursor += 2
+                elif source.startswith("*/", cursor):
+                    depth -= 1
+                    cursor += 2
+                else:
+                    cursor += 1
+            out.append(" ")
+            index = cursor
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _plan253_canonical_paths(line: str, side: str) -> str:
+    """Rewrite crate paths to their canonical owner (Plan 307 §normalization)."""
+    line = line.replace("eggserve_primitives::", "PRIM::")
+    line = line.replace("eggserve_server::", "SRV::")
+    if side == "direct":
+        line = line.replace("crate::", "SRV::")
+        return line
+    line = line.replace("crate::primitives::", "PRIM::")
+    line = line.replace("crate::policy::", "PRIM::policy::")
+    line = line.replace("crate::server::", "SRV::")
+    line = line.replace("crate::ops::", "SRV::ops::")
+    line = line.replace("crate::response::", "SRV::response::")
+    line = line.replace("crate::", "SRV::")
+    return line
+
+
+def _plan253_normalized_lines(path: Path, side: str) -> list[str]:
+    """Comment-stripped, whitespace-collapsed, crate-path-canonical lines."""
+    text = _strip_rust_comments(path.read_text())
+    lines = []
+    for raw in text.splitlines():
+        line = " ".join(raw.split())
+        if line:
+            lines.append(_plan253_canonical_paths(line, side))
+    return lines
+
+
+def check_plan253_drift() -> int:
+    """Enforce the Plan 307 connection-overlap drift bound.
+
+    The eight classified connection pairs are parallel implementations, not
+    shared kernels. The ledger in `architecture/crate-topology.md` records a
+    measured baseline per pair; this gate fails when a pair drifts past its
+    recorded ceiling. The comparison is semantic: comments, import prefixes,
+    and formatting do not count.
+    """
+    import difflib
+
+    repo = Path(__file__).resolve().parent.parent
+    direct_conn = repo / "crates/eggserve-server/src/connection"
+    core_conn = repo / "crates/eggserve-core/src/server/connection"
+
+    for name, ceiling in PLAN253_DRIFT_CEILINGS.items():
+        direct_path = direct_conn / f"{name}.rs"
+        core_path = core_conn / f"{name}.rs"
+        if not direct_path.exists() or not core_path.exists():
+            print(
+                f"Plan 253 drift check cannot read connection/{name}.rs; "
+                "reclassify the overlap in architecture/crate-topology.md "
+                "before deleting a parallel connection module",
+                file=sys.stderr,
+            )
+            return 1
+        direct_lines = _plan253_normalized_lines(direct_path, "direct")
+        core_lines = _plan253_normalized_lines(core_path, "core")
+        matcher = difflib.SequenceMatcher(None, direct_lines, core_lines, autojunk=False)
+        similarity = matcher.ratio()
+        matched = sum(
+            tag[2] - tag[1] for tag in matcher.get_opcodes() if tag[0] == "equal"
+        )
+        changed = (len(direct_lines) - matched) + (len(core_lines) - matched)
+        if (
+            similarity < ceiling["similarity_floor"]
+            or changed > ceiling["changed_lines_ceiling"]
+        ):
+            print(
+                f"Plan 253 connection/{name}.rs drifted beyond its recorded "
+                f"ceiling: similarity {similarity:.4f} (floor "
+                f"{ceiling['similarity_floor']:.4f}), changed lines {changed} "
+                f"(ceiling {ceiling['changed_lines_ceiling']}). Re-derive the "
+                "ceiling and update the Plan 253 ledger in "
+                "architecture/crate-topology.md, or restore parity.",
+                file=sys.stderr,
+            )
+            return 1
     return 0
 
 
@@ -2082,6 +2489,48 @@ def run_self_tests() -> int:
         mod_rs.write_text(mod_rs.read_text().replace('pub(crate) mod transport;\n', 'pub(crate) mod extra;\n'))
         check("plan253-gate-loss", check_plan253_overlap() == 1)
 
+    # 4b. Plan 307: the classified connection pairs stay inside their drift
+    #     ceiling. A semantic edit trips the rule; a comment-only edit does not.
+    drift_body = (
+        "//! pair fixture.\n"
+        "use eggserve_server::RuntimeConfig;\n"
+        "\n"
+        "pub(crate) fn fixture(a: &RuntimeConfig) -> u16 {\n"
+        "    let _ = a;\n"
+        "    7\n"
+        "}\n"
+    )
+
+    def make_307(root: Path) -> None:
+        for name in PLAN253_DRIFT_CEILINGS:
+            write(root, f"crates/eggserve-server/src/connection/{name}.rs", drift_body)
+            write(root, f"crates/eggserve-core/src/server/connection/{name}.rs", drift_body)
+
+    with fake_repo() as root:
+        make_307(root)
+        check("plan307-drift-good", check_plan253_drift() == 0)
+        core_transport = root / "crates/eggserve-core/src/server/connection/transport.rs"
+        core_transport.write_text(
+            core_transport.read_text() + "\nfn drift_probe() -> u16 { 4242 }\n"
+        )
+        check("plan307-drift-semantic", check_plan253_drift() == 1)
+        make_307(root)
+        core_transport.write_text(
+            core_transport.read_text() + "\n// a documentation-only line\n"
+        )
+        check("plan307-drift-comment-only", check_plan253_drift() == 0)
+        make_307(root)
+        core_transport.write_text(
+            core_transport.read_text().replace(
+                "use eggserve_server::RuntimeConfig;",
+                "use crate::RuntimeConfig;",
+            )
+        )
+        check("plan307-drift-import-prefix", check_plan253_drift() == 0)
+        make_307(root)
+        (root / "crates/eggserve-core/src/server/connection/transport.rs").unlink()
+        check("plan307-drift-pair-loss", check_plan253_drift() == 1)
+
     # 5. Plan 219: second confinement authority fails closed.
     with fake_repo() as root:
         write(root, "crates/eggserve-core/src/lib.rs", "pub mod primitives;\n")
@@ -2116,12 +2565,121 @@ def run_self_tests() -> int:
         write(root, "crates/eggserve-core/src/server/sneaky.rs", "pub fn x() {}\n")
         check("plan225-new-module", check_plan225_facade() == 1)
 
-    # 7. Live-tree positives: the real repository still passes.
+    # 6. Plan 306: one runtime-error-representation authority.
+    good_error_crate = (
+        "pub(crate) fn runtime_error_with_policy() -> u8 {\n"
+        "    eggserve_primitives::canonical::runtime_error_with_policy(1, false, p)\n"
+        "}\n"
+    )
+
+    def make_306(root: Path) -> None:
+        write(
+            root,
+            "crates/eggserve-primitives/src/primitives/canonical/response.rs",
+            "pub fn runtime_error_with_policy() {}\n",
+        )
+        write(root, "crates/eggserve-core/src/response.rs", good_error_crate)
+        write(root, "crates/eggserve-server/src/response.rs", good_error_crate)
+
+    with fake_repo() as root:
+        make_306(root)
+        check("plan306-good", check_plan306_error_authority() == 0)
+        write(
+            root,
+            "crates/eggserve-core/src/response.rs",
+            good_error_crate
+            + "fn local() {\n"
+            + "    normalize_metadata(500, &mut headers, 0);\n"
+            + "}\n",
+        )
+        check("plan306-second-builder", check_plan306_error_authority() == 1)
+        make_306(root)
+        write(root, "crates/eggserve-server/src/response.rs", "fn local() {}\n")
+        check("plan306-no-delegation", check_plan306_error_authority() == 1)
+        make_306(root)
+        write(
+            root,
+            "crates/eggserve-server/src/response.rs",
+            good_error_crate
+            + "fn local() {\n"
+            + "    let mut headers = HeaderBlock::new();\n"
+            + "    headers.push_str(\"content-type\", \"text/plain; charset=utf-8\");\n"
+            + "}\n",
+        )
+        check("plan306-second-header-builder", check_plan306_error_authority() == 1)
+        make_306(root)
+        write(
+            root,
+            "crates/eggserve-primitives/src/primitives/canonical/response.rs",
+            "// authority moved\n",
+        )
+        check("plan306-authority-lost", check_plan306_error_authority() == 1)
+
+    # 7. Plan 308: the compatibility builder delegates to the direct builder.
+    good_direct_builder = (
+        "impl RuntimeConfigBuilder {\n"
+        "    pub fn max_connections(mut self, max: usize) -> Self {\n"
+        "        self.max_connections = Some(max);\n"
+        "        self\n"
+        "    }\n"
+        "    pub fn build(self) -> Result<(), ()> { Ok(()) }\n"
+        "}\n"
+    )
+    good_compat_builder = (
+        "impl RuntimeConfigBuilder {\n"
+        "    pub fn max_connections(mut self, max: usize) -> Self {\n"
+        "        self.direct = self.direct.max_connections(max);\n"
+        "        self\n"
+        "    }\n"
+        "    pub fn build(self) -> Result<(), ()> { Ok(()) }\n"
+        "}\n"
+    )
+
+    def make_308(root: Path) -> None:
+        write(root, "crates/eggserve-server/src/config.rs", good_direct_builder)
+        write(root, "crates/eggserve-core/src/server/config.rs", good_compat_builder)
+
+    with fake_repo() as root:
+        make_308(root)
+        check("plan308-good", check_plan308_builder_delegation() == 0)
+        write(
+            root,
+            "crates/eggserve-core/src/server/config.rs",
+            good_compat_builder.replace(
+                "        self.direct = self.direct.max_connections(max);\n", ""
+            ),
+        )
+        check("plan308-dropped-delegation", check_plan308_builder_delegation() == 1)
+        make_308(root)
+        write(
+            root,
+            "crates/eggserve-core/src/server/config.rs",
+            good_compat_builder.replace(
+                "        self.direct = self.direct.max_connections(max);\n",
+                "        self.max_connections = Some(max);\n",
+            ),
+        )
+        check("plan308-restored-duplicate", check_plan308_builder_delegation() == 1)
+        make_308(root)
+        write(
+            root,
+            "crates/eggserve-core/src/server/config.rs",
+            good_compat_builder.replace(
+                "    pub fn build(self) -> Result<(), ()> { Ok(()) }\n",
+                "    pub fn build(self) -> Result<(), ()> { Ok(()) }\n"
+                "    pub fn brand_new(self) -> Self { self }\n",
+            ),
+        )
+        check("plan308-unclassified-setter", check_plan308_builder_delegation() == 1)
+
+    # 8. Live-tree positives: the real repository still passes.
     globals()["__file__"] = saved_file
     check("live-plan249", check_plan249_h1_authority() == 0)
     check("live-plan253", check_plan253_overlap() == 0)
     check("live-plan219", check_plan219_confinement() == 0)
     check("live-plan225", check_plan225_facade() == 0)
+    check("live-plan306", check_plan306_error_authority() == 0)
+    check("live-plan308", check_plan308_builder_delegation() == 0)
     globals()["__file__"] = saved_file
 
     if failures:

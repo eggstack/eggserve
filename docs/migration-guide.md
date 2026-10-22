@@ -582,6 +582,116 @@ No user-facing code migration follows from Plan 226 alone beyond the
 guidance already in this document. Do not publish the `0.2.0` line as a
 `0.1.x` patch; fix forward on `0.2.x`.
 
+## Plan 305: 0.5.0 corrective line (behavior changes from the published 0.4.0)
+
+The `0.4.0` line published on 2026-09-25 predates the defect batch that
+landed in the repository immediately after the `v0.4.0` tag. The `0.5.0`
+line publishes that batch. Consumers who pinned `eggserve-core = "0.4"`
+must widen the requirement to `"0.5"` to receive it; nothing already
+published is yanked or altered.
+
+The following request-path behaviors change. Everything not listed here is
+unchanged, including the safe defaults (loopback bind, no symlinks, no
+dotfiles, no directory listing), the static confinement boundary, and the
+H2/H3 experimental tiers.
+
+| Area | 0.4.0 behavior | 0.5.0 behavior |
+|---|---|---|
+| `If-Match: *` | Succeeds when the file exists, even without an ETag | Requires an ETag (RFC 9110 §13.1.1) |
+| `If-Modified-Since` | Evaluated through the date branch when the ETag is suppressed | Not evaluated that way |
+| `Range` + `If-Range` | Unsatisfiable range with a failed `If-Range` serves `200` full | Same `200` full, per RFC 9110 §13.1.5, but the precondition is evaluated consistently |
+| `If-Range` with a date | — | Uses `<=` |
+| Multiple `Range` headers | Second header silently overrides | Joined into `MultipleRanges`, served as `200` full (RFC 9110 §5.2) |
+| Header combining | Last-wins for `Range`/`If-Range`/dates | First-wins for `Range`/`If-Range`/dates; comma-join only for `If-Match`/`If-None-Match` |
+| `Content-Length` parse | Lenient | Strict `1*DIGIT`; a non-numeric value is a `400` framing error (also for `TRACE`) |
+| Unknown-length stream | Accepted with a declared `Content-Length` | Rejects any declared `Content-Length` and duplicates |
+| `Http1Upgrade` | Accepts a bare `101` | Requires a protocol |
+| `Expect` | Only the first value inspected | Every value inspected; an opaque `Expect` is `417` |
+| `ServiceError` wire status | `499` | `500` (the lifecycle still drives the close) |
+| `HEAD` error response | Body length collapsed to empty | Carries the `GET` length |
+| HEAD-only `EmptyWithLength` | Framing and bytes disagree on non-`HEAD` | Collapsed to `Empty` |
+| Body read failure | — | `PrematureEof`/`LengthMismatch` map to `IncompleteError`; a transport error is sanitized; `PathRejected` maps to `PermissionError` |
+| HTTP version negotiation | `version_to_http`/`from_state` could panic or silently downgrade | Both return `Result` and fail closed |
+| Child path resolution | Did not inherit the confined backslash policy | Inherits it |
+| fd-relative resolution | Did not re-apply platform component checks | Re-applies them |
+| Buffer export failure | Truncated the stream silently | Fails the stream |
+| Listener/address pairing | Could be mispaired and panic | Carried as one value; cannot be mispaired |
+| Shutdown drain | Not bounded by `graceful_shutdown_timeout` | Bounded (abort + timeout) |
+| Tower adapter `Host` | Did not require the authority to agree with a mutated `Host` | Requires agreement |
+| Python sync callback permit | Shed with `503` instead of queueing | Keeps the documented queue-behind-permit contract; the fail-fast shed stays on the separate async task limit |
+| Python conditional/range lookup | Case-sensitive | Case-insensitive |
+| Python stream chunks | Unbounded chunk size | Split at 64 KiB against a byte-bounded channel |
+| Python header values | Empty values rejected; `Content-Length` parse untrimmed | Empty values accepted; parse trimmed |
+
+The 0.5.0 line also carries three internal consolidations with **no
+observable change**: the runtime error representation has one authority
+(`eggserve-primitives::canonical::runtime_error_with_policy`), the HTTP/3
+`Alt-Svc` advertisement is single-sourced in `eggserve-primitives`, and the
+compatibility `RuntimeConfig` carries four direct-H1 ownership values with
+unchanged defaults (see the Plan 308 section below for the source-level
+impact of those four added fields).
+
+## Plan 308: compatibility configuration projection parity (experimental; minor transition)
+
+The compatibility `eggserve_core::server::RuntimeConfig` used to project the
+direct-H1 defaults onto the direct H1 driver, so a compatibility consumer
+could never select anything else. Plan 308 makes the projection carry the
+configured values instead.
+
+Four public fields are added to the compatibility `RuntimeConfig`, with the
+direct crate's own types and defaults:
+
+| Field | Type | Default |
+|---|---|---|
+| `http1_request_target_mode` | `Http1RequestTargetMode` | `OriginOnly` |
+| `policy_ownership` | `H1PolicyOwnership` | all `EggServe` |
+| `admission_ownership` | `AdmissionOwnership` | all `EggServe` |
+| `runtime_rejection_presenter` | `Option<Arc<dyn RuntimeRejectionPresenter>>` | `None` |
+
+The matching builder setters (`http1_request_target_mode(..)`,
+`policy_ownership(..)`, `admission_ownership(..)`,
+`runtime_rejection_presenter(..)`) are additive. The types are re-exported at
+`eggserve_core::server::config::{AdmissionOwner, AdmissionOwnership,
+H1PolicyOwnership, Http1RequestTargetMode, PolicyOwner,
+RuntimeErrorPresentation, RuntimeRejection, RuntimeRejectionKind,
+RuntimeRejectionPresenter}`.
+
+**Behavior with no configuration is unchanged.** Every default equals the
+previous hardcoded value, so an unconfigured server still rejects
+absolute-form request targets, keeps `Date`/`Server` runtime-owned, keeps
+admission EggServe-owned, and renders its own runtime rejections. The CLI
+grammar (`[OPTIONS] [PORT] [DIRECTORY]`) and the Python public surface are
+untouched: no CLI flag and no Python option exposes these knobs.
+
+**Semver classification — minor transition required (the Plan 285 class).**
+The compatibility `RuntimeConfig` has public fields, so adding fields is
+source-incompatible for consumers that construct it with an exhaustive struct
+literal:
+
+```rust
+// Before 0.5.0 — compiles on 0.4.x, fails on 0.5.0
+let config = eggserve_core::server::RuntimeConfig {
+    max_connections: 8,
+    max_file_streams: 4,
+    ..Default::default()   // OK, but an exhaustive literal is not
+};
+```
+
+Migration options:
+
+1. Keep the functional-update syntax (`..RuntimeConfig::default()`) — such
+   call sites keep compiling unchanged.
+2. Replace exhaustive literals with `RuntimeConfig::builder()..build()?` (the
+   recommended form; it also applies builder validation).
+3. Add the four new fields explicitly when constructing exhaustively.
+
+Exhaustive literals are the only affected pattern. Field reads, the builder
+API, the CLI, and the Python facade are unaffected.
+
+The compatibility builder now delegates every shared setter to
+`eggserve_server::RuntimeConfigBuilder`; the setter names, semantics,
+validation, clamping, and `Option`/`None` handling are unchanged.
+
 ## Breaking Change Policy
 
 Patch releases preserve stable source compatibility. Before 1.0, intentional

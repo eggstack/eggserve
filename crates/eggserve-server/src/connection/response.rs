@@ -2,8 +2,8 @@
 //! body-error mapping, and final-boundary privacy.
 //!
 //! The runtime is the only framing authority: every service response
-//! converges on `normalize_then_convert` (idempotent `normalize_response`
-//! then Hyper conversion). `finalize_runtime_response` applies the Plan 165
+//! converges on `normalize_then_convert_with_h1_trailer_head` (idempotent
+//! `normalize_response` then Hyper conversion). `finalize_runtime_response` applies the Plan 165
 //! privacy boundary (denylist, default `Server`/`Date` ownership,
 //! `Last-Modified <= Date`) at the one Hyper boundary. Direct H1 can
 //! explicitly transfer successful service-response Date/Server ownership;
@@ -114,33 +114,6 @@ pub(crate) fn present_runtime_rejection(
         }
     }
     response
-}
-
-/// Normalize a service response then convert to Hyper.
-///
-/// The runtime is the only framing authority: every service response
-/// (static or custom, buffered or streaming) converges here. Normalization
-/// is idempotent so eagerly normalized static responses are preserved
-/// (HEAD equivalent-GET lengths, unknown-length omission). Conversion
-/// failures become generic 500/503 without leaking details.
-#[allow(dead_code)]
-pub(crate) fn normalize_then_convert_with_provenance(
-    canonical: eggserve_primitives::canonical::Response,
-    is_head: bool,
-    file_stream_semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
-    stream_chunk_size: usize,
-    error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
-    ops: Option<&crate::ops::OpsContext>,
-) -> (hyper::Response<BoxBodyInner>, ResponseProvenance) {
-    normalize_then_convert_with_h1_trailer_head(
-        canonical,
-        is_head,
-        false,
-        file_stream_semaphore,
-        stream_chunk_size,
-        error_policy,
-        ops,
-    )
 }
 
 /// Normalize, synthesize the runtime-owned H1 `Trailer` head field when

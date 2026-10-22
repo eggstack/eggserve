@@ -2,43 +2,17 @@
 //! body-error mapping, and final-boundary privacy.
 //!
 //! The runtime is the only framing authority: every service response
-//! converges on `normalize_then_convert` (idempotent `normalize_response`
-//! then Hyper conversion). `finalize_runtime_response` applies the Plan 165
-//! privacy boundary (denylist, `Server` subordination, sole `Date` authority,
-//! `Last-Modified <= Date`) at the one Hyper boundary.
+//! converges on `normalize_then_convert_with_h1_trailer_head` (idempotent
+//! `normalize_response` then Hyper conversion). `finalize_runtime_response`
+//! applies the Plan 165 privacy boundary (denylist, `Server` subordination,
+//! sole `Date` authority, `Last-Modified <= Date`) at the one Hyper
+//! boundary.
 
 use crate::response::BoxBodyInner;
 use crate::server::config::RuntimeConfig;
 use crate::server::service::ServiceError;
 
 use super::lifecycle::LifecycleDisposition;
-
-/// Normalize a service response then convert to Hyper.
-///
-/// The runtime is the only framing authority: every service response
-/// (static or custom, buffered or streaming) converges here. Normalization
-/// is idempotent so eagerly normalized static responses are preserved
-/// (HEAD equivalent-GET lengths, unknown-length omission). Conversion
-/// failures become generic 500/503 without leaking details.
-#[allow(dead_code)]
-pub(crate) fn normalize_then_convert(
-    canonical: crate::primitives::canonical::Response,
-    is_head: bool,
-    file_stream_semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
-    stream_chunk_size: usize,
-    error_policy: crate::policy::ErrorRepresentationPolicy,
-    ops: Option<&crate::ops::OpsContext>,
-) -> hyper::Response<BoxBodyInner> {
-    normalize_then_convert_with_h1_trailer_head(
-        canonical,
-        is_head,
-        false,
-        file_stream_semaphore,
-        stream_chunk_size,
-        error_policy,
-        ops,
-    )
-}
 
 /// Normalize, synthesize the runtime-owned H1 `Trailer` head field when
 /// requested, then convert (Plan 299 compatibility forwarding; no second
@@ -243,17 +217,22 @@ pub(crate) fn finalize_runtime_response(
         // Alt-Svc is runtime-owned whenever the H3 endpoint is active. This
         // prevents an application from advertising a different H3 endpoint
         // when the operator has disabled advertisement or requested a
-        // minimal-fingerprint response profile.
-        response.headers_mut().remove("alt-svc");
-        if config.http3.advertise_alt_svc
-            && !policy
-                .stripped_response_headers
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case("alt-svc"))
-        {
-            let value = format!("h3=\":{}\"; ma=86400", config.bind.port());
+        // minimal-fingerprint response profile. The advertisement policy
+        // (value format, window, denylist handling) is owned by
+        // `eggserve_primitives::canonical`; only the Hyper header
+        // mechanics stay here.
+        response
+            .headers_mut()
+            .remove(crate::primitives::canonical::ALT_SVC_HEADER_NAME);
+        if let Some(value) = crate::primitives::canonical::alt_svc_advertisement_value(
+            config.bind.port(),
+            config.http3.advertise_alt_svc,
+            &policy.stripped_response_headers,
+        ) {
             if let Ok(value) = hyper::header::HeaderValue::from_str(&value) {
-                response.headers_mut().insert("alt-svc", value);
+                response
+                    .headers_mut()
+                    .insert(crate::primitives::canonical::ALT_SVC_HEADER_NAME, value);
             }
         }
     }
@@ -313,43 +292,141 @@ mod tests {
     }
 
     #[cfg(feature = "http3")]
-    #[test]
-    fn h3_advertisement_uses_the_resolved_runtime_port() {
-        let config = RuntimeConfig::builder()
-            .bind("127.0.0.1:9443".parse().unwrap())
-            .http3(crate::server::Http3Config {
-                enabled: true,
-                advertise_alt_svc: true,
-                ..crate::server::Http3Config::default()
-            })
-            .build()
-            .unwrap();
-        let response = finalize_runtime_response(crate::response::not_found(false), &config);
-        assert_eq!(
-            response.headers().get("alt-svc").unwrap(),
-            "h3=\":9443\"; ma=86400"
-        );
-    }
+    mod alt_svc {
+        use super::*;
+        use crate::primitives::canonical::{ALT_SVC_HEADER_NAME, ALT_SVC_MAX_AGE};
 
-    #[cfg(feature = "http3")]
-    #[test]
-    fn active_h3_runtime_owns_alt_svc_when_advertisement_is_disabled() {
-        let config = RuntimeConfig::builder()
-            .bind("127.0.0.1:9443".parse().unwrap())
-            .http3(crate::server::Http3Config {
-                enabled: true,
-                advertise_alt_svc: false,
-                ..crate::server::Http3Config::default()
-            })
-            .build()
-            .unwrap();
-        let mut response = crate::response::not_found(false);
-        response.headers_mut().insert(
-            "alt-svc",
-            hyper::header::HeaderValue::from_static("h3=\":different\""),
-        );
-        let response = finalize_runtime_response(response, &config);
-        assert!(response.headers().get("alt-svc").is_none());
+        /// Build a config for one decision-matrix cell.
+        fn config(enabled: bool, advertise: bool, denylist: &[&str]) -> RuntimeConfig {
+            RuntimeConfig::builder()
+                .bind("127.0.0.1:9443".parse().unwrap())
+                .http3(crate::server::Http3Config {
+                    enabled,
+                    advertise_alt_svc: advertise,
+                    ..crate::server::Http3Config::default()
+                })
+                .stripped_response_headers(denylist.iter().map(|name| (*name).to_owned()).collect())
+                .build()
+                .unwrap()
+        }
+
+        fn alt_svc_values(response: &hyper::Response<BoxBodyInner>) -> Vec<String> {
+            response
+                .headers()
+                .get_all(ALT_SVC_HEADER_NAME)
+                .iter()
+                .map(|value| value.to_str().unwrap().to_owned())
+                .collect()
+        }
+
+        /// The full compatibility-path decision matrix: H3 enabled/disabled ×
+        /// advertisement on/off × `alt-svc` denylisted/not.
+        #[test]
+        fn alt_svc_decision_matrix_matches_the_shared_policy() {
+            // (h3_enabled, advertise, denylisted, expect_advertisement)
+            let matrix = [
+                (true, true, false, true),
+                (true, false, false, false),
+                (true, true, true, false),
+                (true, false, true, false),
+                (false, true, false, false),
+                (false, false, false, false),
+                (false, true, true, false),
+                (false, false, true, false),
+            ];
+            for (enabled, advertise, denylisted, expect) in matrix {
+                let denylist: &[&str] = if denylisted { &["alt-svc"] } else { &[] };
+                let config = config(enabled, advertise, denylist);
+                let response =
+                    finalize_runtime_response(crate::response::not_found(false), &config);
+                let values = alt_svc_values(&response);
+                if expect {
+                    assert_eq!(
+                        values,
+                        vec![format!("h3=\":9443\"; {ALT_SVC_MAX_AGE}")],
+                        "h3_enabled={enabled} advertise={advertise} denylisted={denylisted}"
+                    );
+                } else {
+                    assert!(
+                        values.is_empty(),
+                        "h3_enabled={enabled} advertise={advertise} denylisted={denylisted} \
+                         must not advertise"
+                    );
+                }
+            }
+        }
+
+        /// The advertised port is the bound port, and the value bytes are the
+        /// shared window.
+        #[test]
+        fn alt_svc_advertisement_uses_the_resolved_runtime_port() {
+            let config = config(true, true, &[]);
+            let response = finalize_runtime_response(crate::response::not_found(false), &config);
+            assert_eq!(
+                response.headers().get(ALT_SVC_HEADER_NAME).unwrap(),
+                &format!("h3=\":9443\"; {ALT_SVC_MAX_AGE}")
+            );
+        }
+
+        /// The denylist is honored case-insensitively on this path too.
+        #[test]
+        fn alt_svc_denylist_match_is_case_insensitive() {
+            for spelling in ["alt-svc", "ALT-SVC", "Alt-Svc"] {
+                let config = config(true, true, &[spelling]);
+                let response =
+                    finalize_runtime_response(crate::response::not_found(false), &config);
+                assert!(
+                    alt_svc_values(&response).is_empty(),
+                    "denylist spelling `{spelling}` must be honored"
+                );
+            }
+        }
+
+        /// An application-supplied `alt-svc` never overrides the runtime
+        /// advertisement while the H3 endpoint is active.
+        #[test]
+        fn active_h3_runtime_replaces_an_application_supplied_alt_svc() {
+            let config = config(true, true, &[]);
+            let mut response = crate::response::not_found(false);
+            response.headers_mut().insert(
+                ALT_SVC_HEADER_NAME,
+                hyper::header::HeaderValue::from_static("h3=\":different\""),
+            );
+            let response = finalize_runtime_response(response, &config);
+            assert_eq!(
+                alt_svc_values(&response),
+                vec![format!("h3=\":9443\"; {ALT_SVC_MAX_AGE}")]
+            );
+        }
+
+        /// With the H3 endpoint active but advertisement off, the runtime
+        /// still owns the field and removes the application value.
+        #[test]
+        fn active_h3_runtime_owns_alt_svc_when_advertisement_is_disabled() {
+            let config = config(true, false, &[]);
+            let mut response = crate::response::not_found(false);
+            response.headers_mut().insert(
+                ALT_SVC_HEADER_NAME,
+                hyper::header::HeaderValue::from_static("h3=\":different\""),
+            );
+            let response = finalize_runtime_response(response, &config);
+            assert!(alt_svc_values(&response).is_empty());
+        }
+
+        /// The runtime does not own `alt-svc` while the H3 endpoint is
+        /// inactive: the application value passes through unchanged. This
+        /// is the pre-existing behavior and must not change.
+        #[test]
+        fn inactive_h3_runtime_leaves_alt_svc_to_the_application() {
+            let config = config(false, true, &[]);
+            let mut response = crate::response::not_found(false);
+            response.headers_mut().insert(
+                ALT_SVC_HEADER_NAME,
+                hyper::header::HeaderValue::from_static("h3=\":different\""),
+            );
+            let response = finalize_runtime_response(response, &config);
+            assert_eq!(alt_svc_values(&response), vec!["h3=\":different\""]);
+        }
     }
 
     #[test]

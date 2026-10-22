@@ -12,7 +12,7 @@ static-serving library for Python and Rust. It is a secure alternative to
 
 Safe defaults: loopback bind, path confinement, no symlinks, no dotfiles, no
 directory listing. Broader behavior is always an explicit opt-in. See
-[security policy](docs/security-policy.md).
+[security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md).
 
 ## Install
 
@@ -30,7 +30,7 @@ eggserve --directory ./public                              # loopback, static on
 eggserve --directory ./public --public --addr 0.0.0.0:8080 # explicit public bind
 ```
 
-See [CLI reference](docs/cli.md).
+See [CLI reference](https://github.com/eggstack/eggserve/blob/main/docs/cli.md).
 
 ### Python
 
@@ -82,8 +82,8 @@ server.start()
 server.wait_ready()
 ```
 
-See [Python API](docs/python-api.md) and the
-[compatibility contract](docs/python-http-server-compatibility.md) for
+See [Python API](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) and the
+[compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md) for
 intentional `http.server` deviations.
 
 ### Rust
@@ -94,7 +94,7 @@ H1 application service, optionally with Tower.
 
 ```toml
 [dependencies]
-eggserve-core = "0.4"
+eggserve-core = "0.5"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -142,15 +142,15 @@ handle.ready().await?;
 
 H1 is the supported transport; H2/H3 are opt-in and experimental.
 Embedding detail (timeouts, response policy, Tower adapters, downstream
-contracts) lives in [deployment](docs/deployment.md),
-[timeouts](docs/timeout-reference.md),
-[interop](docs/http-interop.md),
-[public API boundary](docs/public-api-boundary.md), and
-[downstream app servers](docs/downstream-app-server.md).
+contracts) lives in [deployment](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md),
+[timeouts](https://github.com/eggstack/eggserve/blob/main/docs/timeout-reference.md),
+[interop](https://github.com/eggstack/eggserve/blob/main/docs/http-interop.md),
+[public API boundary](https://github.com/eggstack/eggserve/blob/main/docs/public-api-boundary.md), and
+[downstream app servers](https://github.com/eggstack/eggserve/blob/main/docs/downstream-app-server.md).
 
 ## Examples
 
-Runnable starting points in [examples/](examples/README.md):
+Runnable starting points in [examples/](https://github.com/eggstack/eggserve/tree/main/examples/):
 
 - Python: static facade, custom handler, `lowlevel` service, HTTPS
 - Rust: static server, custom service, streaming service, caller-owned stream
@@ -158,8 +158,8 @@ Runnable starting points in [examples/](examples/README.md):
 
 ## Documentation
 
-- [CLI reference](docs/cli.md) · [deployment](docs/deployment.md) · [timeouts](docs/timeout-reference.md) · [TLS](docs/tls.md)
-- [Python API](docs/python-api.md) · [compatibility contract](docs/python-http-server-compatibility.md)
-- [HTTP primitives](docs/http-primitives.md) · [migration guide](docs/migration-guide.md)
-- [Threat model](docs/threat-model.md) · [non-goals](docs/non-goals.md)
-- [Architecture overview](architecture/overview.md)
+- [CLI reference](https://github.com/eggstack/eggserve/blob/main/docs/cli.md) · [deployment](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md) · [timeouts](https://github.com/eggstack/eggserve/blob/main/docs/timeout-reference.md) · [TLS](https://github.com/eggstack/eggserve/blob/main/docs/tls.md)
+- [Python API](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) · [compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md)
+- [HTTP primitives](https://github.com/eggstack/eggserve/blob/main/docs/http-primitives.md) · [migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md)
+- [Threat model](https://github.com/eggstack/eggserve/blob/main/docs/threat-model.md) · [non-goals](https://github.com/eggstack/eggserve/blob/main/docs/non-goals.md)
+- [Architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/overview.md)

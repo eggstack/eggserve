@@ -44,7 +44,10 @@ pub mod response_body;
 pub mod status;
 
 pub use super::response_stream::{ResponseStream, ResponseStreamError};
-pub use headers::{is_hop_by_hop_header, ResponseHead};
+pub use headers::{
+    alt_svc_advertisement_value, apply_alt_svc_advertisement, is_hop_by_hop_header, ResponseHead,
+    ALT_SVC_HEADER_NAME, ALT_SVC_MAX_AGE,
+};
 pub use response::{
     normalize_metadata, normalize_response, runtime_error_with_policy, NormalizeRequest, Response,
     ResponseBuilder,
@@ -691,5 +694,97 @@ mod tests {
             "0",
             "HEAD with empty body must preserve zero Content-Length"
         );
+    }
+
+    // --- Runtime-owned `Alt-Svc` advertisement authority (Plan 307) ---
+
+    #[test]
+    fn alt_svc_advertisement_uses_the_bound_port_and_the_shared_window() {
+        let value = alt_svc_advertisement_value(9443, true, &[] as &[String]).unwrap();
+        assert_eq!(value, format!("h3=\":9443\"; {ALT_SVC_MAX_AGE}"));
+    }
+
+    /// The advertisement window is the single `ma` parameter of the
+    /// advertised endpoint. Its value lives only in
+    /// [`ALT_SVC_MAX_AGE`]; this assertion pins the *shape* of that
+    /// parameter so a malformed window is caught without duplicating the
+    /// value into a second literal.
+    #[test]
+    fn alt_svc_max_age_is_a_single_ma_parameter() {
+        assert!(ALT_SVC_MAX_AGE.starts_with("ma="));
+        assert!(
+            ALT_SVC_MAX_AGE["ma=".len()..]
+                .bytes()
+                .all(|byte| byte.is_ascii_digit()),
+            "the advertisement window must be a decimal number of seconds"
+        );
+        assert!(!ALT_SVC_MAX_AGE.contains(';'));
+    }
+
+    #[test]
+    fn alt_svc_advertisement_is_suppressed_when_disabled_or_denylisted() {
+        assert!(alt_svc_advertisement_value(9443, false, &[] as &[String]).is_none());
+        assert!(
+            alt_svc_advertisement_value(9443, true, &["alt-svc".to_owned()]).is_none(),
+            "a denylisted alt-svc must stay denylisted"
+        );
+    }
+
+    #[test]
+    fn alt_svc_denylist_match_is_case_insensitive() {
+        for spelling in ["alt-svc", "ALT-SVC", "Alt-Svc"] {
+            assert!(
+                alt_svc_advertisement_value(9443, true, &[spelling.to_owned()]).is_none(),
+                "denylist spelling `{spelling}` must be honored"
+            );
+        }
+        // A denylist that names a different header must not suppress the
+        // advertisement.
+        assert!(
+            alt_svc_advertisement_value(9443, true, &["server".to_owned()]).is_some(),
+            "an unrelated denylist entry must not suppress the advertisement"
+        );
+    }
+
+    #[test]
+    fn apply_alt_svc_advertisement_replaces_an_application_supplied_value() {
+        let mut headers = HeaderBlock::new();
+        headers.push_str("alt-svc", "h3=\":9999\"").unwrap();
+        headers.push_str("x-keep", "kept").unwrap();
+
+        apply_alt_svc_advertisement(&mut headers, 9443, true, &[] as &[String]);
+
+        assert_eq!(headers.get_all("alt-svc").len(), 1);
+        assert_eq!(
+            headers.get_first("alt-svc").unwrap().to_str().unwrap(),
+            format!("h3=\":9443\"; {ALT_SVC_MAX_AGE}")
+        );
+        assert_eq!(
+            headers.get_first("x-keep").unwrap().to_str().unwrap(),
+            "kept"
+        );
+    }
+
+    #[test]
+    fn apply_alt_svc_advertisement_removes_the_application_value_when_not_advertising() {
+        let mut headers = HeaderBlock::new();
+        headers.push_str("ALT-SVC", "h3=\":9999\"").unwrap();
+
+        apply_alt_svc_advertisement(&mut headers, 9443, false, &[] as &[String]);
+
+        assert!(
+            headers.get_all("alt-svc").is_empty(),
+            "the application value must be removed even when the runtime does not advertise"
+        );
+    }
+
+    #[test]
+    fn apply_alt_svc_advertisement_removes_the_application_value_when_denylisted() {
+        let mut headers = HeaderBlock::new();
+        headers.push_str("alt-svc", "h3=\":9999\"").unwrap();
+
+        apply_alt_svc_advertisement(&mut headers, 9443, true, &["alt-svc".to_owned()]);
+
+        assert!(headers.get_all("alt-svc").is_empty());
     }
 }

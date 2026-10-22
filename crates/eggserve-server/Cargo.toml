@@ -1,18 +1,23 @@
 [package]
 name = "eggserve-server"
-version = "0.4.0"
+version = "0.5.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "../../README.md"
 description = "Generic EggServe HTTP runtime and service authority"
-keywords.workspace = true
-categories.workspace = true
+keywords = ["http", "http-server", "server", "runtime", "hyper"]
+categories = ["web-programming::http-server", "network-programming"]
 rust-version.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+# Render the Tower/HTTP-interop adapter surface on docs.rs; the default
+# feature set is empty for this direct H1 crate.
+features = ["http-interop", "tower"]
 
 [features]
 default = []
@@ -29,7 +34,7 @@ http-interop = ["dep:http", "eggserve-primitives/http-interop"]
 tower = ["http-interop", "dep:tower-service"]
 
 [dependencies]
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.2" }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.3" }
 bytes = "1"
 futures-util = "0.3"
 http-body = "1"

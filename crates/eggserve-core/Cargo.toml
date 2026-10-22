@@ -1,6 +1,6 @@
 [package]
 name = "eggserve-core"
-version = "0.4.0"
+version = "0.5.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -24,6 +24,12 @@ include = [
 [lints]
 workspace = true
 
+[package.metadata.docs.rs]
+# Render the full compatibility surface on docs.rs. The internal
+# `python-bindings-internal` bridge and the Windows qualification marker stay
+# off so the published docs show the supported surface only.
+features = ["http2", "http3", "tls", "http-interop", "tower"]
+
 [features]
 default = []
 http2 = ["hyper/http2", "hyper-util/http2", "eggnet-tls?/http2"]
@@ -40,10 +46,10 @@ windows-adversarial-qualification = []
 
 [dependencies]
 eggnet-tls = { path = "../eggnet-tls", version = "0.2.0", optional = true, default-features = false }
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.2" }
-eggserve-server = { path = "../eggserve-server", version = "0.4.0" }
-eggserve-static = { path = "../eggserve-static", version = "0.4.0" }
-eggserve-h3 = { path = "../eggserve-h3", version = "0.4.0", optional = true }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.3" }
+eggserve-server = { path = "../eggserve-server", version = "0.5.0" }
+eggserve-static = { path = "../eggserve-static", version = "0.5.0" }
+eggserve-h3 = { path = "../eggserve-h3", version = "0.5.0", optional = true }
 bytes = "1"
 futures-util = "0.3"
 # Direct use: TrackedBody implements http_body::Body to observe response-body

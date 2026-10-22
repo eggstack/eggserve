@@ -1283,14 +1283,18 @@ async fn handle_h3_connect<S, C>(
     );
 }
 
-/// Apply runtime-owned `Alt-Svc` advertisement for H3 (Plan 220).
+/// Apply runtime-owned `Alt-Svc` advertisement for H3 (Plan 220, Plan 307).
 ///
 /// Generic privacy (`Server`/`Date`/denylist) already ran via
-/// `finalize_canonical_response`; this H3-owned step adds
-/// `h3=":<port>"; ma=86400` using the resolved same-port TCP bind when
-/// `advertise_alt_svc` is set. Suppressed when the denylist contains
-/// `alt-svc` or when H3 is disabled. No second privacy implementation:
-/// denylist/`Server`/`Date` stay in the server kernel.
+/// `finalize_canonical_response`; this H3-owned step adds the advertised
+/// H3 endpoint using the resolved same-port TCP bind when
+/// `advertise_alt_svc` is set. The advertisement policy itself — value
+/// format, advertisement window, and denylist handling — is owned by
+/// [`eggserve_primitives::canonical`]; this function only supplies the
+/// transport-specific inputs and the canonical header container. Suppressed
+/// when the denylist contains `alt-svc` or when H3 is disabled. No second
+/// privacy implementation: denylist/`Server`/`Date` stay in the server
+/// kernel.
 pub fn apply_alt_svc(
     mut response: eggserve_primitives::canonical::Response,
     server_config: &eggserve_server::config::RuntimeConfig,
@@ -1299,22 +1303,12 @@ pub fn apply_alt_svc(
     if !h3_config.enabled {
         return response;
     }
-    {
-        let headers = response.head_mut().headers_mut();
-        headers.retain(|field| !field.name.as_str().eq_ignore_ascii_case("alt-svc"));
-        if h3_config.advertise_alt_svc
-            && !server_config
-                .response_policy
-                .stripped_response_headers
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case("alt-svc"))
-        {
-            let _ = headers.push_str(
-                "alt-svc",
-                format!("h3=\":{}\"; ma=86400", server_config.bind.port()),
-            );
-        }
-    }
+    eggserve_primitives::canonical::apply_alt_svc_advertisement(
+        response.head_mut().headers_mut(),
+        server_config.bind.port(),
+        h3_config.advertise_alt_svc,
+        &server_config.response_policy.stripped_response_headers,
+    );
     response
 }
 
@@ -1464,6 +1458,169 @@ mod tests {
             .filter(|f| f.name.as_str().eq_ignore_ascii_case("alt-svc"))
             .collect();
         assert_eq!(values.len(), 1);
-        assert_eq!(values[0].value.to_str().unwrap(), "h3=\":9443\"; ma=86400");
+        assert_eq!(
+            values[0].value.to_str().unwrap(),
+            format!(
+                "h3=\":9443\"; {}",
+                eggserve_primitives::canonical::ALT_SVC_MAX_AGE
+            )
+        );
+    }
+
+    /// The H3 adapter's Alt-Svc decision matrix: H3 enabled/disabled ×
+    /// advertisement on/off × `alt-svc` denylisted/not.
+    ///
+    /// This is the adapter half of the Plan 307 equivalence matrix; the
+    /// compatibility H2/H3 path is covered by the same matrix in
+    /// `eggserve-core`.
+    #[test]
+    fn alt_svc_decision_matrix_matches_the_shared_policy() {
+        use eggserve_primitives::canonical::{
+            Response, ResponseBody, StatusCode, ALT_SVC_HEADER_NAME, ALT_SVC_MAX_AGE,
+        };
+
+        // (h3_enabled, advertise, denylisted, expect_advertisement)
+        let matrix = [
+            (true, true, false, true),
+            (true, false, false, false),
+            (true, true, true, false),
+            (true, false, true, false),
+            (false, true, false, false),
+            (false, false, false, false),
+            (false, true, true, false),
+            (false, false, true, false),
+        ];
+        for (enabled, advertise, denylisted, expect) in matrix {
+            let server_config = RuntimeConfig::builder()
+                .bind("127.0.0.1:9443".parse().unwrap())
+                .stripped_response_headers(if denylisted {
+                    vec![ALT_SVC_HEADER_NAME.to_owned()]
+                } else {
+                    Vec::new()
+                })
+                .build()
+                .unwrap();
+            let h3_config = crate::config::Http3Config {
+                enabled,
+                advertise_alt_svc: advertise,
+                ..crate::config::Http3Config::default()
+            };
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Empty)
+                .unwrap();
+            let response = apply_alt_svc(response, &server_config, &h3_config);
+            let values: Vec<String> = response
+                .headers()
+                .iter()
+                .filter(|f| f.name.as_str().eq_ignore_ascii_case(ALT_SVC_HEADER_NAME))
+                .map(|f| f.value.to_str().unwrap().to_owned())
+                .collect();
+            if expect {
+                assert_eq!(
+                    values,
+                    vec![format!("h3=\":9443\"; {ALT_SVC_MAX_AGE}")],
+                    "h3_enabled={enabled} advertise={advertise} denylisted={denylisted}"
+                );
+            } else {
+                assert!(
+                    values.is_empty(),
+                    "h3_enabled={enabled} advertise={advertise} denylisted={denylisted} \
+                     must not advertise"
+                );
+            }
+        }
+    }
+
+    /// The advertised port is the bound port.
+    #[test]
+    fn alt_svc_advertisement_port_matches_the_bound_port() {
+        use eggserve_primitives::canonical::{
+            Response, ResponseBody, StatusCode, ALT_SVC_HEADER_NAME, ALT_SVC_MAX_AGE,
+        };
+        let server_config = RuntimeConfig::builder()
+            .bind("127.0.0.1:18443".parse().unwrap())
+            .build()
+            .unwrap();
+        let h3_config = crate::config::Http3Config {
+            enabled: true,
+            advertise_alt_svc: true,
+            ..crate::config::Http3Config::default()
+        };
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Empty)
+            .unwrap();
+        let response = apply_alt_svc(response, &server_config, &h3_config);
+        assert_eq!(
+            response
+                .headers()
+                .get_first(ALT_SVC_HEADER_NAME)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            format!("h3=\":18443\"; {ALT_SVC_MAX_AGE}")
+        );
+    }
+
+    /// An application-supplied `alt-svc` never overrides the runtime
+    /// advertisement while the H3 endpoint is active.
+    #[test]
+    fn alt_svc_application_supplied_value_is_replaced() {
+        use eggserve_primitives::canonical::{Response, ResponseBody, StatusCode, ALT_SVC_MAX_AGE};
+        let server_config = RuntimeConfig::builder()
+            .bind("127.0.0.1:9443".parse().unwrap())
+            .build()
+            .unwrap();
+        let h3_config = crate::config::Http3Config {
+            enabled: true,
+            advertise_alt_svc: true,
+            ..crate::config::Http3Config::default()
+        };
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header("alt-svc", "h3=\":different\"")
+            .unwrap()
+            .body(ResponseBody::Empty)
+            .unwrap();
+        let response = apply_alt_svc(response, &server_config, &h3_config);
+        let values: Vec<&str> = response
+            .headers()
+            .iter()
+            .filter(|f| f.name.as_str().eq_ignore_ascii_case("alt-svc"))
+            .map(|f| f.value.to_str().unwrap())
+            .collect();
+        assert_eq!(values, vec![format!("h3=\":9443\"; {ALT_SVC_MAX_AGE}")]);
+    }
+
+    /// The runtime does not own `alt-svc` while the H3 endpoint is inactive:
+    /// the application value passes through unchanged. This is the
+    /// pre-existing behavior and must not change.
+    #[test]
+    fn alt_svc_inactive_h3_leaves_the_application_value_alone() {
+        use eggserve_primitives::canonical::{Response, ResponseBody, StatusCode};
+        let server_config = RuntimeConfig::builder()
+            .bind("127.0.0.1:9443".parse().unwrap())
+            .build()
+            .unwrap();
+        let h3_config = crate::config::Http3Config {
+            enabled: false,
+            advertise_alt_svc: true,
+            ..crate::config::Http3Config::default()
+        };
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header("alt-svc", "h3=\":different\"")
+            .unwrap()
+            .body(ResponseBody::Empty)
+            .unwrap();
+        let response = apply_alt_svc(response, &server_config, &h3_config);
+        let values: Vec<&str> = response
+            .headers()
+            .iter()
+            .filter(|f| f.name.as_str().eq_ignore_ascii_case("alt-svc"))
+            .map(|f| f.value.to_str().unwrap())
+            .collect();
+        assert_eq!(values, vec!["h3=\":different\""]);
     }
 }

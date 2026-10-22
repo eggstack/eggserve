@@ -38,7 +38,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "eggnet-tls"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "rustls",
  "rustls-pki-types",
@@ -46,7 +46,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-bin"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "eggnet-tls",
  "eggserve-core",
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytes",
  "eggnet-tls",
@@ -80,7 +80,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-primitives"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "bytes",
  "futures-util",
@@ -88,7 +88,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-python"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bytes",
  "eggnet-tls",
@@ -106,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-server"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytes",
  "eggserve-primitives",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "eggserve-static"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "eggserve-primitives",
  "eggserve-server",
@@ -495,9 +495,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "once_cell",
  "ring",
@@ -518,9 +518,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.14"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0527518605e68109d875e248ea259b6758801cf165e4b2c2733ae3b51f12535a"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",

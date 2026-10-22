@@ -62,6 +62,41 @@ body, idle, response-write, admission, request-count, and shutdown limits
 remain active. The compatibility configuration builder shares the same
 validation and runtime semantics.
 
+### Compatibility runtime configuration reach (Plan 308)
+
+`eggserve_core::server::RuntimeConfig` is a compatibility facade over
+`eggserve_server::RuntimeConfig`. It carries the four direct-H1 ownership
+knobs instead of projecting hardcoded defaults, so a compatibility consumer
+reaches the same opt-ins a direct embedder does:
+
+| Compatibility field | Compatibility builder setter | Direct counterpart |
+|---|---|---|
+| `http1_request_target_mode` | `http1_request_target_mode(..)` | `eggserve_server::RuntimeConfig::http1_request_target_mode` |
+| `policy_ownership` | `policy_ownership(..)` | `eggserve_server::RuntimeConfig::policy_ownership` |
+| `admission_ownership` | `admission_ownership(..)` | `eggserve_server::RuntimeConfig::admission_ownership` |
+| `runtime_rejection_presenter` | `runtime_rejection_presenter(..)` | `eggserve_server::RuntimeConfig::runtime_rejection_presenter` |
+
+The field types are the direct crate's own types, re-exported at
+`eggserve_core::server::config::{AdmissionOwner, AdmissionOwnership,
+H1PolicyOwnership, Http1RequestTargetMode, PolicyOwner,
+RuntimeErrorPresentation, RuntimeRejection, RuntimeRejectionKind,
+RuntimeRejectionPresenter}` — there are no compatibility duplicates.
+
+Defaults are unchanged: `OriginOnly`, all `EggServe`-owned, no presenter. The
+CLI grammar (`[OPTIONS] [PORT] [DIRECTORY]`) and the Python public surface are
+untouched; no CLI flag and no Python option exposes these knobs, so
+CLI/Python servers keep the EggServe-owned defaults.
+
+Two direct-H1 transfers stay unreachable through the compatibility path:
+`H1ConnectionPolicy::with_request_header_bytes_owner` and
+`H1ConnectionPolicy::with_response_metadata_ownership`. They are
+post-projection `H1ConnectionPolicy` methods rather than `RuntimeConfig`
+fields, so the compatibility projection has no field to carry them; reaching
+them would require a direct-crate public API addition or a switch of the
+compatibility H1 path to the policy-based driver entry point (separate plans).
+Runtime error metadata, response framing, and the stripped-header denylist
+stay runtime-owned under every ownership configuration.
+
 ## Internal modules (not public API)
 
 `response` and other `pub(crate)` helpers are internal. External callers must not depend on them. Types from these modules are re-exported through `primitives` where appropriate. The former `fs`/`path`/MIME modules live once in `eggserve-static`; their deleted core copies must not return.
@@ -185,6 +220,9 @@ Before 1.0:
   guidance.
 - **Experimental APIs** may change in any non-patch release under their
   separately documented policy.
+- Adding public fields to the compatibility `RuntimeConfig` is source-incompatible
+  for exhaustive struct-literal construction (the Plan 285 class) and therefore
+  requires the minor transition, not a patch release.
 
 After 1.0:
 - Follows semver strictly.

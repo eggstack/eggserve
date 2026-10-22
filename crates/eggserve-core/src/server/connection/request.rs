@@ -113,20 +113,6 @@ pub(crate) fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), Se
     Ok(())
 }
 
-/// Wrap a Hyper `Incoming` body into a `Stream<Item = Result<Bytes, IncomingError>>`.
-///
-/// This bridges the Hyper body type to the canonical `RequestBody` type
-/// without leaking Hyper into the public API.
-#[allow(dead_code)]
-pub(crate) fn wrap_incoming_body(
-    body: Incoming,
-) -> impl futures_util::Stream<
-    Item = Result<bytes::Bytes, crate::primitives::request_body::IncomingError>,
-> + Send
-       + 'static {
-    wrap_incoming_body_with_trailers(body, crate::primitives::request_body::new_wire_slot()).0
-}
-
 /// Wrap Hyper `Incoming` while capturing terminal trailers into `slot`.
 ///
 /// Data frames yield `Bytes`; trailer frames are converted to [`HeaderBlock`]

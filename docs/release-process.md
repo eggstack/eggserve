@@ -111,6 +111,16 @@ before claiming downstream registry consumers are unblocked. Continue on the
 current `0.4.x` leaf line (`eggserve-bin 0.2.2`, wheel `0.2.4`; Plan 300);
 never roll back to `0.1.x`.
 
+The corrective `0.5.0` Rust line (`eggserve-primitives 0.2.3`;
+`eggserve-server`/`eggserve-static`/`eggserve-h3`/`eggserve-core 0.5.0`;
+`eggserve-bin 0.2.3`; wheel `eggserve 0.2.5`) is prepared in the tree and
+records the defect batch that landed after the `v0.4.0` tag. It is a minor
+bump because the compatibility `RuntimeConfig` gains four public fields —
+source-incompatible for exhaustive struct literals (the Plan 285 class) — and
+because several request paths change observably. It becomes the current leaf
+line only when its publication is confirmed; until then the published line
+remains `0.4.x` and `eggserve-core = "0.4"` still resolves to it.
+
 ## Preflight version-sync check
 
 The workflow runs a preflight job before any platform builds:

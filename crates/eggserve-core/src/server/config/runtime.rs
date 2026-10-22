@@ -6,10 +6,8 @@
 //! fields/defaults/validation; no new knobs are added by the split.
 
 use std::net::SocketAddr;
-use std::time::Duration;
-
-#[cfg(feature = "tls")]
 use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(feature = "http2")]
 use super::http2::Http2Config;
@@ -169,6 +167,35 @@ pub struct RuntimeConfig {
     /// `X-Forwarded-*` populate provenance-tagged effective fields without
     /// rewriting the canonical Host/target. H3 ignores this policy.
     pub trusted_proxy: crate::primitives::proxy::TrustedProxyConfig,
+    /// Accepted HTTP/1 request-target forms for the compatibility H1 path.
+    ///
+    /// Carried verbatim from the direct runtime configuration
+    /// ([`eggserve_server::Http1RequestTargetMode`]). Default:
+    /// `OriginOnly`, which rejects absolute-form request targets before
+    /// service dispatch. `OriginOrAbsolute` is an explicit embedding opt-in
+    /// and never changes `eggserve-static`, which stays origin-form-only.
+    pub http1_request_target_mode: eggserve_server::Http1RequestTargetMode,
+    /// Ownership of the optional H1 deadlines and semantic ceilings.
+    ///
+    /// Carried verbatim from the direct runtime configuration
+    /// ([`eggserve_server::H1PolicyOwnership`]). Default: every selected
+    /// policy stays EggServe-owned.
+    pub policy_ownership: eggserve_server::H1PolicyOwnership,
+    /// Ownership of service-call and tunnel admission.
+    ///
+    /// Carried verbatim from the direct runtime configuration
+    /// ([`eggserve_server::AdmissionOwnership`]). Default: admission stays
+    /// EggServe-owned.
+    pub admission_ownership: eggserve_server::AdmissionOwnership,
+    /// Optional body/application-header presenter for runtime-generated
+    /// rejections.
+    ///
+    /// Carried verbatim from the direct runtime configuration. Default:
+    /// `None` (the runtime renders its own rejection representation).
+    /// Framing, status selection, and the stripped-header denylist stay
+    /// runtime-owned under every presenter.
+    pub runtime_rejection_presenter:
+        Option<Arc<dyn eggserve_server::rejection::RuntimeRejectionPresenter>>,
     /// HTTP/2 transport policy and resource limits. Present only in builds
     /// compiled with the `http2` feature.
     #[cfg(feature = "http2")]
@@ -210,6 +237,10 @@ impl Default for RuntimeConfig {
             response_write_timeout: rl::DEFAULT_RESPONSE_WRITE_TIMEOUT,
             max_active_tunnels: rl::DEFAULT_MAX_ACTIVE_TUNNELS,
             trusted_proxy: crate::primitives::proxy::TrustedProxyConfig::default(),
+            http1_request_target_mode: eggserve_server::Http1RequestTargetMode::OriginOnly,
+            policy_ownership: eggserve_server::H1PolicyOwnership::default(),
+            admission_ownership: eggserve_server::AdmissionOwnership::default(),
+            runtime_rejection_presenter: None,
             #[cfg(feature = "http2")]
             http2: Http2Config::default(),
             #[cfg(feature = "http3")]
@@ -250,12 +281,16 @@ impl RuntimeConfig {
     ///
     /// TLS/H2/H3 and listener/proxy orchestration remain compatibility-owned;
     /// this projection carries only the generic H1 fields into the one direct
-    /// connection implementation.
+    /// connection implementation. The four direct-H1 ownership knobs
+    /// (`http1_request_target_mode`, `policy_ownership`,
+    /// `admission_ownership`, `runtime_rejection_presenter`) are carried
+    /// verbatim instead of being hardcoded, so a compatibility consumer can
+    /// reach the same opt-ins a direct embedder can.
     pub(crate) fn direct_h1_config(&self) -> eggserve_server::RuntimeConfig {
         eggserve_server::RuntimeConfig {
-            http1_request_target_mode: eggserve_server::Http1RequestTargetMode::OriginOnly,
-            policy_ownership: eggserve_server::H1PolicyOwnership::default(),
-            admission_ownership: eggserve_server::AdmissionOwnership::default(),
+            http1_request_target_mode: self.http1_request_target_mode,
+            policy_ownership: self.policy_ownership,
+            admission_ownership: self.admission_ownership,
             bind: self.bind,
             max_connections: self.max_connections,
             max_file_streams: self.max_file_streams,
@@ -267,7 +302,7 @@ impl RuntimeConfig {
             body_read_timeout: self.body_read_timeout,
             graceful_shutdown_timeout: self.graceful_shutdown_timeout,
             response_policy: self.response_policy.clone(),
-            runtime_rejection_presenter: None,
+            runtime_rejection_presenter: self.runtime_rejection_presenter.clone(),
             max_request_body_bytes: self.max_request_body_bytes,
             max_buf_size: self.max_buf_size,
             max_headers: self.max_headers,
@@ -282,46 +317,63 @@ impl RuntimeConfig {
         }
     }
 
+    /// Project a direct runtime configuration back into the compatibility
+    /// configuration.
+    ///
+    /// Used by the compatibility builder, which delegates the shared H1
+    /// kernel to the direct builder and keeps TLS/H2/H3 orchestration local.
+    /// The compatibility-only fields are supplied by the caller.
+    pub(crate) fn from_direct_config(
+        direct: eggserve_server::RuntimeConfig,
+        #[cfg(feature = "tls")] tls_config: Option<Arc<rustls::ServerConfig>>,
+        #[cfg(feature = "tls")] tls_reload_handle: Option<crate::tls::TlsReloadHandle>,
+        #[cfg(feature = "tls")] tls_expose_peer_chain: bool,
+        #[cfg(feature = "http2")] http2: Http2Config,
+        #[cfg(feature = "http3")] http3: Http3Config,
+    ) -> Self {
+        Self {
+            bind: direct.bind,
+            max_connections: direct.max_connections,
+            max_file_streams: direct.max_file_streams,
+            stream_chunk_size: direct.stream_chunk_size,
+            header_read_timeout: direct.header_read_timeout,
+            tls_handshake_timeout: direct.tls_handshake_timeout,
+            connection_total_timeout: direct.connection_total_timeout,
+            handler_timeout: direct.handler_timeout,
+            body_read_timeout: direct.body_read_timeout,
+            graceful_shutdown_timeout: direct.graceful_shutdown_timeout,
+            response_policy: direct.response_policy,
+            #[cfg(feature = "tls")]
+            tls_config,
+            #[cfg(feature = "tls")]
+            tls_reload_handle,
+            #[cfg(feature = "tls")]
+            tls_expose_peer_chain,
+            max_request_body_bytes: direct.max_request_body_bytes,
+            max_buf_size: direct.max_buf_size,
+            max_headers: direct.max_headers,
+            max_header_bytes: direct.max_header_bytes,
+            max_request_target_bytes: direct.max_request_target_bytes,
+            max_in_flight_requests: direct.max_in_flight_requests,
+            keep_alive_idle_timeout: direct.keep_alive_idle_timeout,
+            max_requests_per_connection: direct.max_requests_per_connection,
+            response_write_timeout: direct.response_write_timeout,
+            max_active_tunnels: direct.max_active_tunnels,
+            trusted_proxy: direct.trusted_proxy,
+            http1_request_target_mode: direct.http1_request_target_mode,
+            policy_ownership: direct.policy_ownership,
+            admission_ownership: direct.admission_ownership,
+            runtime_rejection_presenter: direct.runtime_rejection_presenter,
+            #[cfg(feature = "http2")]
+            http2,
+            #[cfg(feature = "http3")]
+            http3,
+        }
+    }
+
     /// Create a new builder with default values.
     pub fn builder() -> RuntimeConfigBuilder {
-        RuntimeConfigBuilder {
-            bind: None,
-            max_connections: None,
-            max_file_streams: None,
-            stream_chunk_size: None,
-            header_read_timeout: None,
-            tls_handshake_timeout: None,
-            connection_total_timeout: None,
-            handler_timeout: None,
-            body_read_timeout: None,
-            graceful_shutdown_timeout: None,
-            server_header: None,
-            response_policy: None,
-            date_policy: None,
-            stripped_response_headers: None,
-            error_policy: None,
-            #[cfg(feature = "tls")]
-            tls_config: None,
-            #[cfg(feature = "tls")]
-            tls_reload_handle: None,
-            #[cfg(feature = "tls")]
-            tls_expose_peer_chain: None,
-            max_request_body_bytes: None,
-            max_buf_size: None,
-            max_headers: None,
-            max_header_bytes: None,
-            max_request_target_bytes: None,
-            max_in_flight_requests: None,
-            keep_alive_idle_timeout: None,
-            max_requests_per_connection: None,
-            response_write_timeout: None,
-            max_active_tunnels: None,
-            trusted_proxy: None,
-            #[cfg(feature = "http2")]
-            http2: None,
-            #[cfg(feature = "http3")]
-            http3: None,
-        }
+        RuntimeConfigBuilder::default()
     }
 
     /// Returns the configured `Server` identification value, if any.
@@ -416,6 +468,10 @@ impl RuntimeConfig {
             response_write_timeout: shared.response_write_timeout,
             max_active_tunnels: shared.max_active_tunnels,
             trusted_proxy: crate::primitives::proxy::TrustedProxyConfig::default(),
+            http1_request_target_mode: eggserve_server::Http1RequestTargetMode::OriginOnly,
+            policy_ownership: eggserve_server::H1PolicyOwnership::default(),
+            admission_ownership: eggserve_server::AdmissionOwnership::default(),
+            runtime_rejection_presenter: None,
             #[cfg(feature = "http2")]
             http2: Http2Config::default(),
             #[cfg(feature = "http3")]

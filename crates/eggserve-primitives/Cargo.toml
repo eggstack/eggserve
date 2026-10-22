@@ -1,18 +1,23 @@
 [package]
 name = "eggserve-primitives"
-version = "0.2.2"
+version = "0.2.3"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "../../README.md"
 description = "Canonical transport-neutral HTTP request, response, and policy values for EggServe"
-keywords.workspace = true
-categories.workspace = true
+keywords = ["http", "primitives", "canonical", "policy", "transport-neutral"]
+categories = ["web-programming::http-server", "data-structures"]
 rust-version.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+# Render the `http-interop` request-body helpers on docs.rs; the default
+# feature set is empty for this transport-neutral crate.
+features = ["http-interop"]
 
 [features]
 default = []

@@ -52,8 +52,22 @@ normalization, privacy finalization, and timeout accounting stay in the
 shared kernel (`eggserve-server::connection`); this crate adds no second
 service semantics. Generic runtime limits stay in
 `eggserve-server::runtime_limits`; H3-only transport policy stays in
-`Http3Config`; `RuntimeConfig` never gains Quinn types. H3 `Alt-Svc`
-advertisement stays here (post-pass after generic finalization); the core
+`Http3Config`; `RuntimeConfig` never gains Quinn types.
+
+The H3 `Alt-Svc` advertisement *post-pass* stays here (it runs after generic
+finalization), but the advertisement **policy** has a single
+transport-neutral authority: `eggserve-primitives::canonical` owns
+`ALT_SVC_HEADER_NAME`, `ALT_SVC_MAX_AGE` (the advertisement window),
+`alt_svc_advertisement_value` (the decision), and
+`apply_alt_svc_advertisement` (remove-then-decide-and-insert for the
+canonical header block). `eggserve_h3::apply_alt_svc` and the compatibility
+H2/H3 path in `eggserve-core` both call that authority; only the
+header-container mechanics stay with each caller, so the two paths cannot
+advertise different windows or formats. The advertisement window literal
+exists exactly once in the workspace — in the constant — and
+`crates/eggserve-core/tests/alt_svc_advertisement.rs` proves the two paths
+emit byte-identical values across the whole decision matrix (H3
+enabled/disabled × advertisement on/off × `alt-svc` denylisted/not). The core
 keeps only a feature-gated composition hook (Plan 253 ledger in
 [crate-topology.md](crate-topology.md), no tier change).
 

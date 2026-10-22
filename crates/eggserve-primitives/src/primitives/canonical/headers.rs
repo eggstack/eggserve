@@ -1,12 +1,87 @@
 //! Canonical response headers (Plan 206 Track C).
 //!
-//! Owns [`ResponseHead`] and the single hop-by-hop authority
-//! ([`is_hop_by_hop_header`]). `remove_header`/`strip_hop_by_hop` are
+//! Owns [`ResponseHead`], the single hop-by-hop authority
+//! ([`is_hop_by_hop_header`]), and the runtime-owned `Alt-Svc`
+//! advertisement authority ([`alt_svc_advertisement_value`] /
+//! [`apply_alt_svc_advertisement`]). `remove_header`/`strip_hop_by_hop` are
 //! `pub(super)` for the sibling `response` normalizer only; the runtime
 //! remains the sole framing authority.
 
 use super::super::header_block::HeaderBlock;
 use super::status::StatusCode;
+
+/// The `Alt-Svc` response header field name.
+///
+/// The runtime owns this field: an application can never advertise a
+/// different alternate endpoint.
+pub const ALT_SVC_HEADER_NAME: &str = "alt-svc";
+
+/// The runtime-owned `Alt-Svc` advertisement window.
+///
+/// The `ma` parameter of the advertised H3 endpoint, byte-for-byte as it
+/// appears on the wire. This constant is the single owner of the
+/// advertisement window: the compatibility H2/H3 path and the H3 adapter
+/// both build their advertised value from it, so the two paths can never
+/// advertise different windows.
+pub const ALT_SVC_MAX_AGE: &str = "ma=86400";
+
+/// Decide the runtime-owned `Alt-Svc` advertisement value.
+///
+/// Returns the value the runtime must advertise for the H3 endpoint bound
+/// to `port`, or `None` when the runtime must not advertise at all
+/// (advertisement is off, or `alt-svc` is denylisted).
+///
+/// The decision is runtime-owned: the caller must remove any
+/// application-supplied `alt-svc` before applying the result, so an
+/// application can never override the advertisement. A denylisted `alt-svc`
+/// stays denylisted even when the H3 endpoint is active.
+///
+/// `denylisted_headers` is the operator's response-header denylist; the
+/// match is case-insensitive.
+pub fn alt_svc_advertisement_value<S: AsRef<str>>(
+    port: u16,
+    advertise: bool,
+    denylisted_headers: &[S],
+) -> Option<String> {
+    if !advertise {
+        return None;
+    }
+    if denylisted_headers
+        .iter()
+        .any(|name| name.as_ref().eq_ignore_ascii_case(ALT_SVC_HEADER_NAME))
+    {
+        return None;
+    }
+    Some(format!("h3=\":{port}\"; {ALT_SVC_MAX_AGE}"))
+}
+
+/// Apply the runtime-owned `Alt-Svc` advertisement to a canonical header
+/// block.
+///
+/// Removes every application-supplied `alt-svc` first — an application can
+/// never advertise a different H3 endpoint — then inserts the runtime-owned
+/// value when the policy allows it. Callers that own a different header
+/// container (for example a Hyper `HeaderMap`) use
+/// [`alt_svc_advertisement_value`] for the decision and keep their own
+/// insertion mechanics.
+pub fn apply_alt_svc_advertisement<S: AsRef<str>>(
+    headers: &mut HeaderBlock,
+    port: u16,
+    advertise: bool,
+    denylisted_headers: &[S],
+) {
+    headers.retain(|field| {
+        !field
+            .name
+            .as_str()
+            .eq_ignore_ascii_case(ALT_SVC_HEADER_NAME)
+    });
+    if let Some(value) = alt_svc_advertisement_value(port, advertise, denylisted_headers) {
+        // The runtime-generated value is always a valid header value; a
+        // rejected value would mean the advertisement format changed.
+        let _ = headers.push_str(ALT_SVC_HEADER_NAME, value);
+    }
+}
 
 /// The canonical response head: status code and validated headers.
 ///
