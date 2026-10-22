@@ -14,12 +14,19 @@ Repository baseline reviewed: `a7e2f22` (the published `v0.5.0` corrective line)
 
 Implementation commits or pull requests:
 
-- Validation branch `plan/312-platform-compile-validation` (commit `41a813a`) —
-  CI run `39816677832`.
-- Validation branch `plan/312-platform-break-probe` (commit `3d284b3`) —
-  CI run `39820541031`, the deliberate platform-break demonstration. Both
-  branches are validation-only and are **not** merged; the milestone's
-  implementation lands on `main` with the other 309–311 changes.
+- Commit `41a813a` — the `platform-compile` CI job, the fuzz build/lint/format
+  steps, the local `verify.sh` equivalent, and the two documentation updates.
+  This commit was first pushed to the validation branch
+  `plan/312-platform-compile-validation` so the new job could be exercised
+  before it landed (CI run `39816677832`); it was then fast-forwarded onto
+  `main` unchanged, together with commits `9a24d48` (Milestones 309–311) and
+  `88d78be` (the closure records). The validation branch was deleted after
+  the run.
+- Commit `3d284b3` on the throwaway branch
+  `plan/312-platform-break-probe` — the deliberate platform-break
+  demonstration (CI run `39820541031`). That branch was **never** merged; it
+  existed only to prove that the gate fails when Windows-only code does not
+  compile.
 
 ## 1. Executive finding
 
@@ -129,7 +136,8 @@ pass.
 
 ### 4.2 Hosted CI — the coverage works (run `39816677832`)
 
-Branch `plan/312-platform-compile-validation`, commit `41a813a`.
+Branch `plan/312-platform-compile-validation`, commit `41a813a` — the same
+commit that later landed on `main`.
 
 | Job | Conclusion |
 |---|---|

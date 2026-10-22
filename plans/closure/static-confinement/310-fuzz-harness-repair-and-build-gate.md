@@ -14,8 +14,12 @@ Repository baseline reviewed: `a7e2f22` (the published `v0.5.0` corrective line)
 
 Implementation commits or pull requests:
 
-- Uncommitted working-tree implementation at closure time (the maintainer owns
-  the commit and the release line).
+- Commit `9a24d48` — the implementation: the eleven repaired fuzz targets, the
+  platform-neutral `dirbuf` module and its public re-export, the refreshed
+  `fuzz/Cargo.lock`, the CI build/lint/format gates, the `verify.sh` steps,
+  the corpus-replay fix, and the topology-gate rule.
+- Commit `88d78be` — this closure record, the new Milestone 316 corrective
+  plan, and the registry/roadmap updates.
 
 ## 1. Executive finding
 

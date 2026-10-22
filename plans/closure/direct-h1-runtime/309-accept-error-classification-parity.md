@@ -14,8 +14,9 @@ Repository baseline reviewed: `a7e2f22` (the published `v0.5.0` corrective line)
 
 Implementation commits or pull requests:
 
-- Uncommitted working-tree implementation at closure time (the maintainer owns
-  the commit and the release line).
+- Commit `9a24d48` — the implementation: the new `accept_error` authority, the
+  two accept loops, the new test files, and the topology-gate rule.
+- Commit `88d78be` — this closure record and the registry/roadmap updates.
 
 ## 1. Executive finding
 
@@ -150,7 +151,7 @@ event when it is eventually published.
 | `cargo tree -p eggserve-server --no-default-features --features tower -e no-dev` | PASS — no `eggserve-core`, no `eggserve-static`, no `rustix`, no `phf` |
 | `cargo +1.89 check -p eggserve-server --lib` / `-p eggserve-core --lib` | PASS (MSRV 1.89) |
 | `python3 scripts/check-crate-topology.py` | PASS (exit 0) |
-| `python3 scripts/check-crate-topology.py --self-test` | PASS — "self-test: 41 checks passed" at implementation time; the parent has since added the Plan 309 rule (51 checks) and the Plan 310 rule (59 checks) |
+| `python3 scripts/check-crate-topology.py --self-test` | PASS — "self-test: 41 checks passed" at implementation time; the parent has since added the Plan 309 rule (51 checks), the Plan 310 rule (59 checks), and the Plan 311 rule (67 checks) |
 | Extra: `cargo test -p eggserve-core --test ops_integration` / `--test direct_h1_parity` | PASS (63 / 16) — no regressions from the direct-loop change |
 
 ### Test inventory

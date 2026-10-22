@@ -14,8 +14,11 @@ Repository baseline reviewed: `a7e2f22` (the published `v0.5.0` corrective line)
 
 Implementation commits or pull requests:
 
-- Uncommitted working-tree implementation at closure time (the maintainer owns
-  the commit and the release line).
+- Commit `9a24d48` — the implementation: the public renderer and shared bounds
+  in `eggserve-static`, the bridge's delegation and exception mapping, the
+  re-pointed compatibility constant, the new test files, and the
+  topology-gate rule.
+- Commit `88d78be` — this closure record and the registry/roadmap updates.
 
 ## 1. Executive finding
 
