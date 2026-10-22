@@ -123,12 +123,17 @@ Known gaps at the baseline:
   (`crates/eggserve-python/src/server/static_responder.rs`) instead of
   using the `eggserve-static` renderer. It reproduces the HTML and the
   escaper but omits the configured response-byte ceiling, and its HTML
-  preamble differs from the static authority's. See Milestone 311.
+  preamble differs from the static authority's. **Closed by Milestone 311**:
+  the bridge now calls `eggserve_static::render_directory_listing`, the two
+  surfaces emit byte-identical HTML, and the 1 MiB ceiling applies to both.
 - The Python bridge's listing entry-count bound comes from
   `eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES` rather than from the
   static authority's configurable `max_listing_entries` /
   `max_listing_response_bytes`, so the two surfaces can diverge on both
-  bounds.
+  bounds. **Closed by Milestone 311**: both bounds now come from
+  `eggserve-static` (`DEFAULT_MAX_LISTING_ENTRIES` and
+  `DEFAULT_MAX_LISTING_RESPONSE_BYTES`), and the compatibility constant is a
+  re-export of the authority's.
 - The `python-bindings-internal` feature is never enabled in CI or in
   `scripts/verify.sh`, so the Python-only internal code path is never
   clippy-linted. Tracked by the `cli-ops-observability` subsystem, not here.
@@ -246,4 +251,4 @@ behavior.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| 311 | ready | `plans/implementation/python-facade/311-directory-listing-renderer-consolidation.md` | — | — |
+| 311 | closed | `plans/implementation/python-facade/311-directory-listing-renderer-consolidation.md` | `plans/closure/python-facade/311-directory-listing-renderer-consolidation.md` | One listing renderer: the bridge delegates to `eggserve-static`, so both surfaces emit byte-identical HTML and enforce the same 1 MiB response-byte ceiling. Gate rule `check_plan311_listing_renderer_authority`. Reported follow-up: six pre-existing clippy lints in the excluded Python crate, which belong to Milestone 313's scope. |

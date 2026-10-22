@@ -293,6 +293,6 @@ changing any resolved version.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| 312 | ready | `plans/implementation/cli-ops-observability/312-cross-platform-compile-coverage.md` | — | — |
+| 312 | closed | `plans/implementation/cli-ops-observability/312-cross-platform-compile-coverage.md` | `plans/closure/cli-ops-observability/312-cross-platform-compile-coverage.md` | Routine CI now compiles the workspace (base, `http2,tls`, `http3,tls`) and the excluded Python crate on native `windows-latest` and `macos-latest` runners. Compile-only: runtime qualification stays manual and the Windows posture stays functional-only. The gate was proven to catch a deliberate `#[cfg(windows)]` break (run `39820541031`: the Windows leg failed, the macOS leg stayed green). |
 | 313 | ready | `plans/implementation/cli-ops-observability/313-lint-policy-enforcement.md` | — | — |
 | 315 | ready | `plans/implementation/cli-ops-observability/315-dependency-specification-consolidation.md` | — | — |
