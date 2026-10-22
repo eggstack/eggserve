@@ -44,6 +44,47 @@ run() {
 
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
+# Plan 312: opt-in cross-target compile coverage for the confinement
+# authority. The check is deliberately scoped to `eggserve-static`, the only
+# crate with platform-specific production code (`#[cfg(windows)]` handle-relative
+# confinement, `#[cfg(unix)]` descriptor-relative traversal). A whole-workspace
+# cross-check would additionally need a target-native C toolchain for `ring`
+# and `aws-lc-sys`, which a developer rarely has; the hosted CI job
+# (`.github/workflows/ci.yml`, job `platform-compile`) covers the full
+# workspace natively instead.
+#
+# Enable with EGGSERVE_PLATFORM_CHECK=1. Any skip is printed, never silent.
+cmd_platform_check() {
+  header "Platform compile coverage"
+
+  if [[ "${EGGSERVE_PLATFORM_CHECK:-0}" != "1" ]]; then
+    info "Platform compile coverage SKIPPED (opt-in: set EGGSERVE_PLATFORM_CHECK=1)"
+    return 0
+  fi
+
+  if ! command_exists rustup; then
+    info "Platform compile coverage SKIPPED (rustup not available)"
+    return 0
+  fi
+
+  local targets="${EGGSERVE_PLATFORM_TARGETS:-x86_64-pc-windows-gnu aarch64-apple-darwin}"
+  local installed
+  installed="$(rustup target list --installed 2>/dev/null || true)"
+  if [[ -z "$installed" ]]; then
+    info "Platform compile coverage SKIPPED (rustup target list unavailable)"
+    return 0
+  fi
+
+  local target
+  for target in $targets; do
+    if ! grep -qx -- "$target" <<<"$installed"; then
+      info "Platform compile coverage SKIPPED for $target (target std not installed: rustup target add $target)"
+      continue
+    fi
+    run cargo check -p eggserve-static --lib --target "$target"
+  done
+}
+
 # ---------------------------------------------------------------------------
 # Modes
 # ---------------------------------------------------------------------------
@@ -74,6 +115,11 @@ cmd_fast() {
   run cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
   run cargo test -p eggserve-bin --features http3,tls
   run cargo check --manifest-path "$REPO_ROOT/crates/eggserve-python/Cargo.toml" --locked
+  # Plan 310: the fuzz crate is a separate workspace with its own lockfile, so
+  # `cargo test --workspace` never covers it. Build it here so a target that
+  # rots against the current API fails a routine local check.
+  run cargo check --manifest-path "$REPO_ROOT/fuzz/Cargo.toml" --bins --locked
+  cmd_platform_check
 }
 
 cmd_full() {

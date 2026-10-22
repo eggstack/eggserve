@@ -39,6 +39,47 @@ patch update cannot silently change a release build.
 
 Other targets may compile but are not tested in CI and are not supported.
 
+### Routine CI Compile Coverage
+
+Plan 312 adds **compile-only** coverage for the Windows and macOS hosts to
+routine CI, on every push and pull request. The CI job is `platform-compile`
+in `.github/workflows/ci.yml` and runs on native hosted runners
+(`windows-latest`, `macos-latest`).
+
+| Platform | Runner | What is compiled | What is not |
+|----------|--------|------------------|--------------|
+| Windows | `windows-latest` | `cargo check --workspace --all-targets`; the same with `--features http2,tls` and `--features http3,tls`; the excluded Python crate with `--locked` | The Windows test suites are not run |
+| macOS | `macos-latest` | The same four lanes | The macOS test suites are not run |
+
+Native hosted runners are used deliberately. The Windows confinement
+implementation (`crates/eggserve-static/src/fs/windows.rs`) is gated
+`#[cfg(windows)]`, and a Linux-hosted cross-check either skips that module
+outright or builds a different ABI flavor, which looks like coverage without
+being coverage.
+
+Three limits are deliberate and must not be read as more than they are:
+
+- **This is compile coverage, not runtime qualification.** Runtime evidence
+  for Windows and macOS still comes only from the manual
+  `platform-qualification.yml` workflow and the release wheel gates.
+- **It does not change the Windows security posture.** Windows remains
+  `supported-functional` (trusted/local-content only) in the classification
+  table below and in `docs/security-policy.md` and `docs/non-goals.md`.
+- **It does not run tests.** Running the Windows or macOS test suites in
+  routine CI is a separate cost decision and needs its own plan.
+
+A local equivalent is available for developers who want it:
+
+```sh
+EGGSERVE_PLATFORM_CHECK=1 ./scripts/verify.sh fast
+```
+
+It compiles the confinement authority (`eggserve-static`) for
+`x86_64-pc-windows-gnu` and `aarch64-apple-darwin`, skipping — visibly, never
+silently — any target whose standard library is not installed. The scope is
+deliberately narrow: a whole-workspace cross-check additionally needs a
+target-native C toolchain for `ring` and `aws-lc-sys`.
+
 ### Feature Flags
 
 | Feature | Crate | Default | Description |

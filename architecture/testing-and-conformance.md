@@ -240,12 +240,33 @@ bash run_all.sh ../dist/*.whl python3.14
 
 ### Platform and external-consumer qualification
 
-Routine CI is intentionally Linux-focused. The product-level qualification
-matrix covers the standalone CLI, installed wheel, Python static/custom
-facades, and an external Rust consumer. The manual
-`.github/workflows/platform-qualification.yml` workflow runs installed-wheel
-checks on macOS arm64 and Windows filesystem qualification suites; it is not
-part of every push/PR.
+Routine CI is **Linux-focused for execution** and **cross-platform for
+compilation**. The product-level qualification matrix covers the standalone
+CLI, installed wheel, Python static/custom facades, and an external Rust
+consumer. The manual `.github/workflows/platform-qualification.yml` workflow
+runs installed-wheel checks on macOS arm64 and Windows filesystem
+qualification suites; it is not part of every push/PR.
+
+Plan 312 adds the `platform-compile` CI job: on every push and pull request,
+`windows-latest` and `macos-latest` hosted runners compile the workspace with
+`--all-targets` (base, `http2,tls`, and `http3,tls` lanes) and compile the
+excluded Python crate with `--locked`. Native hosted runners are used
+deliberately, because the Windows confinement implementation is
+`#[cfg(windows)]` and a cross-check of the wrong flavor would silently skip
+it.
+
+Three boundaries apply to this coverage and must not be blurred:
+
+- It is **compile coverage**, not runtime qualification. No Windows or macOS
+  test suite runs in routine CI.
+- It does **not** change the Windows security posture. Windows remains
+  `supported-functional` (trusted/local-content only) per
+  `docs/security-policy.md` and `docs/non-goals.md`.
+- It does **not** run the Windows or macOS test suites; that is a separate
+  cost decision requiring its own plan.
+
+`docs/toolchain-support.md` holds the full coverage matrix and the opt-in
+local equivalent (`EGGSERVE_PLATFORM_CHECK=1 ./scripts/verify.sh fast`).
 
 ## Plan 168 qualification track mapping
 
