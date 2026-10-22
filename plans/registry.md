@@ -52,7 +52,7 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Planning governance | 302 | closed | `plans/implementation/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | Done; closure: `plans/closure/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` (docs-only 0.4.0-line sweep). |
 | Docs architecture | 303 | closed | `plans/implementation/docs-architecture/303-readme-quickstart-user-docs-accuracy.md` | Done; closure: `plans/closure/docs-architecture/303-readme-quickstart-user-docs-accuracy.md` (README quickstart rewrite + user-docs accuracy). |
 | Direct H1 runtime | 304 | closed | `plans/implementation/direct-h1-runtime/304-040-publication-closure.md` | Closes Plan 300 honestly: publication evidence + registry correction. Closure: `plans/closure/direct-h1-runtime/300-release-0-4-0-publication.md`. **Conditionally closed** outcome — the published 0.4.0 artifact predates `v0.4.0..465b80c` (B1–B89 + CI fix), which Milestone 305 must republish. |
-| Direct H1 runtime | 305 | conditionally closed | `plans/implementation/direct-h1-runtime/305-corrective-040x-publication.md` | Corrective publication of the post-0.4.0 fix batch. Version line prepared and gated: `primitives 0.2.3`, `server`/`static`/`h3`/`core 0.5.0`, `bin 0.2.3`, wheel `0.2.5`. Closure: `plans/closure/direct-h1-runtime/305-corrective-040x-publication.md`. **Open condition:** the upload/tag/release steps are outstanding — they require the maintainer's crates.io token, the `pypi` environment approval, and a pushed bump commit whose exact-SHA CI is green. |
+| Direct H1 runtime | 305 | closed | `plans/implementation/direct-h1-runtime/305-corrective-040x-publication.md` | Corrective publication of the post-0.4.0 fix batch. Published 2026-10-22 from tag `v0.5.0` (commit `326aa1e`): `primitives 0.2.3`, `server`/`static`/`h3`/`core 0.5.0`, `bin 0.2.3`, wheel `0.2.5`. Exact-SHA CI `39794834966` green; six registry-only consumer proofs green; Release run `39799587527` green. Closure: `plans/closure/direct-h1-runtime/305-corrective-040x-publication.md`. |
 | Direct H1 runtime | 306 | closed | `plans/implementation/direct-h1-runtime/306-runtime-error-representation-single-authority.md` | The runtime error representation now has one authority (`eggserve-primitives::canonical::runtime_error_with_policy`); the two hand-rolled builders delegate to it and the dead helper cluster is gone. Wire output proven byte-identical across a 44-cell matrix plus a live TCP exchange. Closure: `plans/closure/direct-h1-runtime/306-runtime-error-representation-single-authority.md`. |
 | Direct H1 runtime | 307 | closed | `plans/implementation/direct-h1-runtime/307-connection-overlap-classification-accuracy.md` | The Plan 253 ledger is corrected (all eight pairs are classified parallel implementations, not shared kernels), measured, and machine-checked by a drift bound in the topology gate. The H3 `Alt-Svc` advertisement policy is single-sourced in `eggserve-primitives`. Closure: `plans/closure/direct-h1-runtime/307-connection-overlap-classification-accuracy.md`. |
 | Direct H1 runtime | 308 | closed | `plans/implementation/direct-h1-runtime/308-compatibility-config-projection-parity.md` | The compatibility `RuntimeConfig` now carries the four direct-H1 ownership values with unchanged defaults, and the compatibility builder delegates 37 of its 38 shared setters to the direct builder. CLI and Python surfaces untouched. Closure: `plans/closure/direct-h1-runtime/308-compatibility-config-projection-parity.md`. |
@@ -61,28 +61,29 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Python facade | 311 | ready | `plans/implementation/python-facade/311-directory-listing-renderer-consolidation.md` | Remove the bridge's second directory-listing renderer; restore the 1 MiB response-byte ceiling on the Python path. |
 | CLI, ops, and observability | 312 | ready | `plans/implementation/cli-ops-observability/312-cross-platform-compile-coverage.md` | Compile the workspace for the Windows and macOS targets in routine CI (compile-only; runtime qualification stays manual). |
 | CLI, ops, and observability | 313 | ready | `plans/implementation/cli-ops-observability/313-lint-policy-enforcement.md` | Enable `missing_docs` + `undocumented_unsafe_blocks`; add a `python-bindings-internal` clippy lane. No public API reduction. |
-| Planning governance | 314 | ready | `plans/implementation/planning-governance/314-publication-state-staleness-sweep.md` | Correct the six surfaces that still describe the published 0.4.0 line as pending, including the agent-facing skill. Interface dependency: 304. |
+| Planning governance | 314 | closed | `plans/implementation/planning-governance/314-publication-state-staleness-sweep.md` | Swept the six surfaces that described the published 0.4.0 line as pending, plus four current-artifact version strings, onto the published corrective line. Closure: `plans/closure/planning-governance/314-publication-state-staleness-sweep.md`. |
 | CLI, ops, and observability | 315 | ready | `plans/implementation/cli-ops-observability/315-dependency-specification-consolidation.md` | Introduce a `[workspace.dependencies]` table. **Both lockfiles must be byte-identical before and after.** The excluded Python crate keeps explicit specs. |
 
 ## Blocked work
 
-The corrective republication is **prepared but not published**. The 0.4.0
-line is published (crates.io `primitives 0.2.2`, `server`/`static`/`h3`/
-`core 0.4.0`, `bin 0.2.2`, `eggnet-tls 0.2.0`; PyPI wheel `0.2.4`; tag
-`v0.4.0`; GitHub Release "0.4.0 release line"), and Milestone 304 closed
-Plan 300 conditionally against it — see
-`plans/closure/direct-h1-runtime/300-release-0-4-0-publication.md`.
-The published artifact predates `v0.4.0..465b80c` (B1–B89 plus the CI
-fix), so the live crates still carry those defects. Milestone 305 prepared
-the corrective `0.5.0` line (`primitives 0.2.3`, `server`/`static`/`h3`/
-`core 0.5.0`, `bin 0.2.3`, wheel `0.2.5`) and gated it locally, but the
-upload, tag, GitHub Release, and wheel steps are **outstanding**: they
-require the maintainer's crates.io token, the `pypi` environment approval,
-and a pushed bump commit whose exact-SHA hosted CI is green. See
+No blocked milestones.
+
+The corrective republication is **complete**. The `0.5.0` line is published
+(crates.io `primitives 0.2.3`, `server`/`static`/`h3`/`core 0.5.0`,
+`bin 0.2.3`; PyPI wheel `0.2.5`; tag `v0.5.0` at commit `326aa1e`; GitHub
+Release "0.5.0 release line"), with the exact-SHA CI run `39794834966`
+green, six registry-only consumer proofs green, and Release run
+`39799587527` green with ten post-publish smokes. See
 `plans/closure/direct-h1-runtime/305-corrective-040x-publication.md`.
 
-Milestone 314 has an interface dependency on 304's closure record (the
-facts it corrects).
+The superseded `0.4.0` line remains resolvable but predates
+`v0.4.0..465b80c` (B1–B89 plus the CI fix); consumers pinned to it must
+widen to the `0.5.0` line — `eggserve-core = "0.4"` does not resolve it.
+
+Two residual items are tracked, neither blocking: the TestPyPI trusted
+publisher is still unconfigured (so the release path publishes straight to
+PyPI), and the manifest `rustls` floor was deliberately left at `0.23.45`
+rather than raised to `0.23.46`.
 
 ## Closure work and current control points
 
@@ -99,7 +100,7 @@ facts it corrects).
 | Runtime error representation (306) | closed | `plans/closure/direct-h1-runtime/306-runtime-error-representation-single-authority.md` (one authority in `eggserve-primitives`; 44-cell byte-equivalence + wire-level proof; dead helper cluster removed; topology gate rule `check_plan306_error_authority`). |
 | Connection-overlap classification (307) | closed | `plans/closure/direct-h1-runtime/307-connection-overlap-classification-accuracy.md` (ledger corrected and drift-bounded by `check_plan253_drift`; Alt-Svc advertisement single-sourced; six dead helpers removed). |
 | Compatibility config projection (308) | closed | `plans/closure/direct-h1-runtime/308-compatibility-config-projection-parity.md` (four ownership values carried with unchanged defaults; 37/38 shared builder setters delegate; topology gate rule `check_plan308_builder_delegation`). |
-| Corrective 0.5.0 line (305) | conditionally closed | `plans/closure/direct-h1-runtime/305-corrective-040x-publication.md` (version line prepared and gated locally; the upload, tag, release, and wheel steps are outstanding and require the maintainer's registry credentials and a green exact-SHA hosted CI run). |
+| Corrective 0.5.0 line (305) | closed | `plans/closure/direct-h1-runtime/305-corrective-040x-publication.md` (published 2026-10-22 from tag `v0.5.0`: six crates + ten wheels, per-crate checksums, exact-SHA CI `39794834966`, six registry-only consumer proofs, Release run `39799587527` with ten post-publish smokes). |
 | Agent/skill/docs staleness sweep (302) | closed | `plans/closure/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` (docs-only; skill + AGENTS.md + docs/README + architecture version strings onto the 0.4.0 line; registry next-number → 303). |
 | Corrective program (304–315) | active | `plans/implementation/direct-h1-runtime/304-040-publication-closure.md`; `305-corrective-040x-publication.md`; `306-runtime-error-representation-single-authority.md`; `307-connection-overlap-classification-accuracy.md`; `308-compatibility-config-projection-parity.md`; `309-accept-error-classification-parity.md`; `plans/implementation/static-confinement/310-fuzz-harness-repair-and-build-gate.md`; `plans/implementation/python-facade/311-directory-listing-renderer-consolidation.md`; `plans/implementation/cli-ops-observability/312-cross-platform-compile-coverage.md`; `313-lint-policy-enforcement.md`; `315-dependency-specification-consolidation.md`; `plans/implementation/planning-governance/314-publication-state-staleness-sweep.md`. Closure records land under `plans/closure/<subsystem>/`. |
 

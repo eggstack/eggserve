@@ -1,6 +1,6 @@
 # Planning Governance Roadmap
 
-Status: active (Milestones 1 and 302 closed; Milestone 314 ready)
+Status: closed (Milestones 1, 302, and 314 closed)
 
 Long-term references:
 
@@ -202,4 +202,4 @@ The planning-governance roadmap closes when Milestone 298 has an accepted closur
 |---|---|---|---|---|
 | 1 | closed | `plans/implementation/planning-governance/298-planning-control-surface-reconciliation.md` | `plans/closure/planning-governance/298-planning-control-surface-reconciliation.md` | — |
 | 302 | closed | `plans/implementation/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | `plans/closure/planning-governance/302-agent-skill-docs-staleness-sweep-040.md` | — |
-| 314 | ready | `plans/implementation/planning-governance/314-publication-state-staleness-sweep.md` | `plans/closure/planning-governance/314-publication-state-staleness-sweep.md` | Milestone 304 (interface) |
+| 314 | closed | `plans/implementation/planning-governance/314-publication-state-staleness-sweep.md` | `plans/closure/planning-governance/314-publication-state-staleness-sweep.md` | Milestone 304 (interface) |

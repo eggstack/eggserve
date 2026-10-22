@@ -62,15 +62,17 @@ Plans 294–297 close the direct application-server polish campaign (tower
 footprint baseline + hot-path optimization + profile/footprint split +
 application-server qualification; file/tunnel splits NO-GO, publication
 deferred) and Plan 299 repairs the H1 response-trailer F3 wire path with no
-publication. Plan 300 (active) publishes the 0.4.0 line
-(`primitives 0.2.2`, `server`/`static`/`h3`/`core 0.4.0`, `bin 0.2.2`, wheel
-`0.2.4`) with registry-only proof; see
-`plans/implementation/direct-h1-runtime/300-release-0-4-0-publication.md`.
+publication. Plan 300 published the 0.4.0 line and Plan 305 published the
+corrective `0.5.0` line that carries the post-0.4.0 fix batch
+(`primitives 0.2.3`, `server`/`static`/`h3`/`core 0.5.0`, `bin 0.2.3`, wheel
+`0.2.5`) with registry-only proof; see
+`plans/implementation/direct-h1-runtime/305-corrective-040x-publication.md`.
 Current versions: `eggserve-server`/`eggserve-static`/
-`eggserve-h3`/`eggserve-core` at `0.4.0`, `eggserve-primitives` at `0.2.2`,
-`eggserve-bin` at `0.2.2`, `eggserve-python` wheel at `0.2.4`
+`eggserve-h3`/`eggserve-core` at `0.5.0`, `eggserve-primitives` at `0.2.3`,
+`eggserve-bin` at `0.2.3`, `eggserve-python` wheel at `0.2.5`
 (Plans 288–291 extend only the direct H1 boundary; 296 WP-A tower edge and
-299 F3 trailer repair ride the 0.4.0 minor).
+299 F3 trailer repair ride the 0.4.0 minor; 305 republishes the corrective
+0.5.0 line).
 
 ## What eggserve Is
 
@@ -195,9 +197,9 @@ eggserve-core           (compatibility umbrella; facades over the leaves + H2/TL
 
 | Crate | Bird's-eye overview | Deep dive |
 |-------|---------------------|-----------|
-| `eggserve-core` | Compatibility/composition umbrella (`0.4.0`; 0.2.1 via Plan 272, core-only 0.2.2 Tower repair via Plans 274–275, 0.4.0 via Plan 300): facades over the direct authorities (no second implementation) plus explicit transport glue (H2 wire mechanics, TLS/proxy/listener composition, extended `Server`/`ServerBuilder` orchestration, `ServeConfig`/`try_from_serve_config`, `StaticService` wrapper, thin H3 facade). Plan 249: compatibility `Auto` classifies before any Hyper service exists; core executes H2 only. Forwards server-owned `http-interop`/`tower` as compatibility re-exports; projects `OriginOnly` absolute-form default. Plan 225 facade closure; `0.3.0` breaking embedding contract via Plans 285–286, carried forward on the `0.4.0` line via Plan 300. | [eggserve-core.md](eggserve-core.md), [runtime.md](runtime.md), [configuration.md](configuration.md) |
-| `eggserve-bin` | Static-only CLI binary (`0.2.2`; requirement-only bump via Plan 300, no behavior change). `main.rs` is a shim; real logic lives in `lib.rs` (`run`, `run_cli`) + `args.rs` (manual `[OPTIONS] [PORT] [DIRECTORY]` grammar, no clap) + `shutdown.rs` (signal handling) + `tls.rs` (neutral substrate re-export). Neutral policy/ops/limits/static paths name the leaf crates directly (Plan 221); extended orchestration goes through the core facade. | [eggserve-bin.md](eggserve-bin.md) |
-| `eggserve-python` | Workspace-excluded maturin/PyO3 (`0.29.2`, `abi3-py311`, CPython 3.11–3.15 build-once/test-many) wheel (`0.2.4`; Python distribution, Rust side tracks `0.4.0` leaves). `eggserve.server` six-class `http.server`-shaped facade (stock `SimpleHTTPRequestHandler` fast path only for the exact bare class), `eggserve.lowlevel` handler-only substrate (`RuntimeConfig`, `Server`, `Response.stream` over a 16-chunk bridge, `StaticResponder` composition; experimental H1-only `AsyncServer`), `eggserve.subprocess` lifecycle helpers. Bridge in `src/server/` submodules; async stays Python-side. H1-only facade (no new protocol surfaced to Python). | [eggserve-python.md](eggserve-python.md) |
+| `eggserve-core` | Compatibility/composition umbrella (`0.5.0`; 0.2.1 via Plan 272, core-only 0.2.2 Tower repair via Plans 274–275, 0.4.0 via Plan 300, 0.5.0 via Plan 305): facades over the direct authorities (no second implementation) plus explicit transport glue (H2 wire mechanics, TLS/proxy/listener composition, extended `Server`/`ServerBuilder` orchestration, `ServeConfig`/`try_from_serve_config`, `StaticService` wrapper, thin H3 facade). Plan 249: compatibility `Auto` classifies before any Hyper service exists; core executes H2 only. Forwards server-owned `http-interop`/`tower` as compatibility re-exports; projects `OriginOnly` absolute-form default. Plan 225 facade closure; `0.3.0` breaking embedding contract via Plans 285–286, carried forward on the `0.4.0` line via Plan 300 and on the corrective `0.5.0` line via Plan 305. Plan 308 carries the four direct-H1 ownership values on the compatibility `RuntimeConfig` with unchanged defaults. | [eggserve-core.md](eggserve-core.md), [runtime.md](runtime.md), [configuration.md](configuration.md) |
+| `eggserve-bin` | Static-only CLI binary (`0.2.3`; requirement-only bump via Plan 305, no behavior change). `main.rs` is a shim; real logic lives in `lib.rs` (`run`, `run_cli`) + `args.rs` (manual `[OPTIONS] [PORT] [DIRECTORY]` grammar, no clap) + `shutdown.rs` (signal handling) + `tls.rs` (neutral substrate re-export). Neutral policy/ops/limits/static paths name the leaf crates directly (Plan 221); extended orchestration goes through the core facade. | [eggserve-bin.md](eggserve-bin.md) |
+| `eggserve-python` | Workspace-excluded maturin/PyO3 (`0.29.2`, `abi3-py311`, CPython 3.11–3.15 build-once/test-many) wheel (`0.2.5`; Python distribution, Rust side tracks `0.5.0` leaves). `eggserve.server` six-class `http.server`-shaped facade (stock `SimpleHTTPRequestHandler` fast path only for the exact bare class), `eggserve.lowlevel` handler-only substrate (`RuntimeConfig`, `Server`, `Response.stream` over a 16-chunk bridge, `StaticResponder` composition; experimental H1-only `AsyncServer`), `eggserve.subprocess` lifecycle helpers. Bridge in `src/server/` submodules; async stays Python-side. H1-only facade (no new protocol surfaced to Python). | [eggserve-python.md](eggserve-python.md) |
 
 ### Feature flags
 

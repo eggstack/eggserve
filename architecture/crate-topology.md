@@ -146,8 +146,10 @@ direct primitives, runtime, static-serving, TLS, and optional protocol
 adapters. Plan 226 executes the `0.2.0` version transition and the Rust
 1.89 MSRV move with no ownership change; Plans 272–291 leave the line at
 `eggserve-server 0.3.1`, other `0.3.0` leaves / `0.2.1` bin / `0.2.3` wheel,
-and Plan 300 (active) moves the line to `server`/`static`/`h3`/`core 0.4.0`,
-`primitives 0.2.2`, `bin 0.2.2`, wheel `0.2.4`.
+Plan 300 moved the line to `server`/`static`/`h3`/`core 0.4.0`,
+`primitives 0.2.2`, `bin 0.2.2`, wheel `0.2.4`, and Plan 305 published the
+corrective line `server`/`static`/`h3`/`core 0.5.0`, `primitives 0.2.3`,
+`bin 0.2.3`, wheel `0.2.5`.
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
 and legacy configuration; request/service/tunnel/canonical types are facades
 over the direct authorities — the canonical request/response vocabulary has
@@ -163,8 +165,9 @@ drift bound, not shared kernels. Static/path/filesystem types are facades over t
 `eggserve-static` authority (no second parser, resolver, planner, or MIME
 table; `src/fs`, `src/path`, and `src/mime.rs` are deleted and the
 topology gate rejects their return). The current line is the
-`eggserve-server`/`static`/`h3`/`core 0.4.0` / `primitives 0.2.2` /
-`bin 0.2.2` / wheel `0.2.4` line (Plan 300; Plan 226 executed the original `0.2.0`
+`eggserve-server`/`static`/`h3`/`core 0.5.0` / `primitives 0.2.3` /
+`bin 0.2.3` / wheel `0.2.5` line (Plan 305; Plan 300 published the
+superseded `0.4.0` line and Plan 226 executed the original `0.2.0`
 transition; never publish this line as `0.1.x`). H2 dispatches through the single contract as transport glue,
 and `server/connection/tunnel.rs` stays deleted. The `eggserve_core::layers` module exposes
 the direct crates for migration; new consumers should name the direct leaf

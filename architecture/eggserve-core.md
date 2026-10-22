@@ -16,9 +16,10 @@ the `0.2.0` version transition and the Rust 1.89 MSRV move with no
 ownership change: additive `0.2.1` (Plan 272
 downstream embedding qualification), core-only `0.2.2` Tower repair (Plans
 274–275), and the `0.3.0` breaking embedding contract (Plans 285–286),
-carried forward on the `0.4.0` line via Plan 300 (active publication:
-`server`/`static`/`h3`/`core 0.4.0`, `primitives 0.2.2`, `bin 0.2.2`, wheel
-`0.2.4`). The crate is now at `0.4.0`.
+carried forward on the `0.4.0` line via Plan 300 and then on the corrective
+`0.5.0` line via Plan 305 (`server`/`static`/`h3`/`core 0.5.0`,
+`primitives 0.2.3`, `bin 0.2.3`, wheel `0.2.5`). The crate is now at
+`0.5.0`.
 
 Plans 243–258 continue as an API-preserving maintenance index with no
 ownership change: compatibility H1 entry points delegate to the single

@@ -160,13 +160,17 @@ Plans 293–302 are docs/agent-surface only (no behavior, ownership, or tier
 change): 293/301 refresh the architecture overview + deep dives to the
 0.3.x/0.4.0 baselines; 294–297 close the direct-H1 polish campaign; 298
 reconciles the planning control surface; 299 repairs the H1 response-trailer
-wire (F3); 300 (active) publishes the 0.4.0 line (`server`/`static`/`h3`/
-`core 0.4.0`, `primitives 0.2.2`, `bin 0.2.2`, wheel `0.2.4`); 302 sweeps
-skill/agent-guide/docs/architecture version drift onto that line. Report the
-direct registry path as available at the 0.4.0-line versions once Plan 300
-publishes; until then the registry-qualified leaves remain `server 0.3.1` +
-`static`/`h3`/`core 0.3.0` + `primitives 0.2.1` + `bin 0.2.1` (Plans
-286/291).
+wire (F3); 300 published the 0.4.0 line (`server`/`static`/`h3`/`core 0.4.0`,
+`primitives 0.2.2`, `bin 0.2.2`, wheel `0.2.4`); 304 closed that milestone
+conditionally; 305 published the corrective `0.5.0` line (`server`/`static`/
+`h3`/`core 0.5.0`, `primitives 0.2.3`, `bin 0.2.3`, wheel `0.2.5`), which
+carries the post-0.4.0 fix batch; 306-308 consolidate the runtime error
+authority, the connection-overlap ledger, and the compatibility config
+projection; 302 sweeps skill/agent-guide/docs/architecture version drift.
+Report the direct registry path as available at the 0.5.0-line versions
+(`server 0.5.0` + `primitives 0.2.3`); the compatibility path is
+`eggserve-core 0.5.0`, the CLI is `eggserve-bin 0.2.3`, and the wheel is
+`eggserve 0.2.5`.
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`

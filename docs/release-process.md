@@ -107,19 +107,21 @@ wheel publication was included.
 The release metadata remains synchronized. Rust crates are published in
 dependency order only after routine CI and the local layered package gate pass.
 Crates.io publication is a manual maintainer action and must be confirmed
-before claiming downstream registry consumers are unblocked. Continue on the
-current `0.4.x` leaf line (`eggserve-bin 0.2.2`, wheel `0.2.4`; Plan 300);
-never roll back to `0.1.x`.
-
-The corrective `0.5.0` Rust line (`eggserve-primitives 0.2.3`;
+before claiming downstream registry consumers are unblocked. The current leaf
+line is the corrective `0.5.x` Rust line (`eggserve-primitives 0.2.3`;
 `eggserve-server`/`eggserve-static`/`eggserve-h3`/`eggserve-core 0.5.0`;
-`eggserve-bin 0.2.3`; wheel `eggserve 0.2.5`) is prepared in the tree and
-records the defect batch that landed after the `v0.4.0` tag. It is a minor
-bump because the compatibility `RuntimeConfig` gains four public fields —
-source-incompatible for exhaustive struct literals (the Plan 285 class) — and
-because several request paths change observably. It becomes the current leaf
-line only when its publication is confirmed; until then the published line
-remains `0.4.x` and `eggserve-core = "0.4"` still resolves to it.
+`eggserve-bin 0.2.3`; wheel `eggserve 0.2.5`; Plan 305), published
+2026-10-22 from tag `v0.5.0`; never roll back to `0.1.x`.
+
+The `0.4.0` line (`eggserve-primitives 0.2.2`;
+`eggserve-server`/`eggserve-static`/`eggserve-h3`/`eggserve-core 0.4.0`;
+`eggserve-bin 0.2.2`; wheel `eggserve 0.2.4`; Plan 300) remains resolvable
+but **predates the post-tag corrective batch** (B1–B89 plus the CI fix), so
+it does not carry those fixes. Consumers on the `0.4.0` line should move to
+the `0.5.0` line; `eggserve-core = "0.4"` does not resolve it, so the
+requirement must be widened to `"0.5"`. Exact checksums, the exact-SHA CI
+run, and the registry-only consumer proof for the corrective line are
+recorded in `plans/closure/direct-h1-runtime/305-corrective-040x-publication.md`.
 
 ## Preflight version-sync check
 
