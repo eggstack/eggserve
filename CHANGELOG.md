@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — corrective line (publication pending)
+## 0.5.0 — published 2026-10-22
 
 The 0.4.0 line shipped on 2026-09-25 without the defect batch that landed
 in the repository immediately afterwards. This line publishes that batch.
