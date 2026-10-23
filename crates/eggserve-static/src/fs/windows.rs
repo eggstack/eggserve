@@ -1784,6 +1784,113 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "diagnostic probe for the NtQueryDirectoryFile information class"]
+    fn diagnostic_query_directory_information_class() {
+        use std::fmt::Write as _;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().to_path_buf();
+        std::fs::create_dir_all(root.join("subdir")).unwrap();
+        std::fs::write(root.join("hello.txt"), "hello").unwrap();
+        std::fs::write(root.join("subdir").join("file.txt"), "nested").unwrap();
+        let root_utf16 = to_utf16_null(root.to_str().unwrap());
+
+        // Open the same directory with and without FILE_FLAG_OPEN_REPARSE_POINT.
+        for (label, flags) in [
+            ("reparse-point", FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT),
+            ("plain", FILE_FLAG_BACKUP_SEMANTICS),
+        ] {
+            // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that
+            // stays alive for the call and `CreateFileW` does not retain the
+            // pointer. The two null arguments are the optional
+            // security-attributes and template-handle parameters, which
+            // `CreateFileW` accepts as absent.
+            let handle = unsafe {
+                CreateFileW(
+                    root_utf16.as_ptr(),
+                    FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    ptr::null_mut(),
+                    OPEN_EXISTING,
+                    flags,
+                    ptr::null_mut(),
+                )
+            };
+            assert_ne!(handle, INVALID_HANDLE_VALUE);
+
+            for class in [37u32, 16u32, 3u32] {
+                for buffer_len in [DIR_ENUM_BUFFER_SIZE, 616usize, 104] {
+                    let mut buffer = vec![0u8; buffer_len];
+                    let mut io_status = IoStatusBlock {
+                        status: 0,
+                        information: 0,
+                    };
+                    // SAFETY: `handle` is a live directory handle opened with
+                    // `FILE_LIST_DIRECTORY`; `buffer` is a live heap byte
+                    // buffer of `buffer_len` bytes; `io_status` is a live
+                    // stack output parameter. All optional pointers are null.
+                    let status = unsafe {
+                        NtQueryDirectoryFile(
+                            handle,
+                            ptr::null_mut(),
+                            ptr::null_mut(),
+                            ptr::null_mut(),
+                            &mut io_status,
+                            buffer.as_mut_ptr() as *mut c_void,
+                            buffer_len as DWORD,
+                            class,
+                            FALSE,
+                            ptr::null(),
+                            TRUE,
+                        )
+                    };
+                    let mut report = String::new();
+                    let _ = writeln!(
+                        report,
+                        "open={label} class={class} len={buffer_len} status=0x{:08x} information={}",
+                        status as u32, io_status.information
+                    );
+                    if status >= 0 && io_status.information > 0 {
+                        let _ = writeln!(
+                            report,
+                            "  next_entry_offset={} name_len@60={} name_len@96={} attrs@56=0x{:08x} fileid@96=0x{:016x}",
+                            u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]),
+                            u32::from_le_bytes([
+                                buffer[60], buffer[61], buffer[62], buffer[63]
+                            ]),
+                            u32::from_le_bytes([
+                                buffer[96], buffer[97], buffer[98], buffer[99]
+                            ]),
+                            u32::from_le_bytes([
+                                buffer[56], buffer[57], buffer[58], buffer[59]
+                            ]),
+                            u64::from_le_bytes([
+                                buffer[96], buffer[97], buffer[98], buffer[99], buffer[100], buffer[101],
+                                buffer[102], buffer[103],
+                            ]),
+                        );
+                        let hex: String = buffer
+                            .iter()
+                            .take(160)
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<Vec<_>>()
+                            .join("");
+                        let _ = writeln!(report, "  hex={hex}");
+                    }
+                    eprint!("{report}");
+                }
+            }
+
+            // SAFETY: `handle` came from `CreateFileW` above, is still open,
+            // and is closed exactly once here — no other code path owns or
+            // closes it.
+            unsafe {
+                CloseHandle(handle);
+            }
+        }
+    }
+
+    #[test]
     fn owned_handle_try_clone_and_drop() {
         let (_tmp, root_handle) = setup_test_root();
         let cloned = root_handle.try_clone().unwrap();
