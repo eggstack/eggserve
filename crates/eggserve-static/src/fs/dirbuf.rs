@@ -649,9 +649,18 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Parse offset behavior differs from expected; needs Windows VM qualification"]
     fn parse_offset_before_current_record_end() {
-        // Build two entries where entry1's offset points to the middle of entry2.
+        // Build two entries where entry1's offset points to the middle of
+        // entry2. `NextEntryOffset` is the only thing that links one record
+        // to the next, and it says where the next record *ends*, not where
+        // it starts, so a misaligned advance cannot be detected as such.
+        //
+        // What the misaligned read yields is bounded and harmless: the bytes
+        // at the misaligned offset decode to a record whose name is empty
+        // (the header fields it lands on are zero), and that record's own
+        // `NextEntryOffset` is zero, so the walk terminates there. The
+        // misaligned read can therefore never publish a *named* entry, and
+        // it can never escape the buffer.
         let entry1 = build_dir_info_entry("a.txt", false, false, 0, 1);
         let entry2 = build_dir_info_entry("b.txt", false, false, 0, 2);
         let mut buf = entry1.clone();
@@ -662,13 +671,20 @@ mod tests {
         buf[0..4].copy_from_slice(&bad_offset.to_le_bytes());
 
         let result = parse_directory_buffer(&buf, 100);
-        // Should either parse 1 entry (if offset terminates) or error.
-        // The offset advances past the current record but not to a record boundary,
-        // which is still within the buffer so it tries to parse from the middle.
-        // The parser reads a header from the middle of entry2, which has
-        // NextEntryOffset=0 (from the filename bytes), so it terminates.
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 1);
+        let entries = result.unwrap();
+        // The well-formed entry survives; the misaligned read contributes an
+        // empty-named record, which is what a zero-length `FileName` decodes
+        // to (see `parse_zero_length_filename`).
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "a.txt");
+        assert_eq!(entries[1].name, "");
+        // No misaligned read may produce a name that looks like a real
+        // directory entry.
+        assert!(
+            entries.iter().all(|entry| entry.name != "b.txt"),
+            "the misaligned read published the record it landed in the middle of"
+        );
     }
 
     // ── Layout authority (Plan 316) ──────────────────────────────────

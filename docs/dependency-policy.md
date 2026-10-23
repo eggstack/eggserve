@@ -62,7 +62,7 @@ Rules:
   restate `default-features = true`.
 - **The excluded Python crate stays explicit.** `crates/eggserve-python` is
   excluded from the workspace and cannot use the workspace table at all. It
-  keeps every specification — including the `rustls` `0.23.45` floor —
+  keeps every specification — including the `rustls` `0.23.46` floor —
   literal in its own manifest, and it keeps its own `Cargo.lock`.
 - **Path dependencies stay local.** The `eggserve-*` crates are published path
   dependencies with per-crate versions; they are not table entries.
@@ -87,7 +87,7 @@ The following dependency categories are approved for initial development:
 | CLI parsing | manual (no clap) | Manual argument parsing in `eggserve-bin` |
 | Error derive | `thiserror` | Derive macro for Error types |
 | Python bindings | `pyo3` 0.29.2 (eggserve-python only) | PyO3 bindings for Python wheel; pinned above the current RustSec advisories affecting 0.24.x |
-| TLS | `rustls` 0.23.45+ (optional, feature-gated) | TLS termination; floor is security-sensitive (Plan 218, RUSTSEC-2026-0285) |
+| TLS | `rustls` 0.23.46+ (optional, feature-gated) | TLS termination; floor is security-sensitive (Plan 218, RUSTSEC-2026-0285; raised to 0.23.46 by Plan 318 for RUSTSEC-2026-0346, -0347, -0348, -0349) |
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
 | TLS | `rustls-pki-types` (optional, feature-gated) | PEM certificate and key parsing |
 | Neutral TLS substrate | `eggnet-tls` | Bounded server identity, SNI, WebPKI mTLS, trust/CRL parsing, and atomic reload; no application or transport dependencies |
@@ -148,7 +148,9 @@ The following dependency categories are approved for initial development:
    boundary and qualification inventory in
    `release/plan-213-http3-quic-isolation-qualification.md`. Plan 218 raises
    the rustls floor inside this coordinated set to 0.23.45 (RUSTSEC-2026-0285)
-   without changing the H3 tier or the remaining pinned versions.
+   without changing the H3 tier or the remaining pinned versions. Plan 318
+   raises the floor again to 0.23.46 (RUSTSEC-2026-0346, -0347, -0348, -0349),
+   again without changing the H3 tier or any other pinned version.
 - Tokio features are owned narrowly: the core library does not enable signal
   handling or a multi-thread runtime; the CLI owns signals and uses a
   current-thread runtime, while Python enables a bounded multi-thread runtime
@@ -178,7 +180,8 @@ the patched line:
   `scripts/check-supply-chain.sh`. A floor must land in both closures; the
   Python manifest carries its own `rustls` constraint for exactly this reason.
 - **rustls-family floors are security-sensitive.** RUSTSEC-2026-0285 requires
-  `rustls >= 0.23.45`. The `0.23.45` caret floor is declared once in the root
+  `rustls >= 0.23.45`, and RUSTSEC-2026-0346, -0347, -0348, and -0349 require
+  `rustls >= 0.23.46`. The `0.23.46` caret floor is declared once in the root
   `[workspace.dependencies]` table and inherited by every direct `rustls`
   constraint in the workspace (`eggnet-tls`, `eggserve-h3`, `eggserve-core`,
   and the `eggserve-server`/`eggserve-bin` dev-dependencies); the excluded
@@ -187,10 +190,16 @@ the patched line:
   table. Do not roll a rustls floor back: if a regression appears in a patched
   release, move forward to a later patched release or disable the affected
   optional feature while investigating.
+- **The floor is what protects a consumer, not the resolution.** Every
+  lockfile in this repository already resolves `rustls 0.23.46`, but a
+  consumer who writes `rustls = "=0.23.45"` in their own manifest can
+  unify to the vulnerable release alongside these crates unless these crates
+  refuse to accept it. That refusal *is* the floor, which is why the floor
+  is a manifest requirement rather than a lockfile fact.
 - **A static guard must protect the floor.** The supply-chain/topology gates
   must fail if any constraining manifest — including the excluded Python
   crate, the one place the workspace table cannot help — declares `rustls`
-  below `0.23.45` or drops it while declaring the `tls`/`http3` features.
+  below `0.23.46` or drops it while declaring the `tls`/`http3` features.
 - **Sibling repositories still declare bare rustls floors (Plan 222
   follow-up).** Eggress (`rustls = "0.23"`) and eggfetch-core
   (`rustls = "0.23"` optional) currently resolve 0.23.45 in their lockfiles

@@ -82,16 +82,17 @@ push/tag/merge ever publishes.
   - The excluded `eggserve-python` crate is outside the workspace, so it inherits neither lint table nor the workspace clippy invocation. It is linted by its own CI lane.
 
 - No pre-build/codegen: `cargo build` / `cargo test` suffice.
-- The `rustls` `0.23.45` caret floor (RUSTSEC-2026-0285) is declared once in
+- The `rustls` `0.23.46` caret floor (RUSTSEC-2026-0346, -0347, -0348, -0349;
+  raised from `0.23.45` by Plan 318) is declared once in
   the root `[workspace.dependencies]` table and inherited by every workspace
   member that constrains `rustls`; the excluded Python crate keeps an explicit
-  `0.23.45` spec because it cannot use the workspace table — never roll the
+  `0.23.46` spec because it cannot use the workspace table — never roll the
   floor back. `deny.toml` bans wildcards and `native-tls`/`openssl-sys`
   (`aws-lc-rs` is intentionally allowed: dev-only `rcgen` unification,
   production `cargo tree -e no-dev` is ring-only).
 - Stripped CLI: `cargo build --profile dist --locked -p eggserve-bin [--features tls]`.
-- Per-crate versions differ (e.g. `server/static/h3/core 0.4.0`, `primitives 0.2.2`,
-  `bin 0.2.2`, wheel `0.2.4`); check
+- Per-crate versions differ (e.g. `server/static/h3/core 0.5.0`, `primitives 0.2.3`,
+  `bin 0.2.3`, `eggnet-tls 0.2.5`, wheel `0.2.5`); check
   `crates/*/Cargo.toml`, never assume workspace version. Never publish this API
   line as `0.1.x`. Every performance/release claim names a profile
   (`docs/deployment.md`) + evidence.

@@ -37,10 +37,10 @@ rust-version = "1.89"
 # every specification explicit in its own manifest.
 #
 # Security floor (Plan 218, RUSTSEC-2026-0285): the rustls caret floor keeps
-# Cargo from resolving below the patched 0.23.45 line. It is declared once
+# Cargo from resolving below the patched 0.23.46 line. It is declared once
 # here and inherited by every workspace member that constrains rustls; the
 # excluded Python crate restates it literally because it cannot use this table.
-rustls = { version = "0.23.45", default-features = false }
+rustls = { version = "0.23.46", default-features = false }
 # The async TLS wrapper tracks the rustls floor. Members that need the crate's
 # default feature set restate `default-features = true`.
 tokio-rustls = { version = "0.26", default-features = false }

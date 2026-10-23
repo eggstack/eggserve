@@ -61,9 +61,6 @@ impl From<PathRejection> for ResourceDeniedReason {
 }
 
 /// A resolved file capability created by the filesystem resolver.
-///
-/// This type cannot be constructed directly by external callers; it is only
-/// created through the resolver's path confinement pipeline.
 #[derive(Debug)]
 /// A file capability produced by [`SecureRoot::resolve`] or [`resolve_and_plan`].
 ///

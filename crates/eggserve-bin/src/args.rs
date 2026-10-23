@@ -39,7 +39,13 @@ pub struct Args {
     pub dotfiles: DotfilePolicy,
     /// The fallback MIME type used for unknown file extensions.
     pub default_content_type: String,
-    /// Extra headers added to final `200` responses, in command-line order.
+    /// Extra headers added to every response, in command-line order.
+    ///
+    /// Operator headers (CORS/CSP/Cache-Control) are applied to file
+    /// responses (`200`/`206`/`304`/`412`/`416`) *and* to runtime error
+    /// responses (`403`/`404`/`405`), so a CORS or CSP header survives an
+    /// error. A header whose name the response already owns is not
+    /// overridden.
     pub extra_response_headers: Vec<(String, String)>,
     /// The selected operational log format.
     pub log_format: LogFormat,

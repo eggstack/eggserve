@@ -428,7 +428,8 @@ fn days_to_civil(days: u64) -> (u64, u64, u64) {
 /// Reduce free-form text to a bounded, printable field value.
 ///
 /// Every character outside printable ASCII (`0x20..=0x7E`) is dropped, which
-/// removes control characters and DEL. The result is truncated to 512
+/// removes control characters and DEL. A longer result is truncated to 512
+/// characters *plus* the `…` sentinel, so the returned string is at most 513
 /// characters.
 pub fn sanitize_text_field(text: &str) -> String {
     let filtered: String = text
@@ -449,8 +450,9 @@ pub fn sanitize_text_field(text: &str) -> String {
 /// Reduce a request path to a bounded, printable last-component field value.
 ///
 /// The query string is discarded, only the final path component is kept, and
-/// every character outside printable ASCII is dropped. The result is truncated
-/// to 127 characters.
+/// every character outside printable ASCII is dropped. A longer result is
+/// truncated to 127 characters *plus* the `…` sentinel, so the returned
+/// string is at most 128 characters.
 pub fn sanitize_path(path: &str) -> String {
     let without_query = path.split('?').next().unwrap_or(path);
     let last_component = without_query

@@ -816,6 +816,17 @@ Neither milestone changes observable behavior.
   are byte-identical before and after. A consumer's build is unchanged, and
   the `rustls` `0.23.45` security floor (RUSTSEC-2026-0285) remains in force
   in every constraining manifest.
+- **Plan 318** raises the manifest `rustls` floor from `0.23.45` to
+  `0.23.46`. The resolution does not move: every lockfile in this repository
+  already resolved `rustls 0.23.46`, and all three lockfiles and the
+  resolved feature sets are byte-identical before and after. What changes is
+  what these crates *accept*: a consumer that pins `rustls = "=0.23.45"` in
+  their own manifest can no longer unify to that release alongside these
+  crates, which is the point — `0.23.45` carries RUSTSEC-2026-0346, -0347,
+  -0348, and -0349. A consumer pinned to `=0.23.45` must move to `0.23.46`
+  or later. The floor is now protected by a gate rule
+  (`check_plan318_rustls_floor`) that fails when any constraining manifest,
+  including the excluded Python crate, declares a lower floor.
 
 ## Breaking Change Policy
 

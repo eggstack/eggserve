@@ -1,11 +1,11 @@
 # eggserve-bin — Deep Dive
 
-The static-only CLI binary crate (`eggserve-bin 0.2.2`). `main.rs` is a shim
+The static-only CLI binary crate (`eggserve-bin 0.2.3`). `main.rs` is a shim
 over `lib.rs` (`run`/`run_cli`); `args.rs` owns the manual grammar (no clap);
 `shutdown.rs` owns signal handling; `tls.rs` re-exports the neutral TLS
 substrate. Neutral policy/observability/static paths name the leaf crates
 directly (Plan 221); extended TLS/H2/H3 orchestration goes through the closed
-compatibility facade (Plan 225). Published alongside the `0.4.0` leaves via Plan 300 (requirement-only `0.2.2` bump; no behavior change; Plan 286 published `0.2.1`).
+compatibility facade (Plan 225). Published alongside the `0.5.0` leaves via Plan 305 (requirement-only `0.2.3` bump; no behavior change; Plan 300 published the superseded `0.4.0` line at `0.2.2`, and Plan 286 published `0.2.1`).
 
 ## Module map
 

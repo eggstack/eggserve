@@ -13,7 +13,7 @@ dependencies.
 
 ## Manifest
 
-- Crate version: `0.2.2` (`crates/eggserve-primitives/Cargo.toml:3`; 0.4.0 line via Plan 300).
+- Crate version: `0.2.3` (`crates/eggserve-primitives/Cargo.toml:3`; the `0.5.0` line via Plan 305).
 - Crate root: `crates/eggserve-primitives/src/lib.rs` — single
   `pub mod primitives` plus glob re-export.
 - Production deps (`Cargo.toml`): `bytes`, `futures-util` only.

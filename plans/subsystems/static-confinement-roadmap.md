@@ -164,14 +164,54 @@ Deferred work: the Windows adversarial qualification suite is a manual lane
 and is not re-run by this milestone.
 
 
+### Milestone 5 — Windows runtime qualification and corpus seed hygiene
+
+Class: infrastructure
+
+Objective: make the Windows confinement path a subject of routine, automatic
+qualification rather than a manual one, and make the fuzz corpus a live,
+byte-stable artifact on every platform.
+
+Dependencies: Milestone 4 (hard, closed) — the corrected NT layout and the
+recorded corpus generator are what the new Windows lanes exercise.
+
+Deliverable boundary: a hosted Windows runner executes the Windows-only unit
+tests and the corpus byte-identity check in routine CI; the NT information
+class the enumeration path depends on is pinned against a live kernel; the
+fuzz corpus is checked out byte-identically everywhere; the corpora whose
+targets consume a seed as an exact value hold to that rule, enforced by a
+gate rule and by the cross-platform replay.
+
+User or operator value: a regression in the Windows-only filesystem code now
+fails a pull request instead of waiting for someone with a Windows VM. The
+fuzz corpus stops being inert: before this milestone every `path_components`
+seed carried a trailing newline, so every one of them was a
+whitespace-containing request target that the parser rejected before any
+confinement logic ran, and the corpus exercised nothing.
+
+Exit conditions: the `platform-compile` job's Windows leg runs the static
+crate's tests; the qualification lane's Windows job is green; the NT
+information class is asserted against a live kernel; the corpus is
+byte-identical across platforms and non-vacuous on every platform.
+
+Deferred work: the Windows adversarial filesystem suites remain a manual lane
+because their fixtures need Developer Mode and elevated privileges that a
+hosted runner does not reliably provide.
+
+
 
 Storage: read-only serving; no migration. Protocol: origin-form only; absolute-form rejected by static (Plan 278 seam stays H1-embedding-only). Security: `docs/threat-model.md` layers 1–3. Concurrency: file-stream semaphore + bounded chunk reads (128 KiB default, Plans 232–233). Observability: `OpsContext` events, sanitized paths. Perf: per-trial retained evidence, never single best numbers.
 
 ## 9. Verification strategy
 
-Rust unit/integration suites + `conformance_matrix.toml` replay + 11 fuzz targets (corpus replay in `cargo test`) + topology gate + Windows adversarial suites (manual qualification lane).
+Rust unit/integration suites + `conformance_matrix.toml` replay + 11 fuzz targets (corpus replay in `cargo test`) + topology gate + a hosted Windows test lane in routine CI (Milestone 5) + the Windows adversarial suites (manual qualification lane).
 
 The 11-target claim is restored by Milestone 3. Until that milestone closes, the accurate statement is: **6 of 11 fuzz targets compile; the corpus replay in `crates/eggserve-core/tests/corpus_replay.rs` covers the invariants deterministically in routine CI; the `fuzz/` crate is not built by CI.** Milestone 3 restores the harness and adds the build gate.
+
+Milestone 5 adds the last piece the confinement path was missing: the `#[cfg(windows)]`
+implementation is now *run* on a hosted Windows runner in routine CI, not merely compiled there.
+The adversarial filesystem suites stay a manual lane because their fixtures need Developer Mode
+and elevated privileges.
 
 ## 10. Risks and decision points
 
@@ -179,9 +219,13 @@ None open on the confinement boundary. Any future confinement-boundary change re
 
 Milestone 3 risk: repairing a fuzz target may reveal a production defect in the confinement path. Such a defect must be routed to a separate corrective plan, not absorbed into the harness repair, and must never be "fixed" by weakening an assertion.
 
+Milestone 5 risk: a hosted Windows runner is not a developer Windows VM. It has no Developer Mode
+and no elevated privileges, so it cannot stand in for the adversarial filesystem suites; it can
+and does stand in for the deterministic Windows unit tests.
+
 ## 11. Completion definition
 
-Authority collapse proven by fixture + gate, facades classified, no second implementation, evidence in `release/plan-225-compatibility-facade-closure.md` and `release/plan-248-maintainability-convergence-closure.md`. Met for capability. The roadmap returns to closed status when Milestone 3 restores the fuzz harness and its build gate, and its verification-strategy claim is true.
+Authority collapse proven by fixture + gate, facades classified, no second implementation, evidence in `release/plan-225-compatibility-facade-closure.md` and `release/plan-248-maintainability-convergence-closure.md`. Met for capability. The roadmap returns to closed status when Milestone 3 restores the fuzz harness and its build gate, and its verification-strategy claim is true. Milestone 5 closes the last gap in that claim: the confinement path's Windows implementation is now verified by execution, not by compilation alone.
 
 ## 12. Milestone status
 
@@ -191,3 +235,4 @@ Authority collapse proven by fixture + gate, facades classified, no second imple
 | 2 | closed | legacy `plans/081-*`, `219-*`, `245-*` | `release/plan-225-compatibility-facade-closure.md` | — |
 | 3 | closed | `plans/implementation/static-confinement/310-fuzz-harness-repair-and-build-gate.md` | `plans/closure/static-confinement/310-fuzz-harness-repair-and-build-gate.md` | All 11 fuzz targets compile, run, and are linted/format-checked in routine CI; the NT directory-buffer parser is public and platform neutral; the corpus replay's vacuous corpus path is fixed. Gate rule `check_plan310_fuzz_target_inventory`. Two parser defects (F1 zero budget, F2 offsets) are deferred to Milestone 4. |
 | 4 | closed | `plans/implementation/static-confinement/316-windows-directory-buffer-offset-realignment.md` | `plans/closure/static-confinement/316-windows-directory-buffer-offset-realignment.md` | The NT `FILE_ID_BOTH_DIR_INFO` layout is one authority. Work package A established that the *parser* was correct and the FFI struct was wrong, so the recorded deviation is that the struct and its doc comment changed: the hand-rolled struct was deleted rather than realigned, `get_file_id` now reads the stable `FileId` at the shared offset (it previously read the low half of `CreationTime`) with a correctly sized buffer, the zero entry budget is honored, and the corpus was regenerated from the authoritative layout with a recorded generator so the happy path is covered. Gate rule `check_plan316_directory_buffer_layout`. The Windows runtime qualification suite remains a manual lane. |
+| 5 | closed | `plans/implementation/static-confinement/317-windows-runtime-qualification-and-corpus-seed-hygiene.md` | `plans/closure/static-confinement/317-windows-runtime-qualification-and-corpus-seed-hygiene.md` | The Windows confinement path is qualified by hosted CI, not by a manual lane: the `platform-compile` job's Windows leg runs the static crate's tests, so the Windows-only unit tests and the corpus byte-identity check actually run. The NT information class the enumeration path depends on (37, the `ntifs.h` numbering, which the user-mode `winnt.h` numbering contradicts at 16) is pinned against a live kernel. The fuzz corpus is byte-stable across platforms (`-text` in `.gitattributes`) and live: the `path_components` and `platform_component` seeds are the exact bytes their targets consume, and the cross-platform replay asserts non-vacuity. Gate rule `check_plan317_corpus_seed_hygiene`. The Windows adversarial filesystem suites stay a manual lane. |

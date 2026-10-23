@@ -6,10 +6,12 @@ use super::rejected::PathRejection;
 /// Validates every path component against the confinement rules.
 ///
 /// This is the defense-in-depth boundary of the path layer: it rejects
-/// empty components, NUL bytes, ASCII control characters, embedded
+/// empty components, NUL bytes, ASCII control characters, embedded `/`
 /// separators, `.` and `..` segments, dotfiles (per the policy), and
 /// platform-specific hazards such as Windows drive prefixes, reserved
-/// device names, and alternate data stream syntax. A second percent
+/// device names, and alternate data stream syntax. A `\` separator is
+/// rejected too, but only when the policy's `reject_backslash` flag is set —
+/// with the flag off, `a\b` is admitted as a single component. A second percent
 /// decode is attempted on components that still contain `%` so that a
 /// double-encoded dot segment cannot slip through.
 ///

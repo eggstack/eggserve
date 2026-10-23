@@ -49,9 +49,11 @@ pub fn has_windows_drive_prefix(component: &str) -> bool {
 /// Returns `true` when the component names a Windows reserved device.
 ///
 /// The comparison is case-insensitive and applies to the base name before
-/// the first `.` extension, with trailing dots and spaces stripped the way
-/// Windows strips them during name resolution. The reserved set is `CON`,
-/// `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, and `LPT1`–`LPT9`.
+/// the first `.` extension, with trailing dots stripped. Trailing *spaces*
+/// are not stripped here, so `"CON "` is not a reserved name by this
+/// function; a component with a trailing space is rejected separately by
+/// [`super::check_component`]. The reserved set is `CON`, `PRN`, `AUX`,
+/// `NUL`, `COM1`–`COM9`, and `LPT1`–`LPT9`.
 pub fn is_windows_reserved_name(component: &str) -> bool {
     let base = component.split('.').next().unwrap_or("");
     let name = strip_trailing_dots(base);

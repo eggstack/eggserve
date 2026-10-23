@@ -146,6 +146,30 @@ Seeds are automatically loaded by libFuzzer at startup.
 Corpus files are **inputs, not expectations**: a seed is a byte string handed to the target. Never
 edit a seed to make an assertion pass — a seed that trips an assertion is a finding.
 
+### A seed is the exact bytes the target consumes
+
+Two rules follow from "a seed is the exact byte string the target consumes", and both are enforced
+mechanically (Plan 317, gate rule `check_plan317_corpus_seed_hygiene`):
+
+1. **A seed must be byte-identical on every platform.** The corpus tree is marked `-text` in
+   `.gitattributes`, so git's end-of-line conversion never rewrites a seed. Without that rule a text
+   seed's trailing LF would become CRLF on a Windows checkout, and the same seed would be two
+   different inputs on two platforms — which is exactly what a fuzz corpus must not be.
+
+2. **A seed that names an exact value must contain exactly that value.** The `path_components` and
+   `platform_component` corpora are consumed as a request target and as a component name
+   respectively, so their seeds carry no trailing line terminator. A trailing newline turns the
+   first into a whitespace-containing request target — which the canonical request-target parser
+   rejects before any path-confinement logic runs, making the seed exercise nothing — and hides the
+   second from the reserved-device-name check. The cross-platform replay asserts both rules and
+   requires the corpora to stay non-vacuous: at least one `path_components` seed must be an accepted
+   request target, and at least one `platform_component` seed must be a reserved device name.
+
+   The `percent_decode`, `range_header`, `if_none_match`, and `validate_method` corpora are
+   deliberately *not* held to the trailing-terminator rule: those targets parse a header value or a
+   method, where a line terminator is a plausible input and the target's assertions are reached
+   either way.
+
 ## CI integration
 
 ### Normal CI

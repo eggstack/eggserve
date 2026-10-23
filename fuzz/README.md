@@ -84,6 +84,19 @@ reparse-point entry, a dotfile entry) and every rejection (a truncated header, a
 length, an over-long file name, an offset overflow, an offset underflow, invalid UTF-16), plus an
 empty buffer, the `.`/`..` pseudo-entries and a pseudo-random blob.
 
+A seed is the exact byte string the target consumes, so two rules apply and are enforced
+mechanically (Plan 317, gate rule `check_plan317_corpus_seed_hygiene`):
+
+- The corpus tree is marked `-text` in `.gitattributes`, so every seed is checked out
+  byte-identically on every platform. Git's end-of-line conversion would otherwise rewrite a text
+  seed's trailing LF as CRLF on a Windows checkout, making the same seed a different input on a
+  different platform.
+- The `path_components` and `platform_component` seeds carry no trailing line terminator. Those
+  targets consume the seed as an exact request target and as an exact component name, so a trailing
+  newline would make the seed exercise nothing. The cross-platform replay in
+  `crates/eggserve-core/tests/corpus_replay.rs` asserts the rule and requires the corpora to stay
+  non-vacuous.
+
 ## Property tests
 
 Deterministic property tests using proptest run in normal CI via `cargo test`. See [docs/fuzzing.md](../docs/fuzzing.md) for the full inventory.

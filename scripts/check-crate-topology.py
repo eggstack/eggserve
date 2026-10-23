@@ -383,6 +383,9 @@ def main() -> int:
     if check_plan317_corpus_seed_hygiene() != 0:
         return 1
 
+    if check_plan318_rustls_floor() != 0:
+        return 1
+
     if check_plan247_leaf_surfaces() != 0:
         return 1
 
@@ -1133,6 +1136,109 @@ def check_plan311_listing_renderer_authority() -> int:
             file=sys.stderr,
         )
         return 1
+
+    return 0
+
+
+def check_plan318_rustls_floor() -> int:
+    """Enforce the manifest `rustls` security floor (Plan 318).
+
+    `docs/dependency-policy.md` states that the floor is security-sensitive
+    and that a static guard must protect it: "The supply-chain/topology gates
+    must fail if any constraining manifest — including the excluded Python
+    crate, the one place the workspace table cannot help — declares `rustls`
+    below the floor or drops it while declaring the `tls`/`http3` features."
+
+    That guard did not exist. The floor is the only thing that protects a
+    *consumer* of these crates: every lockfile here already resolves the
+    patched release, but a consumer who pins `rustls = "=0.23.45"` can unify
+    to the vulnerable release alongside these crates unless these crates
+    refuse to accept it. A floor nobody checks is a floor that silently
+    regresses.
+    """
+    import re
+
+    repo = Path(__file__).resolve().parent.parent
+    floor = "0.23.46"
+
+    manifests = [
+        repo / "Cargo.toml",
+        repo / "crates/eggnet-tls/Cargo.toml",
+        repo / "crates/eggserve-h3/Cargo.toml",
+        repo / "crates/eggserve-core/Cargo.toml",
+        repo / "crates/eggserve-server/Cargo.toml",
+        repo / "crates/eggserve-bin/Cargo.toml",
+        repo / "crates/eggserve-python/Cargo.toml",
+    ]
+
+    # Every `rustls` requirement the repository states, whether it is a
+    # literal version or a workspace inheritance.
+    requirement = re.compile(
+        r"""^\s*rustls\s*=\s*\{(?P<body>[^}]*)\}""",
+        re.MULTILINE,
+    )
+    version = re.compile(r'version\s*=\s*"(?P<version>[^"]+)"')
+
+    workspace_table = repo / "Cargo.toml"
+    if not workspace_table.exists():
+        print("the root Cargo.toml is missing", file=sys.stderr)
+        return 1
+
+    root_text = workspace_table.read_text()
+    table = re.search(
+        r"\[workspace\.dependencies\](?P<body>.*?)(?=\n\[|\Z)",
+        root_text,
+        re.DOTALL,
+    )
+    if table is None:
+        print(
+            "the root Cargo.toml has no [workspace.dependencies] table "
+            "(Plan 318: the rustls floor is declared once, there)",
+            file=sys.stderr,
+        )
+        return 1
+    table_entry = requirement.search(table.group("body"))
+    if table_entry is None:
+        print(
+            "the root [workspace.dependencies] table no longer declares "
+            "`rustls` (Plan 318: the floor is declared once, there)",
+            file=sys.stderr,
+        )
+        return 1
+    table_version = version.search(table_entry.group("body"))
+    if table_version is None or table_version.group("version") != floor:
+        actual = table_version.group("version") if table_version else "<none>"
+        print(
+            f"the workspace table declares `rustls` {actual}, but the "
+            f"security floor is {floor} (RUSTSEC-2026-0346, -0347, -0348, "
+            "-0349)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Every other manifest: an inherited requirement (`workspace = true`) is
+    # covered by the table check above; a literal requirement must state the
+    # floor itself.
+    for manifest in manifests[1:]:
+        if not manifest.exists():
+            print(f"manifest is missing: {manifest}", file=sys.stderr)
+            return 1
+        text = manifest.read_text()
+        for entry in requirement.finditer(text):
+            body = entry.group("body")
+            if "workspace = true" in body:
+                continue
+            literal = version.search(body)
+            actual = literal.group("version") if literal else "<none>"
+            if actual != floor:
+                print(
+                    f"{manifest.relative_to(repo)} declares `rustls` {actual}, "
+                    f"but the security floor is {floor} (Plan 318: a "
+                    "constraining manifest may not accept the vulnerable "
+                    "release)",
+                    file=sys.stderr,
+                )
+                return 1
 
     return 0
 
@@ -3966,6 +4072,87 @@ def run_self_tests() -> int:
             check_plan317_corpus_seed_hygiene() == 1,
         )
 
+    # 11c. Plan 318 rustls floor: a constraining manifest may not accept the
+    #      vulnerable release, and the floor is declared once, in the
+    #      workspace table.
+    def make_318(root: Path) -> None:
+        write(
+            root,
+            "Cargo.toml",
+            "[workspace.dependencies]\n"
+            'rustls = { version = "0.23.46", default-features = false }\n',
+        )
+        write(
+            root,
+            "crates/eggnet-tls/Cargo.toml",
+            '[dependencies]\nrustls = { workspace = true, features = ["std"] }\n',
+        )
+        write(
+            root,
+            "crates/eggserve-h3/Cargo.toml",
+            '[dependencies]\nrustls = { workspace = true, optional = true }\n',
+        )
+        write(
+            root,
+            "crates/eggserve-core/Cargo.toml",
+            '[dependencies]\nrustls = { workspace = true, optional = true }\n',
+        )
+        write(
+            root,
+            "crates/eggserve-server/Cargo.toml",
+            "[dev-dependencies]\nrustls = { workspace = true }\n",
+        )
+        write(
+            root,
+            "crates/eggserve-bin/Cargo.toml",
+            "[dev-dependencies]\nrustls = { workspace = true }\n",
+        )
+        write(
+            root,
+            "crates/eggserve-python/Cargo.toml",
+            '[dependencies]\nrustls = { version = "0.23.46", features = ["std"] }\n',
+        )
+
+    with fake_repo() as root:
+        make_318(root)
+        check("plan318-good", check_plan318_rustls_floor() == 0)
+
+        write(
+            root,
+            "crates/eggserve-python/Cargo.toml",
+            '[dependencies]\nrustls = { version = "0.23.45", features = ["std"] }\n',
+        )
+        check(
+            "plan318-excluded-crate-floor-regressed",
+            check_plan318_rustls_floor() == 1,
+        )
+
+        make_318(root)
+        write(
+            root,
+            "Cargo.toml",
+            "[workspace.dependencies]\n"
+            'rustls = { version = "0.23.45", default-features = false }\n',
+        )
+        check(
+            "plan318-table-floor-regressed",
+            check_plan318_rustls_floor() == 1,
+        )
+
+        make_318(root)
+        write(root, "Cargo.toml", "[workspace.dependencies]\nhttp = \"1\"\n")
+        check(
+            "plan318-table-drops-rustls",
+            check_plan318_rustls_floor() == 1,
+        )
+
+        make_318(root)
+        (root / "crates/eggserve-python/Cargo.toml").unlink()
+        check(
+            "plan318-missing-manifest",
+            check_plan318_rustls_floor() == 1,
+        )
+
     # 12. Live-tree positives: the real repository still passes.
     globals()["__file__"] = saved_file
     check("live-plan249", check_plan249_h1_authority() == 0)
@@ -3979,6 +4166,7 @@ def run_self_tests() -> int:
     check("live-plan311", check_plan311_listing_renderer_authority() == 0)
     check("live-plan316", check_plan316_directory_buffer_layout() == 0)
     check("live-plan317", check_plan317_corpus_seed_hygiene() == 0)
+    check("live-plan318", check_plan318_rustls_floor() == 0)
     globals()["__file__"] = saved_file
 
     if failures:

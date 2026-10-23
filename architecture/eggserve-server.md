@@ -1,6 +1,6 @@
 # eggserve-server
 
-`eggserve-server 0.4.0` is the single mature H1 runtime and transport
+`eggserve-server 0.5.0` is the single mature H1 runtime and transport
 boundary (Plans 215–217, 243–250, 270–286). It owns the H1 driver,
 `Service` contract, tunnel execution, per-runtime observability vocabulary,
 response privacy, shared limit kernel, supervisory completion, external

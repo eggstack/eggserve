@@ -61,8 +61,11 @@ pub struct OpsCounters {
     pub forced_shutdowns: AtomicU64,
     /// Accept-loop errors classified by the accept-error authority.
     pub listener_errors: AtomicU64,
-    /// Events that could not be delivered, either because a sink panicked or
-    /// because the owning sink filtered them out.
+    /// Events that could not be delivered because the sink panicked,
+    /// including a panicking `enabled()` probe.
+    ///
+    /// A sink that filters an event out by severity has not *dropped* it:
+    /// the event was never built and is not counted here.
     pub dropped_log_events: AtomicU64,
     /// Streaming responses that started producing body chunks.
     pub streaming_started: AtomicU64,
@@ -273,8 +276,11 @@ pub struct OpsSnapshot {
     pub forced_shutdowns: u64,
     /// Accept-loop errors classified by the accept-error authority.
     pub listener_errors: u64,
-    /// Events that could not be delivered, either because a sink panicked or
-    /// because the owning sink filtered them out.
+    /// Events that could not be delivered because the sink panicked,
+    /// including a panicking `enabled()` probe.
+    ///
+    /// A sink that filters an event out by severity has not *dropped* it:
+    /// the event was never built and is not counted here.
     pub dropped_log_events: u64,
     /// Streaming responses that started producing body chunks.
     pub streaming_started: u64,

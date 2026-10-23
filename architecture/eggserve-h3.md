@@ -1,6 +1,6 @@
 # `eggserve-h3` — experimental H3/QUIC transport adapter
 
-`eggserve-h3 0.4.0` (`crates/eggserve-h3/Cargo.toml:3`; QUIC triple unchanged) is the sole home of EggServe's HTTP/3 and QUIC transport:
+`eggserve-h3 0.5.0` (`crates/eggserve-h3/Cargo.toml:3`; QUIC triple unchanged) is the sole home of EggServe's HTTP/3 and QUIC transport:
 the coordinated production dependency set **and** the adapter
 implementation (Plan 220 extraction from the compatibility core, Plan 213
 dependency isolation). It remains experimental with the Plan 192–195
@@ -29,8 +29,9 @@ Rules:
   `eggserve-server`, and `eggnet-tls`; those crates never depend upward
   on H3. No dependency on `eggserve-core` / `eggserve-static` (no cycle,
   no second static implementation).
-- `rustls` carries the workspace `0.23.45` caret floor (RUSTSEC-2026-0285)
-  here as in every constraining manifest. Reusable PEM parsing stays in
+- `rustls` carries the workspace `0.23.46` caret floor (RUSTSEC-2026-0285;
+  raised from `0.23.45` by Plan 318 for RUSTSEC-2026-0346, -0347, -0348,
+  -0349) here as in every constraining manifest. Reusable PEM parsing stays in
   `eggnet-tls`; QUIC TLS assembly (TLS 1.3, `h3` ALPN, zero 0-RTT) stays
   here in `quic.rs`.
 

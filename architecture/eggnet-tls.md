@@ -122,8 +122,10 @@ repositories (eggserve never depends on either as a product).
   available if eggfetch later finds a genuine reduction, but no dependency
   is forced: client policy must not be absorbed into the shared crate.
 - **Version floors.** At Plan 222 sign-off, all three repositories resolved
-  rustls 0.23.45, but only eggserve manifests enforce the Plan 218 `0.23.45` caret floor
-  (RUSTSEC-2026-0285), including the excluded Python manifest. Eggress
+  rustls 0.23.45, but only eggserve manifests enforce a patched caret floor
+  (`0.23.46` since Plan 318, raised from the Plan 218 `0.23.45` floor for
+  RUSTSEC-2026-0346, -0347, -0348, -0349), including the excluded Python
+  manifest. Eggress
   (`rustls = "0.23"`, tokio-rustls 0.26) and eggfetch-core
   (`rustls = "0.23"` optional, hyper-rustls 0.27, tokio-rustls 0.26) still
   declare bare floors, so a fresh resolve there could pick a pre-patch

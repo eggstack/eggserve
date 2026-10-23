@@ -162,7 +162,8 @@ change): 293/301 refresh the architecture overview + deep dives to the
 reconciles the planning control surface; 299 repairs the H1 response-trailer
 wire (F3); 300 published the 0.4.0 line (`server`/`static`/`h3`/`core 0.4.0`,
 `primitives 0.2.2`, `bin 0.2.2`, wheel `0.2.4`); 304 closed that milestone
-conditionally; 305 published the corrective `0.5.0` line (`server`/`static`/
+conditionally, and 305 discharged that condition by publishing the
+corrective `0.5.0` line (`server`/`static`/
 `h3`/`core 0.5.0`, `primitives 0.2.3`, `bin 0.2.3`, wheel `0.2.5`), which
 carries the post-0.4.0 fix batch; 306-308 consolidate the runtime error
 authority, the connection-overlap ledger, and the compatibility config
@@ -311,10 +312,11 @@ crate keeps its own lockfile, so never replace the shared script with a root
 only `cargo audit` or `cargo deny check` invocation. A scheduled daily
 workflow (`.github/workflows/advisory-scan.yml`, Plan 218) re-runs the same
 gates without a push/PR. Both lockfiles are distributed security boundaries;
-the `rustls` `0.23.45` caret floor (RUSTSEC-2026-0285) is declared once in the
+the `rustls` `0.23.46` caret floor (RUSTSEC-2026-0346, -0347, -0348, -0349;
+raised from `0.23.45` by Plan 318) is declared once in the
 root `[workspace.dependencies]` table and inherited by every workspace member
 that constrains `rustls`, while the excluded Python crate keeps an explicit
-`0.23.45` spec — never roll the floor back. `deny.toml` denies wildcard
+`0.23.46` spec — never roll the floor back. `deny.toml` denies wildcard
 requirements and bans
 `native-tls`/`openssl-sys` for the rustls/ring-only stack (see
 `docs/dependency-policy.md`).
@@ -333,10 +335,11 @@ requirements and bans
   the neutral ALPN hook (`alpn_protocols` / `load_tls_config_with_alpn`,
   16×255 bounds via `TlsError::InvalidAlpn`, last-wins against the HTTP-only
   `http2` convenience) so non-HTTP transports never reuse `http_alpn_protocols`.
-  Never roll back the `0.23.45` rustls caret floor (RUSTSEC-2026-0285): it is
+  Never roll back the `0.23.46` rustls caret floor (RUSTSEC-2026-0346, -0347,
+  -0348, -0349): it is
   declared once in the root `[workspace.dependencies]` table for the workspace
   members and restated literally in the excluded Python crate; sibling eggress/
-  eggfetch floors are still bare `0.23` (locks at .45) and are follow-ups in
+  eggfetch floors are still bare `0.23` and are follow-ups in
   those repos. Eggress server migration (its optional-mTLS branch is missing
   `allow_unauthenticated()`) and the eggfetch no-dependency evaluation live in
   those repos; `eggnet-tls` stays published from this workspace as a versioned

@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.1 — `eggserve-static` patch (published 2026-10-23)
+
+The `eggserve-static` crate is republished on its own line. The rest of the
+`0.5.0` crates are unchanged and stay at `0.5.0`; no Python wheel release is
+included.
+
+- **Windows directory-buffer decoding.** The NT `FILE_ID_BOTH_DIR_INFO`
+  layout now has one authority. A hand-rolled FFI struct that had every
+  field offset wrong is gone, and the Windows FFI reads the record through
+  the same shared offsets the platform-neutral parser uses. The
+  file-identity read now returns the stable `FileId` — it previously
+  returned the low half of the creation timestamp, which is not stable
+  across renames — and the record buffer is sized from the shared header
+  constant, so a long-enough name no longer fails the read.
+- **Entry budget.** `parse_directory_buffer` with a budget of `0` now
+  returns an empty listing, as its documented contract states. It
+  previously returned one entry. Every other budget is unchanged.
+- **Parser robustness.** The file-name range arithmetic is checked rather
+  than computed with an unchecked addition, so a hostile length cannot wrap
+  the index on a 32-bit target.
+- **Windows qualification.** The Windows-only filesystem code is now
+  *exercised* by hosted CI rather than only compiled there, and the NT
+  information class the enumeration path depends on is pinned against a
+  live kernel.
+
+No public API is removed, renamed, or made private, and no safe default
+changes. Published as `eggserve-static 0.5.1` only.
+
 ## 0.5.0 — published 2026-10-22
 
 The 0.4.0 line shipped on 2026-09-25 without the defect batch that landed
