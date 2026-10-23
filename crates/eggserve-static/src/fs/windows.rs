@@ -126,8 +126,22 @@ const ERROR_TOO_MANY_LINKS: DWORD = 1142;
 
 const FILE_ATTRIBUTE_TAG_INFO_CLASS: u32 = 9;
 const FILE_STANDARD_INFO_CLASS: u32 = 1;
-// FileIdBothDirectoryInfo in the Windows FILE_INFORMATION_CLASS enum.
+// `FileIdBothDirectoryInformation` in the NT `FILE_INFORMATION_CLASS` enum
+// (`ntifs.h`), which is the numbering `NtQueryDirectoryFile` uses. The
+// value is 37 there — the user-mode `winnt.h` list numbers the same member
+// 16, and the two headers disagree. `windows-sys` 0.61.2 and `ntapi` 0.4.3
+// both declare 37, matching `ntifs.h`.
+//
+// The class selects the `FILE_ID_BOTH_DIR_INFORMATION` record layout, whose
+// field offsets are declared once in `fs::dirbuf`.
 const FILE_ID_BOTH_DIRECTORY_INFO: u32 = 37;
+
+// `FileIdBothDirectoryInfo` in the user-mode `FILE_INFO_BY_HANDLE_CLASS`
+// enum (`winnt.h`) — the class `GetFileInformationByHandleEx` expects. This
+// is a different enum from the NT `FILE_INFORMATION_CLASS` above, and the
+// two members share a name without sharing a value: this one is 10, not 37.
+// It selects the same `FILE_ID_BOTH_DIR_INFORMATION` record layout.
+const FILE_ID_BOTH_DIRECTORY_INFO_CLASS: u32 = 10;
 
 const STATUS_NO_MORE_FILES: u32 = 0x80000006;
 
@@ -442,6 +456,10 @@ impl Drop for OwnedHandle {
 /// - `ReparsePointDenied` — **reparse denied**: the target is a reparse
 ///   point (symlink, junction, mount point) and the hardened policy requires
 ///   all reparse points to be denied.
+/// - `ParseError(DirBufParseError)` — **malformed directory buffer**: the
+///   kernel returned a directory-information buffer that is not a well-formed
+///   `FILE_ID_BOTH_DIR_INFORMATION` record chain, so the parser rejected it.
+///   The underlying reason is carried rather than collapsed into an I/O code.
 /// - `IoError(DWORD)` — **unexpected Windows status/error code**: a Win32
 ///   error code or NTSTATUS value that does not map to a specific variant.
 ///   The contained `DWORD` is the raw error code for diagnostics.
@@ -455,6 +473,13 @@ pub(crate) enum WindowsFsError {
     /// The component name's UTF-16 encoding exceeds the 16-bit byte-length
     /// fields of `UNICODE_STRING` (64 KiB).
     NameTooLong,
+    /// The kernel's directory-information buffer could not be parsed.
+    ///
+    /// This is a distinct category from a Win32 or NTSTATUS code: the bytes
+    /// arrived from the kernel but did not describe a well-formed record, so
+    /// the underlying reason is carried rather than collapsed into a generic
+    /// I/O error.
+    ParseError(super::dirbuf::DirBufParseError),
     IoError(DWORD),
 }
 
@@ -467,6 +492,7 @@ impl std::fmt::Display for WindowsFsError {
             Self::TooManyLinks => write!(f, "too many links"),
             Self::ReparsePointDenied => write!(f, "reparse point denied"),
             Self::NameTooLong => write!(f, "name too long"),
+            Self::ParseError(error) => write!(f, "directory buffer parse error: {error:?}"),
             Self::IoError(code) => write!(f, "I/O error: {code}"),
         }
     }
@@ -1332,7 +1358,7 @@ pub(crate) fn get_file_id(handle: HANDLE) -> Result<u64, WindowsFsError> {
     let ok = unsafe {
         GetFileInformationByHandleEx(
             handle,
-            10, // FileIdBothDirectoryInfo
+            FILE_ID_BOTH_DIRECTORY_INFO_CLASS,
             buffer.as_mut_ptr() as *mut c_void,
             BUFFER_SIZE as DWORD,
         )
@@ -1343,17 +1369,19 @@ pub(crate) fn get_file_id(handle: HANDLE) -> Result<u64, WindowsFsError> {
     }
 
     // The `FileId` field is the eight bytes at the shared wire offset. The
-    // buffer is at least `FILE_ID_BOTH_DIR_INFO_HEADER_SIZE` bytes long, so
-    // the field is in bounds; the checked slice read states that instead of
-    // relying on the allocation.
-    let file_id_offset = FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET;
-    let file_id_bytes = buffer
-        .get(file_id_offset..file_id_offset + 8)
-        .ok_or(WindowsFsError::IoError(0xBAADF00D))?;
-    let mut file_id = [0u8; 8];
-    file_id.copy_from_slice(file_id_bytes);
+    // buffer is sized from the shared header constant, so the field is
+    // always in bounds; the const assertion states that at compile time
+    // instead of leaving it to a runtime check that could never fail.
+    const FILE_ID_END: usize = FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET + 8;
+    const _: () = assert!(
+        FILE_ID_END <= BUFFER_SIZE,
+        "the file-id field must fit inside the record buffer"
+    );
+    let file_id_bytes: [u8; 8] = buffer[FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET..FILE_ID_END]
+        .try_into()
+        .expect("the file-id slice is exactly eight bytes wide");
 
-    Ok(u64::from_le_bytes(file_id))
+    Ok(u64::from_le_bytes(file_id_bytes))
 }
 
 /// Returns the final normalized path for the given handle.
@@ -1587,13 +1615,20 @@ pub(crate) fn enumerate_directory(
 
         let restart_scan = if first_call { TRUE } else { FALSE };
 
-        // SAFETY: `buffer` is a heap-allocated, properly aligned byte buffer
-        // of DIR_ENUM_BUFFER_SIZE bytes. `io_status` is a stack-allocated
-        // output parameter. `handle` is valid (caller contract, opened with
-        // FILE_LIST_DIRECTORY | SYNCHRONIZE). `NtQueryDirectoryFile` writes
-        // FILE_ID_BOTH_DIR_INFO records into `buffer`. The buffer is zeroed
-        // before each call. All pointer parameters are null (no event, no APC,
-        // no file name filter).
+        // SAFETY: `buffer` is a live heap byte buffer of
+        // DIR_ENUM_BUFFER_SIZE bytes, and `Length` is passed as the same
+        // size, so the kernel cannot write past its end. `io_status` is a
+        // live stack output parameter. `handle` is valid (caller contract,
+        // opened with FILE_LIST_DIRECTORY | SYNCHRONIZE and without
+        // FILE_FLAG_OVERLAPPED, so the call is synchronous and the null
+        // event/APC arguments are the documented way to ask for it).
+        // `NtQueryDirectoryFile` writes `FileIdBothDirectoryInformation`
+        // records — the `FILE_ID_BOTH_DIR_INFORMATION` layout whose field
+        // offsets `fs::dirbuf` declares — into `buffer`; only the first
+        // `io_status.information` bytes are read back, so bytes the kernel
+        // leaves untouched from a previous call are never interpreted. All
+        // optional pointer parameters are null (no event, no APC, no file
+        // name filter).
         let status = unsafe {
             NtQueryDirectoryFile(
                 handle,
@@ -1627,7 +1662,7 @@ pub(crate) fn enumerate_directory(
 
         let remaining = max_entries.saturating_sub(all_entries.len());
         let parsed = parse_directory_buffer(&buffer[..bytes_returned], remaining)
-            .map_err(|_| WindowsFsError::IoError(0xBAADF00D))?;
+            .map_err(WindowsFsError::ParseError)?;
 
         let count = parsed.len();
         all_entries.extend(parsed);
@@ -1797,7 +1832,10 @@ mod tests {
 
         // Open the same directory with and without FILE_FLAG_OPEN_REPARSE_POINT.
         for (label, flags) in [
-            ("reparse-point", FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT),
+            (
+                "reparse-point",
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            ),
             ("plain", FILE_FLAG_BACKUP_SEMANTICS),
         ] {
             // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that

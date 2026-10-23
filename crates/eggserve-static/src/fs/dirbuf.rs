@@ -214,7 +214,10 @@ pub fn parse_directory_buffer(
         }
 
         // Check we have enough bytes for the fixed header.
-        if offset + FILE_ID_BOTH_DIR_INFO_HEADER_SIZE > total_len {
+        if offset
+            .checked_add(FILE_ID_BOTH_DIR_INFO_HEADER_SIZE)
+            .is_none_or(|end| end > total_len)
+        {
             return Err(DirBufParseError::TruncatedHeader);
         }
 
@@ -241,8 +244,17 @@ pub fn parse_directory_buffer(
         }
 
         // Validate filename range lies within the buffer.
-        let name_start = offset + FILE_ID_BOTH_DIR_INFO_HEADER_SIZE;
-        let name_end = name_start + file_name_length;
+        //
+        // `FileNameLength` comes from the kernel buffer, so it is
+        // untrusted input: the sum is computed with `checked_add` so a
+        // hostile length cannot wrap `usize` on a 32-bit target and turn an
+        // out-of-range name into an in-range one.
+        let name_start = offset
+            .checked_add(FILE_ID_BOTH_DIR_INFO_HEADER_SIZE)
+            .ok_or(DirBufParseError::FileNameOutOfRange)?;
+        let name_end = name_start
+            .checked_add(file_name_length)
+            .ok_or(DirBufParseError::FileNameOutOfRange)?;
         if name_end > total_len {
             return Err(DirBufParseError::FileNameOutOfRange);
         }

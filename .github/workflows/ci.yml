@@ -158,6 +158,20 @@ jobs:
         # The Windows leg of this job is where that policy is actually checked.
         if: runner.os == 'Windows'
         run: cargo clippy -p eggserve-static --lib -- -D warnings
+      - name: Windows confinement test lane
+        # Plan 316/317: the Windows filesystem implementation is `#[cfg(windows)]`,
+        # so before this lane no test in the repository ever *ran* on Windows —
+        # the Windows-only unit tests and the NT directory-buffer corpus
+        # byte-identity check were compiled at most. This lane is the routine
+        # runtime qualification for the Windows confinement path.
+        if: runner.os == 'Windows'
+        run: cargo test -p eggserve-static --lib --tests
+      - name: Windows fuzz corpus byte-identity lane
+        # The fuzz corpus is checked out verbatim (`-text` in .gitattributes),
+        # so the committed seeds must be byte-identical to what the generator
+        # produces on every platform, Windows included.
+        if: runner.os == 'Windows'
+        run: cargo test -p eggserve-static --test directory_buffer_corpus
 
   supply-chain:
     name: supply-chain

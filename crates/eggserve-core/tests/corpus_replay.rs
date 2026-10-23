@@ -135,12 +135,25 @@ fn corpus_replay_request_target() {
 fn corpus_replay_path_components() {
     require_corpus("path_components");
     let policy = PathPolicy::default();
+    let mut accepted = 0usize;
     for (name, data) in read_corpus("path_components") {
+        // A seed is the exact byte string the fuzz target consumes, so it
+        // must be a request target and nothing else. A seed carrying a line
+        // terminator is a whitespace-containing target, which the canonical
+        // request-target parser rejects before any path-confinement logic
+        // runs — the seed would exercise nothing at all. The corpus is
+        // therefore held to the no-trailing-terminator rule.
+        assert!(
+            !data.ends_with(b"\n") && !data.ends_with(b"\r"),
+            "[path_components/{name}] seed carries a trailing line terminator, \
+             which makes it a whitespace-containing request target"
+        );
         let s = match std::str::from_utf8(&data) {
             Ok(s) => s,
             Err(_) => continue,
         };
         if let Ok(confined) = ConfinedPath::parse(s, &policy) {
+            accepted += 1;
             assert!(
                 std::str::from_utf8(confined.as_str().as_bytes()).is_ok(),
                 "[path_components/{name}] as_str is not valid UTF-8"
@@ -172,6 +185,14 @@ fn corpus_replay_path_components() {
             }
         }
     }
+    // Non-vacuity: a corpus whose every seed is rejected before the parser
+    // runs covers nothing. At least one seed must be an accepted request
+    // target so the assertions above are actually reached.
+    assert!(
+        accepted > 0,
+        "path_components corpus: no seed is an accepted request target, \
+         so the replay exercises nothing"
+    );
 }
 
 #[test]
@@ -279,7 +300,17 @@ fn corpus_replay_range_header() {
 #[test]
 fn corpus_replay_platform_component() {
     require_corpus("platform_component");
+    let mut reserved_hits = 0usize;
     for (name, data) in read_corpus("platform_component") {
+        // The seed is the exact component name the fuzz target checks. A
+        // trailing line terminator would be part of the base name, so a
+        // reserved device name such as `CON` would no longer be recognized
+        // and the reserved-name branch would never be reached.
+        assert!(
+            !data.ends_with(b"\n") && !data.ends_with(b"\r"),
+            "[platform_component/{name}] seed carries a trailing line terminator, \
+             which hides it from the reserved-name check"
+        );
         let s = match std::str::from_utf8(&data) {
             Ok(s) => s,
             Err(_) => continue,
@@ -308,6 +339,7 @@ fn corpus_replay_platform_component() {
         }
 
         if reserved {
+            reserved_hits += 1;
             let base = s.split('.').next().unwrap_or("");
             let name_str = base.trim_end_matches('.');
             assert!(
@@ -345,6 +377,14 @@ fn corpus_replay_platform_component() {
             );
         }
     }
+    // Non-vacuity: the reserved-device-name branch above is only reached by
+    // a seed that is itself a reserved name. Without one, the corpus would
+    // never exercise it.
+    assert!(
+        reserved_hits > 0,
+        "platform_component corpus: no seed is a reserved device name, \
+         so the reserved-name branch is never reached"
+    );
 }
 
 #[test]

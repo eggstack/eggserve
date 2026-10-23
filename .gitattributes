@@ -1,0 +1,14 @@
+# Fuzz corpus seeds are fuzzing *inputs*, not source text.
+#
+# A seed that checks out differently on two platforms exercises two
+# different inputs, which breaks the reproducibility the fuzz harness
+# assumes and breaks the byte-identity assertions the CI corpus replay
+# makes against the committed seeds. Git's end-of-line conversion would
+# rewrite a text seed's trailing newline (LF -> CRLF) on a Windows
+# checkout, so a seed such as `/foo/bar\n` would arrive as `/foo/bar\r\n`
+# and no longer parse as the request target it represents.
+#
+# `-text` disables end-of-line conversion for the tree, so every seed is
+# checked out byte-for-byte identically on every platform. Binary seeds
+# are unaffected either way; this makes the text seeds deterministic too.
+fuzz/corpus/** -text

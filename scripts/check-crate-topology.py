@@ -380,6 +380,9 @@ def main() -> int:
     if check_plan316_directory_buffer_layout() != 0:
         return 1
 
+    if check_plan317_corpus_seed_hygiene() != 0:
+        return 1
+
     if check_plan247_leaf_surfaces() != 0:
         return 1
 
@@ -1130,6 +1133,70 @@ def check_plan311_listing_renderer_authority() -> int:
             file=sys.stderr,
         )
         return 1
+
+    return 0
+
+
+def check_plan317_corpus_seed_hygiene() -> int:
+    """Enforce that fuzz corpus seeds are byte-identical on every platform.
+
+    A fuzz corpus seed is the exact byte string the fuzz target consumes, so
+    two properties have to hold for the corpus to do its job:
+
+    1. The checkout must not rewrite a seed. Git's end-of-line conversion
+       turns a text seed's trailing LF into CRLF on a Windows checkout, so
+       the same seed would be two different inputs on two platforms. The
+       corpus tree is therefore marked `-text` in `.gitattributes`.
+
+    2. A seed that names an exact value must contain exactly that value. The
+       `path_components` and `platform_component` corpora are consumed as a
+       request target and as a component name respectively. A trailing line
+       terminator turns the first into a whitespace-containing target (which
+       the canonical request-target parser rejects before any confinement
+       logic runs) and the second into a name that is not the reserved
+       device name it claims to be. Either way the seed exercises nothing.
+    """
+    repo = Path(__file__).resolve().parent.parent
+
+    attributes_path = repo / ".gitattributes"
+    if not attributes_path.exists():
+        print(
+            ".gitattributes is missing: the fuzz corpus must be marked `-text` "
+            "so every seed is checked out byte-identically on every platform",
+            file=sys.stderr,
+        )
+        return 1
+    attributes = attributes_path.read_text()
+    if "fuzz/corpus/** -text" not in attributes:
+        print(
+            ".gitattributes does not mark `fuzz/corpus/**` as `-text`: git "
+            "would rewrite a text seed's trailing newline on a Windows "
+            "checkout and the corpus would differ per platform",
+            file=sys.stderr,
+        )
+        return 1
+
+    for corpus in ("path_components", "platform_component"):
+        corpus_dir = repo / "fuzz/corpus" / corpus
+        if not corpus_dir.is_dir():
+            print(
+                f"fuzz corpus directory is missing: {corpus_dir}",
+                file=sys.stderr,
+            )
+            return 1
+        for seed in sorted(corpus_dir.iterdir()):
+            if not seed.is_file():
+                continue
+            data = seed.read_bytes()
+            if data.endswith(b"\n") or data.endswith(b"\r"):
+                print(
+                    f"fuzz corpus seed carries a trailing line terminator: "
+                    f"{seed.relative_to(repo)} — a seed is the exact bytes the "
+                    "fuzz target consumes, and a line terminator makes the "
+                    "seed exercise nothing",
+                    file=sys.stderr,
+                )
+                return 1
 
     return 0
 
@@ -3847,6 +3914,58 @@ def run_self_tests() -> int:
             check_plan316_directory_buffer_layout() == 1,
         )
 
+    # 11b. Plan 317 corpus seed hygiene: a seed must be the exact bytes the
+    #      fuzz target consumes, and the checkout must not rewrite it.
+    def make_317(root: Path) -> None:
+        write(root, ".gitattributes", "fuzz/corpus/** -text\n")
+        for corpus, seed_name, payload in (
+            ("path_components", "simple", b"/foo/bar"),
+            ("platform_component", "con-reserved", b"CON"),
+        ):
+            seed_dir = root / "fuzz/corpus" / corpus
+            seed_dir.mkdir(parents=True, exist_ok=True)
+            (seed_dir / seed_name).write_bytes(payload)
+
+    with fake_repo() as root:
+        make_317(root)
+        check("plan317-good", check_plan317_corpus_seed_hygiene() == 0)
+
+        write(root, ".gitattributes", "# no corpus rule\n")
+        check(
+            "plan317-missing-gitattributes-rule",
+            check_plan317_corpus_seed_hygiene() == 1,
+        )
+
+        make_317(root)
+        (root / ".gitattributes").unlink()
+        check(
+            "plan317-missing-gitattributes",
+            check_plan317_corpus_seed_hygiene() == 1,
+        )
+
+        make_317(root)
+        (root / "fuzz/corpus/path_components/simple").write_bytes(b"/foo/bar\n")
+        check(
+            "plan317-trailing-terminator",
+            check_plan317_corpus_seed_hygiene() == 1,
+        )
+
+        make_317(root)
+        (root / "fuzz/corpus/platform_component/con-reserved").write_bytes(b"CON\r\n")
+        check(
+            "plan317-trailing-crlf",
+            check_plan317_corpus_seed_hygiene() == 1,
+        )
+
+        make_317(root)
+        for existing in (root / "fuzz/corpus/path_components").iterdir():
+            existing.unlink()
+        (root / "fuzz/corpus/path_components").rmdir()
+        check(
+            "plan317-missing-corpus",
+            check_plan317_corpus_seed_hygiene() == 1,
+        )
+
     # 12. Live-tree positives: the real repository still passes.
     globals()["__file__"] = saved_file
     check("live-plan249", check_plan249_h1_authority() == 0)
@@ -3859,6 +3978,7 @@ def run_self_tests() -> int:
     check("live-plan310", check_plan310_fuzz_target_inventory() == 0)
     check("live-plan311", check_plan311_listing_renderer_authority() == 0)
     check("live-plan316", check_plan316_directory_buffer_layout() == 0)
+    check("live-plan317", check_plan317_corpus_seed_hygiene() == 0)
     globals()["__file__"] = saved_file
 
     if failures:
