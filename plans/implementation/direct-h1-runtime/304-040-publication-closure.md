@@ -444,6 +444,18 @@ Stop and report rather than improvise if:
 Create `plans/closure/direct-h1-runtime/304-040-publication-closure.md`
 containing:
 
+> **Recorded deviation.** The closure record named here was never created as a
+> separate file. Plan 304's closure evidence was recorded inside
+> `plans/closure/direct-h1-runtime/300-release-0-4-0-publication.md`, which
+> carries both milestones' status; the registry's Plan 300 and Plan 304 rows
+> both point at it. This milestone's condition — that the published 0.4.0
+> artifact predated the post-tag fix batch — was discharged by Milestone 305,
+> which republished the corrected 0.5.0 line on 2026-10-22. The required
+> content is therefore split as follows: the Plan 300 closure record and its
+> conditional status are in `300-release-0-4-0-publication.md`; the
+> condition's discharge is recorded there and in the registry's Plan 300,
+> Plan 304, and 0.4.0-line publication rows.
+
 - the Plan 300 closure record and its conditional status;
 - the evidence inventory from Work package A, including every item marked
   outstanding;

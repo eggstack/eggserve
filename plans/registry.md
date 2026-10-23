@@ -9,7 +9,7 @@ Canonical direction remains in:
 - `plans/002-long-term-roadmap.md`
 - `plans/003-planning-process.md`
 
-New milestone numbers continue from `317`. Legacy flat plans (`000`–`292`) and `release/plan-*.md` are archived in place and immutable.
+New milestone numbers continue from `320`. Legacy flat plans (`000`–`292`) and `release/plan-*.md` are archived in place and immutable.
 
 ## Status vocabulary
 

@@ -211,6 +211,7 @@ those tests, so the local proxy remains the compile and clippy cross-check.
 | Format | `cargo fmt --all -- --check` | clean |
 | Windows qualification (before the fixes) | Platform-qualification run `39915458146` | Windows job **failed** — the inert corpus |
 | Windows qualification (after the fixes) | Platform-qualification run `39922248877` | Windows job **success**: static crate 373 passed / 0 failed / 2 ignored; adversarial suite 111 passed / 0 failed / 2 ignored (windows_plan084: 11 passed) |
+| Windows qualification on the final `main` | Platform-qualification run `39930176297` on `2205088` | **both jobs green**. Windows: the static crate's full test set with `--include-ignored` ran **370 passed / 0 failed / 0 ignored**; the adversarial suite ran 111 passed / 0 failed / 2 ignored; windows_plan084 ran 11 passed. The corpus replays reported `path_components 4`, `percent_decode 9`, `platform_component 24`, `request_target 33`. macOS: the installed-wheel qualification passed. |
 | Hosted CI | CI run `39927249552` on `main` (`4a38141`) | all five jobs green; the Windows leg's `Windows confinement test lane` ran 363 passed / 0 failed / 7 ignored and `Windows static integration test lane` ran 4 passed / 0 failed / 1 ignored |
 
 ## 5. Invariant review
@@ -290,12 +291,19 @@ shipped API.
    (`race_file_to_reparse_point_denied`, `race_file_to_directory_type_change`,
    `race_delete_and_recreate`, `race_permission_change_after_enumeration`,
    `race_directory_entry_count_stability`). Their recorded reason is
-   "Race condition timing differs on CI; needs Windows VM qualification". The
-   hosted runner does not prove them either way, and the qualification lane
-   now runs them with `--include-ignored` so their behavior is recorded
-   rather than unknown. They stay ignored: their reason is a genuine
-   timing-sensitivity claim, not a stale Windows claim, and un-ignoring a
-   timing-sensitive test in a routine lane would make CI flaky.
+   "Race condition timing differs on CI; needs Windows VM qualification".
+
+   The qualification lane now runs the static crate's tests with
+   `--include-ignored`, and on run `39930176297` **all five passed** on the
+   hosted Windows runner: the run reported 370 passed / 0 failed / 0 ignored.
+   That falsifies the "needs Windows VM qualification" half of the recorded
+   reason — a hosted Windows runner is sufficient.
+
+   They stay ignored anyway, but for a narrower and now-honest reason:
+   **stability**, not capability. A timing-sensitive test that passes once on
+   a shared runner has not been shown to pass reliably, and un-ignoring it in
+   a *routine* lane would make CI flaky. Promoting them is a decision for a
+   subsequent milestone, and it needs repeated runs rather than one.
 2. **The Windows adversarial filesystem suites remain a manual lane.** Their
    fixtures need Developer Mode and elevated privileges that a hosted runner
    does not reliably provide. That is a property of the fixtures, not of

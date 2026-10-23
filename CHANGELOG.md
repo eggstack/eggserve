@@ -26,7 +26,10 @@ included.
   live kernel.
 
 No public API is removed, renamed, or made private, and no safe default
-changes. Published as `eggserve-static 0.5.1` only.
+changes. Published 2026-10-23 as `eggserve-static 0.5.1` only. The exact
+checksum, the registry-only consumer proof, and the hosted CI evidence are
+in
+[the Plan 319 closure evidence](plans/closure/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md).
 
 ## 0.5.0 — published 2026-10-22
 
