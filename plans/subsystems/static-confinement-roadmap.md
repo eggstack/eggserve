@@ -131,7 +131,39 @@ the roadmap's verification-strategy claim matches reality.
 
 Deferred work: none.
 
-## 8. Cross-cutting requirements
+### Milestone 4 — Windows directory-buffer offset realignment
+
+Class: invariant
+
+Objective: make the NT `FILE_ID_BOTH_DIR_INFO` layout a single, mechanically
+enforced authority, so the Windows directory-listing path decodes real kernel
+buffers instead of rejecting them.
+
+Dependencies: Milestone 3 (hard, closed) — repairing the harness made the
+parser reachable cross-platform, and the corpus replay it enabled exposed the
+defect.
+
+Deliverable boundary: one authoritative layout with the fixed header at 104
+bytes and the field offsets matching the NT record; the second, divergent
+layout definition removed rather than reconciled; the zero entry budget
+honored; the directory-buffer corpus regenerated from a recorded generator so
+the happy path is covered; a per-seed expectation in the cross-platform
+replay.
+
+User or operator value: a Windows directory listing decodes real kernel
+output. Before this milestone the committed corpus rejected six of its nine
+seeds as malformed and decoded the rest to empty names, so the listing path
+was untrustworthy and its failure mode was silent.
+
+Exit conditions: the layout is stated once and derived from one place; the
+committed corpus is byte-reproducible and contains valid seeds that decode to
+their expected entries; the replay asserts per-seed expectations rather than
+merely "no panic"; the zero budget returns no entries.
+
+Deferred work: the Windows adversarial qualification suite is a manual lane
+and is not re-run by this milestone.
+
+
 
 Storage: read-only serving; no migration. Protocol: origin-form only; absolute-form rejected by static (Plan 278 seam stays H1-embedding-only). Security: `docs/threat-model.md` layers 1–3. Concurrency: file-stream semaphore + bounded chunk reads (128 KiB default, Plans 232–233). Observability: `OpsContext` events, sanitized paths. Perf: per-trial retained evidence, never single best numbers.
 
@@ -158,4 +190,4 @@ Authority collapse proven by fixture + gate, facades classified, no second imple
 | 1 | closed | legacy `plans/002-*`, `007-*`, `017-*`, `062-*`–`065-*` | `release/plan-034-*` lineage; `plan-225-*` facade proof | — |
 | 2 | closed | legacy `plans/081-*`, `219-*`, `245-*` | `release/plan-225-compatibility-facade-closure.md` | — |
 | 3 | closed | `plans/implementation/static-confinement/310-fuzz-harness-repair-and-build-gate.md` | `plans/closure/static-confinement/310-fuzz-harness-repair-and-build-gate.md` | All 11 fuzz targets compile, run, and are linted/format-checked in routine CI; the NT directory-buffer parser is public and platform neutral; the corpus replay's vacuous corpus path is fixed. Gate rule `check_plan310_fuzz_target_inventory`. Two parser defects (F1 zero budget, F2 offsets) are deferred to Milestone 4. |
-| 4 | ready | `plans/implementation/static-confinement/316-windows-directory-buffer-offset-realignment.md` | — | Corrective plan for Milestone 3's findings F1 and F2: realign the NT `FILE_ID_BOTH_DIR_INFO` offsets with the struct definition in the same file, honor a zero entry budget, and regenerate the directory-buffer seed corpus so the happy path is covered. |
+| 4 | closed | `plans/implementation/static-confinement/316-windows-directory-buffer-offset-realignment.md` | `plans/closure/static-confinement/316-windows-directory-buffer-offset-realignment.md` | The NT `FILE_ID_BOTH_DIR_INFO` layout is one authority. Work package A established that the *parser* was correct and the FFI struct was wrong, so the recorded deviation is that the struct and its doc comment changed: the hand-rolled struct was deleted rather than realigned, `get_file_id` now reads the stable `FileId` at the shared offset (it previously read the low half of `CreationTime`) with a correctly sized buffer, the zero entry budget is honored, and the corpus was regenerated from the authoritative layout with a recorded generator so the happy path is covered. Gate rule `check_plan316_directory_buffer_layout`. The Windows runtime qualification suite remains a manual lane. |
