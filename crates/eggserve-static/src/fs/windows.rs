@@ -56,7 +56,8 @@ use eggserve_primitives::policy::{DotfilePolicy, SymlinkPolicy};
 
 use super::dirbuf::{
     parse_directory_buffer, DirectoryEntryKind, DirectoryEntryRecord, FILE_ATTRIBUTE_DIRECTORY,
-    FILE_ATTRIBUTE_REPARSE_POINT,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET,
+    FILE_ID_BOTH_DIR_INFO_HEADER_SIZE,
 };
 
 // ── Windows FFI types ───────────────────────────────────────────────────────
@@ -184,31 +185,16 @@ impl Default for WIN32_FIND_DATAW {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-#[allow(dead_code)]
-struct FILE_ID_BOTH_DIR_INFO {
-    next_entry_offset: DWORD,
-    file_index: u64,
-    creation_time: u64,
-    last_access_time: u64,
-    last_write_time: u64,
-    change_time: u64,
-    allocation_size: i64,
-    end_of_file: i64,
-    file_attributes: DWORD,
-    file_name_length: DWORD,
-    ea_size: DWORD,
-    file_id: [u8; 8],
-    file_name: [u16; 1], // variable length
-}
-
 // ── FILE_ID_BOTH_DIR_INFO record layout ─────────────────────────────────────
 //
-// The fixed-header offsets used by the directory-buffer parser live with the
-// platform-neutral parser in `fs::dirbuf`; they are wire-format byte
-// positions inside a record, shared by this module and the parser so the two
-// cannot drift apart.
+// The `FILE_ID_BOTH_DIR_INFO` record is a fixed wire format: the NT layout
+// table (every field and its byte offset) is documented once, with the
+// parser, in `fs::dirbuf`. This module does not declare a second copy of the
+// structure — it reads the record as raw bytes at the shared offsets, so the
+// FFI boundary and the parser cannot drift apart.
+//
+// The `NextEntryOffset` field and the `FileAttributes` bits the parser reads
+// live with the parser for the same reason.
 
 // ── NT API types (for handle-relative opens) ─────────────────────────────────
 
@@ -401,6 +387,9 @@ impl OwnedHandle {
             )
         };
         if ok == 0 {
+            // SAFETY: `GetLastError` reads thread-local Win32 error state
+            // and imposes no preconditions on the caller. The failed
+            // `DuplicateHandle` call above is what set the value read here.
             return Err(WindowsFsError::IoError(unsafe { GetLastError() }));
         }
         Ok(Self(new_handle))
@@ -411,6 +400,11 @@ impl OwnedHandle {
 // transfer between threads (Send) and share across threads (Sync). The
 // underlying OS ensures thread-safe access to handle operations.
 unsafe impl Send for OwnedHandle {}
+// SAFETY: sharing `OwnedHandle` across threads is safe for the same reason:
+// the wrapped handle is a process-global integer, and every operation on it —
+// including the exactly-once `CloseHandle` on drop — is performed by the OS
+// under its own synchronization, so no thread observes a torn or
+// double-closed handle.
 unsafe impl Sync for OwnedHandle {}
 
 impl Drop for OwnedHandle {
@@ -712,6 +706,13 @@ pub(crate) fn open_file_relative(
 /// handle (e.g., the root handle from `PinnedRoot`).
 fn duplicate_raw_handle(source: HANDLE) -> Result<OwnedHandle, WindowsFsError> {
     let mut new_handle = INVALID_HANDLE_VALUE;
+    // SAFETY: `GetCurrentProcess` returns a pseudohandle that is valid for
+    // `DuplicateHandle` in this process. `source` is a live handle borrowed
+    // from the caller for the duration of the call; `DuplicateHandle` reads
+    // it but does not consume or close it. `&mut new_handle` is a
+    // stack-allocated, properly aligned output pointer that is valid for
+    // the write. `DUPLICATE_SAME_ACCESS` copies the source access rights
+    // onto the duplicate.
     let ok = unsafe {
         DuplicateHandle(
             GetCurrentProcess(),
@@ -724,8 +725,15 @@ fn duplicate_raw_handle(source: HANDLE) -> Result<OwnedHandle, WindowsFsError> {
         )
     };
     if ok == 0 {
+        // SAFETY: `GetLastError` reads thread-local Win32 error state and
+        // imposes no preconditions on the caller. The failed
+        // `DuplicateHandle` call above is what set the value read here.
         return Err(WindowsFsError::IoError(unsafe { GetLastError() }));
     }
+    // SAFETY: `DuplicateHandle` succeeded, so `new_handle` is a fresh, valid
+    // handle that no other code path owns or closes. `from_raw` transfers
+    // that ownership to `OwnedHandle`, whose `Drop` closes it exactly once;
+    // `new_handle` is a local that is never closed directly.
     Ok(unsafe { OwnedHandle::from_raw(new_handle) })
 }
 
@@ -1294,28 +1302,33 @@ pub(crate) fn get_file_standard_info(handle: HANDLE) -> Result<FILE_STANDARD_INF
 /// Returns a stable file identifier for the given handle.
 ///
 /// Uses `GetFileInformationByHandleEx` with `FileIdBothDirectoryInfo` (class 10)
-/// to retrieve the file ID. On failure, falls back to `GetFinalPathNameByHandleW`
-/// to derive a diagnostic path (not a stable ID).
+/// to retrieve the file ID.
 ///
-/// The returned `u64` is the 8-byte file ID extracted from
-/// `FILE_ID_BOTH_DIR_INFO`. This is stable across renames within the same
-/// volume.
+/// The returned `u64` is the eight-byte `FileId` field of the
+/// `FILE_ID_BOTH_DIR_INFO` record, read at the shared wire offset
+/// (`FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET`: byte 96 of the record's fixed
+/// 104-byte header). This is stable across renames within the same volume.
 ///
 /// # Errors
 ///
 /// Returns `WindowsFsError::IoError` if the file ID query fails.
 pub(crate) fn get_file_id(handle: HANDLE) -> Result<u64, WindowsFsError> {
-    // FILE_ID_BOTH_DIR_INFO is variable-length. We allocate a fixed buffer
-    // that is large enough for most entries (name up to ~255 UTF-16 chars).
-    // The struct header is 80 bytes, plus 2 bytes per name char.
-    const BUFFER_SIZE: usize = 80 + 256 * 2;
+    // FILE_ID_BOTH_DIR_INFO is variable-length: a fixed
+    // `FILE_ID_BOTH_DIR_INFO_HEADER_SIZE`-byte header followed by a UTF-16
+    // file name. The buffer therefore holds the shared header constant plus
+    // room for the longest name NTFS allows (255 UTF-16 code units) and one
+    // spare code unit. Sizing it from the shared constant keeps the FFI
+    // boundary and the parser on the same layout.
+    const MAX_NAME_UTF16_UNITS: usize = 256;
+    const BUFFER_SIZE: usize = FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + MAX_NAME_UTF16_UNITS * 2;
     let mut buffer = vec![0u8; BUFFER_SIZE];
 
-    // SAFETY: `buffer` is a heap-allocated, properly aligned byte buffer. We
-    // cast it to `FILE_ID_BOTH_DIR_INFO*`. The buffer is zeroed, so the
-    // variable-length `file_name` field is safe to inspect. The handle is
-    // valid (caller contract). `GetFileInformationByHandleEx` with class 10
-    // writes a FILE_ID_BOTH_DIR_INFO header followed by the file name.
+    // SAFETY: `buffer` is a heap-allocated, zeroed byte buffer of
+    // `BUFFER_SIZE` bytes, which is large enough for the record the call
+    // writes (the fixed header plus a UTF-16 name of up to 255 code units).
+    // The handle is valid (caller contract). `GetFileInformationByHandleEx`
+    // with class 10 writes a FILE_ID_BOTH_DIR_INFO record — a fixed header
+    // followed by the file name — into the buffer.
     let ok = unsafe {
         GetFileInformationByHandleEx(
             handle,
@@ -1329,16 +1342,18 @@ pub(crate) fn get_file_id(handle: HANDLE) -> Result<u64, WindowsFsError> {
         return Err(last_error_to_fs_error());
     }
 
-    // SAFETY: the buffer was zeroed and successfully filled. We reinterpret
-    // the first 80 bytes as `FILE_ID_BOTH_DIR_INFO`. The `file_id` field is
-    // at a fixed offset within the header (bytes 64..72). We read it as a
-    // little-endian u64.
-    let file_id = unsafe {
-        let header = buffer.as_ptr() as *const FILE_ID_BOTH_DIR_INFO;
-        (*header).file_index
-    };
+    // The `FileId` field is the eight bytes at the shared wire offset. The
+    // buffer is at least `FILE_ID_BOTH_DIR_INFO_HEADER_SIZE` bytes long, so
+    // the field is in bounds; the checked slice read states that instead of
+    // relying on the allocation.
+    let file_id_offset = FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET;
+    let file_id_bytes = buffer
+        .get(file_id_offset..file_id_offset + 8)
+        .ok_or(WindowsFsError::IoError(0xBAADF00D))?;
+    let mut file_id = [0u8; 8];
+    file_id.copy_from_slice(file_id_bytes);
 
-    Ok(file_id)
+    Ok(u64::from_le_bytes(file_id))
 }
 
 /// Returns the final normalized path for the given handle.
@@ -1647,6 +1662,11 @@ mod tests {
 
         // Open the root directory handle.
         let root_path_utf16 = to_utf16_null(root.to_str().unwrap());
+        // SAFETY: `root_path_utf16` is a null-terminated UTF-16 buffer that
+        // stays alive for the call, and `CreateFileW` does not retain the
+        // pointer. The two null arguments are the optional
+        // security-attributes and template-handle parameters, which
+        // `CreateFileW` accepts as absent.
         let handle = unsafe {
             CreateFileW(
                 root_path_utf16.as_ptr(),
@@ -1867,6 +1887,11 @@ mod tests {
 
     #[test]
     fn handle_to_std_file_rejects_invalid_handle() {
+        // SAFETY: this fixture deliberately wraps the null handle to prove
+        // that `handle_to_std_file` rejects an invalid handle. Taking
+        // ownership of the null handle cannot close anything: `OwnedHandle`'s
+        // `Drop` checks `is_valid()` first and skips `CloseHandle` for a
+        // null handle.
         let invalid = unsafe { OwnedHandle::from_raw(std::ptr::null_mut()) };
         let error = handle_to_std_file(invalid).unwrap_err();
         assert_eq!(error.raw_os_error(), Some(ERROR_INVALID_HANDLE as i32));
@@ -1923,6 +1948,10 @@ mod tests {
         std::fs::write(root_path.join("target.txt"), "original").unwrap();
 
         let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that stays
+        // alive for the call, and `CreateFileW` does not retain the pointer.
+        // The two null arguments are the optional security-attributes and
+        // template-handle parameters, which `CreateFileW` accepts as absent.
         let root_handle = unsafe {
             CreateFileW(
                 root_utf16.as_ptr(),
@@ -1969,6 +1998,9 @@ mod tests {
             }
         }
 
+        // SAFETY: `root_handle` came from the `CreateFileW` above, is still
+        // open, and is closed exactly once here — no other code path owns
+        // or closes it.
         unsafe {
             CloseHandle(root_handle);
         }
@@ -1982,6 +2014,10 @@ mod tests {
         std::fs::write(root_path.join("target.txt"), "original").unwrap();
 
         let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that stays
+        // alive for the call, and `CreateFileW` does not retain the pointer.
+        // The two null arguments are the optional security-attributes and
+        // template-handle parameters, which `CreateFileW` accepts as absent.
         let root_handle = unsafe {
             CreateFileW(
                 root_utf16.as_ptr(),
@@ -2021,6 +2057,9 @@ mod tests {
             result
         );
 
+        // SAFETY: `root_handle` came from the `CreateFileW` above, is still
+        // open, and is closed exactly once here — no other code path owns
+        // or closes it.
         unsafe {
             CloseHandle(root_handle);
         }
@@ -2033,6 +2072,10 @@ mod tests {
         std::fs::write(root_path.join("target.txt"), "original").unwrap();
 
         let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that stays
+        // alive for the call, and `CreateFileW` does not retain the pointer.
+        // The two null arguments are the optional security-attributes and
+        // template-handle parameters, which `CreateFileW` accepts as absent.
         let root_handle = unsafe {
             CreateFileW(
                 root_utf16.as_ptr(),
@@ -2066,6 +2109,9 @@ mod tests {
             .unwrap();
         assert_eq!(contents, "replaced");
 
+        // SAFETY: `root_handle` came from the `CreateFileW` above, is still
+        // open, and is closed exactly once here — no other code path owns
+        // or closes it.
         unsafe {
             CloseHandle(root_handle);
         }
@@ -2079,6 +2125,10 @@ mod tests {
         std::fs::write(root_path.join("target.txt"), "original").unwrap();
 
         let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that stays
+        // alive for the call, and `CreateFileW` does not retain the pointer.
+        // The two null arguments are the optional security-attributes and
+        // template-handle parameters, which `CreateFileW` accepts as absent.
         let root_handle = unsafe {
             CreateFileW(
                 root_utf16.as_ptr(),
@@ -2118,6 +2168,9 @@ mod tests {
             .unwrap();
         assert_eq!(contents, "recreated");
 
+        // SAFETY: `root_handle` came from the `CreateFileW` above, is still
+        // open, and is closed exactly once here — no other code path owns
+        // or closes it.
         unsafe {
             CloseHandle(root_handle);
         }
@@ -2131,6 +2184,10 @@ mod tests {
         std::fs::write(root_path.join("target.txt"), "content").unwrap();
 
         let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that stays
+        // alive for the call, and `CreateFileW` does not retain the pointer.
+        // The two null arguments are the optional security-attributes and
+        // template-handle parameters, which `CreateFileW` accepts as absent.
         let root_handle = unsafe {
             CreateFileW(
                 root_utf16.as_ptr(),
@@ -2181,6 +2238,9 @@ mod tests {
             .unwrap();
         assert_eq!(contents, "content");
 
+        // SAFETY: `root_handle` came from the `CreateFileW` above, is still
+        // open, and is closed exactly once here — no other code path owns
+        // or closes it.
         unsafe {
             CloseHandle(root_handle);
         }
@@ -2201,6 +2261,10 @@ mod tests {
         }
 
         let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that stays
+        // alive for the call, and `CreateFileW` does not retain the pointer.
+        // The two null arguments are the optional security-attributes and
+        // template-handle parameters, which `CreateFileW` accepts as absent.
         let root_handle = unsafe {
             CreateFileW(
                 root_utf16.as_ptr(),
@@ -2227,6 +2291,9 @@ mod tests {
         let names2: Vec<&str> = entries2.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names1, names2);
 
+        // SAFETY: `root_handle` came from the `CreateFileW` above, is still
+        // open, and is closed exactly once here — no other code path owns
+        // or closes it.
         unsafe {
             CloseHandle(root_handle);
         }

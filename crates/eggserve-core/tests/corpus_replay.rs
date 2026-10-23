@@ -1,3 +1,11 @@
+//! Fuzz-corpus replay for the canonical primitives.
+//!
+//! Replays the `fuzz/corpus` inputs against percent-decoding, request
+//! targets, path components, method and body validation, conditional and
+//! range evaluation, header blocks, and response normalization. Each replay
+//! asserts its corpus directory exists, so a missing corpus fails loudly
+//! instead of replaying nothing.
+
 use std::fs;
 use std::path::Path;
 
@@ -681,12 +689,112 @@ fn dirbuf_signature(
         .collect()
 }
 
+/// The `DirBufParseError` variant's name, for per-seed expectation matching.
+fn dirbuf_variant_name(error: &eggserve_static::DirBufParseError) -> &'static str {
+    use eggserve_static::DirBufParseError;
+    match error {
+        DirBufParseError::BufferOverflow => "BufferOverflow",
+        DirBufParseError::TruncatedHeader => "TruncatedHeader",
+        DirBufParseError::OddFileNameLength => "OddFileNameLength",
+        DirBufParseError::FileNameOutOfRange => "FileNameOutOfRange",
+        DirBufParseError::OffsetUnderflow => "OffsetUnderflow",
+        DirBufParseError::OffsetOverflow => "OffsetOverflow",
+        DirBufParseError::OffsetLoop => "OffsetLoop",
+        DirBufParseError::InvalidUtf16 => "InvalidUtf16",
+    }
+}
+
+/// What a committed directory-buffer seed must produce.
+enum DirBufSeedOutcome {
+    /// The seed decodes into exactly these entries:
+    /// `(name, kind, file_id, hidden_or_dot)`.
+    Entries(&'static [(&'static str, DirectoryEntryKind, u64, bool)]),
+    /// The seed is rejected with this `DirBufParseError` variant.
+    Rejected(&'static str),
+}
+
+/// The per-seed outcome every committed `fuzz_directory_buffer` seed must
+/// produce.
+///
+/// The seeds' bytes are generated — and pinned byte-for-byte — by the static
+/// crate's corpus test (`crates/eggserve-static/tests/directory_buffer_corpus.rs`),
+/// which also records the generator. This table is the replay's independent
+/// statement of what each seed means: a corpus that changes shape fails the
+/// generator's drift guard *and* this replay.
+const DIRBUF_SEED_OUTCOMES: &[(&str, DirBufSeedOutcome)] = &[
+    (
+        "dot_dotdot",
+        // The `.` and `..` pseudo-entries never reach a listing.
+        DirBufSeedOutcome::Entries(&[]),
+    ),
+    (
+        "dotfile",
+        DirBufSeedOutcome::Entries(&[(".hidden", DirectoryEntryKind::File, 30, true)]),
+    ),
+    ("empty", DirBufSeedOutcome::Entries(&[])),
+    ("invalid_utf16", DirBufSeedOutcome::Rejected("InvalidUtf16")),
+    (
+        "multi_entries",
+        DirBufSeedOutcome::Entries(&[
+            ("a.txt", DirectoryEntryKind::File, 1, false),
+            ("sub", DirectoryEntryKind::Directory, 2, false),
+            ("link", DirectoryEntryKind::ReparsePoint, 3, false),
+            (".hidden", DirectoryEntryKind::File, 4, true),
+        ]),
+    ),
+    (
+        "odd_name_length",
+        DirBufSeedOutcome::Rejected("OddFileNameLength"),
+    ),
+    (
+        "offset_overflow",
+        DirBufSeedOutcome::Rejected("OffsetOverflow"),
+    ),
+    (
+        "offset_underflow",
+        DirBufSeedOutcome::Rejected("OffsetUnderflow"),
+    ),
+    (
+        "overlong_name",
+        DirBufSeedOutcome::Rejected("FileNameOutOfRange"),
+    ),
+    ("random", DirBufSeedOutcome::Rejected("FileNameOutOfRange")),
+    (
+        "reparse",
+        DirBufSeedOutcome::Entries(&[("link", DirectoryEntryKind::ReparsePoint, 20, false)]),
+    ),
+    (
+        "single_dir",
+        DirBufSeedOutcome::Entries(&[("subdir", DirectoryEntryKind::Directory, 10, false)]),
+    ),
+    (
+        "single_file",
+        DirBufSeedOutcome::Entries(&[("hello.txt", DirectoryEntryKind::File, 42, false)]),
+    ),
+    (
+        "truncated_header",
+        DirBufSeedOutcome::Rejected("TruncatedHeader"),
+    ),
+];
+
+/// The entry budget the per-seed expectations are checked against.
+///
+/// It is fixed rather than derived from the seed's first byte (the low byte
+/// of `NextEntryOffset`) so an expectation describes the seed itself and not
+/// the budget the fuzz target happens to pick for it. The static crate's
+/// corpus test uses the same value.
+const DIRBUF_EXPECTATION_BUDGET: usize = 64;
+
 /// Replay of the `fuzz_directory_buffer` corpus against the static
 /// authority's directory-buffer parser.
 ///
 /// The parser is platform-neutral (the `FILE_ID_BOTH_DIR_INFO` layout is a
 /// wire format, not a Windows API binding), so this replay runs on every
 /// platform and asserts the same invariants the libFuzzer target asserts.
+///
+/// Every seed is checked against a recorded per-seed outcome, so the replay
+/// is not vacuous: it proves the corpus decodes the entries it is built to
+/// contain and is rejected for the reasons it is built to be rejected.
 #[test]
 fn corpus_replay_directory_buffer() {
     require_corpus("fuzz_directory_buffer");
@@ -696,7 +804,18 @@ fn corpus_replay_directory_buffer() {
     /// Wide entry budget: lets the parser walk the whole buffer.
     const WIDE_BUDGET: usize = 64;
 
+    let mut decoded_names = 0usize;
+    let mut seen_seeds = 0usize;
+
     for (name, data) in read_corpus("fuzz_directory_buffer") {
+        // Every committed seed must have a recorded outcome.
+        let outcome = DIRBUF_SEED_OUTCOMES
+            .iter()
+            .find(|(seed_name, _)| *seed_name == name)
+            .map(|(_, outcome)| outcome)
+            .unwrap_or_else(|| panic!("[fuzz_directory_buffer/{name}] has no recorded outcome"));
+        seen_seeds += 1;
+
         // Entry budget derived from the input, exactly as the libFuzzer target
         // derives it, so the replay covers the same inputs the same way.
         let max_entries = if data.is_empty() {
@@ -745,6 +864,83 @@ fn corpus_replay_directory_buffer() {
             }
         }
 
+        // === The seed's recorded outcome ===
+
+        // Checked against a fixed budget, so the outcome describes the seed
+        // itself and not the budget derived from the seed's first byte.
+        match outcome {
+            DirBufSeedOutcome::Entries(expected) => {
+                let parsed = parse_directory_buffer(&data, DIRBUF_EXPECTATION_BUDGET)
+                    .unwrap_or_else(|error| {
+                        panic!("[fuzz_directory_buffer/{name}] expected a parse, got {error:?}")
+                    });
+                assert_eq!(
+                    parsed.len(),
+                    expected.len(),
+                    "[fuzz_directory_buffer/{name}] decoded {} entries, expected {}",
+                    parsed.len(),
+                    expected.len()
+                );
+                for (actual, expected) in parsed.iter().zip(expected.iter()) {
+                    assert_eq!(
+                        actual.name, expected.0,
+                        "[fuzz_directory_buffer/{name}] entry name mismatch"
+                    );
+                    assert_eq!(
+                        actual.kind, expected.1,
+                        "[fuzz_directory_buffer/{name}] entry kind mismatch for {:?}",
+                        actual.name
+                    );
+                    assert_eq!(
+                        actual.file_id,
+                        Some(expected.2),
+                        "[fuzz_directory_buffer/{name}] entry identity mismatch for {:?}",
+                        actual.name
+                    );
+                    assert_eq!(
+                        actual.hidden_or_dot, expected.3,
+                        "[fuzz_directory_buffer/{name}] dotfile flag mismatch for {:?}",
+                        actual.name
+                    );
+                }
+                if parsed.iter().any(|entry| !entry.name.is_empty()) {
+                    decoded_names += 1;
+                }
+
+                // The input-derived budget can only shorten the listing: the
+                // entries it yields are a prefix of the full listing.
+                let narrowed = parse_directory_buffer(&data, max_entries).unwrap_or_else(|error| {
+                    panic!("[fuzz_directory_buffer/{name}] expected a parse, got {error:?}")
+                });
+                assert!(
+                    narrowed.len() <= expected.len(),
+                    "[fuzz_directory_buffer/{name}] the derived budget decoded {} entries, the full listing has {}",
+                    narrowed.len(),
+                    expected.len()
+                );
+                for (actual, expected) in narrowed.iter().zip(expected.iter()) {
+                    assert_eq!(
+                        actual.name, expected.0,
+                        "[fuzz_directory_buffer/{name}] derived-budget entry name mismatch"
+                    );
+                }
+            }
+            DirBufSeedOutcome::Rejected(expected_variant) => {
+                let error = match parse_directory_buffer(&data, DIRBUF_EXPECTATION_BUDGET) {
+                    Ok(entries) => panic!(
+                        "[fuzz_directory_buffer/{name}] expected a rejection, decoded {} entries",
+                        entries.len()
+                    ),
+                    Err(error) => error,
+                };
+                assert_eq!(
+                    dirbuf_variant_name(&error),
+                    *expected_variant,
+                    "[fuzz_directory_buffer/{name}] rejected with the wrong variant"
+                );
+            }
+        }
+
         // The parse is a pure function of its input.
         let repeat = parse_directory_buffer(&data, max_entries);
         match (&parsed, &repeat) {
@@ -789,5 +985,27 @@ fn corpus_replay_directory_buffer() {
                 empty.len()
             );
         }
+
+        // A zero budget is an empty listing: the budget bounds the number of
+        // entries returned and is checked before the first record is parsed.
+        let zero_budget = parse_directory_buffer(&data, 0)
+            .expect("a zero budget yields an empty listing, not an error");
+        assert!(
+            zero_budget.is_empty(),
+            "[fuzz_directory_buffer/{name}] a zero budget produced {} entries",
+            zero_budget.len()
+        );
     }
+
+    // The replay is not vacuous: the corpus decodes real names, and every
+    // committed seed has a recorded outcome.
+    assert!(
+        decoded_names > 0,
+        "no corpus seed decoded to a non-empty name"
+    );
+    assert_eq!(
+        seen_seeds,
+        DIRBUF_SEED_OUTCOMES.len(),
+        "the corpus and the recorded outcomes disagree on the seed set"
+    );
 }

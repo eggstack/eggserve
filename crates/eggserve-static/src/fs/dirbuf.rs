@@ -8,23 +8,53 @@
 //! (unit tests, the fuzz harness, the CI corpus replay) instead of only on
 //! Windows.
 //!
-//! The constants below are fixed `FILE_ID_BOTH_DIR_INFO` **wire-format
+//! # Authoritative record layout
+//!
+//! The NT `FILE_ID_BOTH_DIR_INFO` record, as written by the kernel and as
+//! declared by `windows-sys` 0.61.2
+//! (`Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO`, mirrored from
+//! `winnt.h`). Offsets are byte positions inside one record:
+//!
+//! | Offset | Size | Field            | Type       |
+//! |--------|------|------------------|------------|
+//! | 0      | 4    | `NextEntryOffset` | `u32`      |
+//! | 4      | 4    | `FileIndex`       | `u32`      |
+//! | 8      | 8    | `CreationTime`    | `i64`      |
+//! | 16     | 8    | `LastAccessTime`  | `i64`      |
+//! | 24     | 8    | `LastWriteTime`   | `i64`      |
+//! | 32     | 8    | `ChangeTime`      | `i64`      |
+//! | 40     | 8    | `EndOfFile`       | `i64`      |
+//! | 48     | 8    | `AllocationSize`  | `i64`      |
+//! | 56     | 4    | `FileAttributes`  | `u32`      |
+//! | 60     | 4    | `FileNameLength`  | `u32`      |
+//! | 64     | 4    | `EaSize`          | `u32`      |
+//! | 68     | 1    | `ShortNameLength` | `i8`       |
+//! | 70     | 24   | `ShortName`       | `[u16; 12]`|
+//! | 96     | 8    | `FileId`          | `i64`      |
+//! | 104    | 2·N  | `FileName`        | `[u16; N]` |
+//!
+//! The fixed header is therefore **104 bytes** and `FileName` starts at
+//! offset 104. Two details of the declaration are worth recording:
+//!
+//! - `ntifs.h` and `winnt.h` disagree on whether `EndOfFile` or
+//!   `AllocationSize` comes first. Both occupy bytes 40..56 either way, and
+//!   this parser reads neither, so the ordering does not affect any offset it
+//!   uses.
+//! - `FileId` is declared `i64`; it is an opaque 64-bit identity value, and
+//!   the parser reinterprets the eight bytes as an unsigned `u64`.
+//!
+//! # One layout authority
+//!
+//! The constants below are the single source of truth for the offsets this
+//! parser reads. They are fixed `FILE_ID_BOTH_DIR_INFO` **wire-format
 //! offsets** — byte positions inside a record. They are not Windows API
 //! bindings: no `windows-sys` type, handle, or FFI call is involved, and the
 //! module compiles and behaves identically on every platform.
 //!
-//! # Known deviations (Plan 310 findings; parser behavior unchanged here)
-//!
-//! - `parse_directory_buffer` checks its entry budget *after* pushing an
-//!   entry, so a `max_entries` of `0` still yields one entry. The bound is
-//!   exact for every `max_entries >= 1`, and the only production caller never
-//!   passes `0`.
-//! - The offsets below disagree with the `FILE_ID_BOTH_DIR_INFO` record
-//!   layout described by the FFI struct in `fs::windows` (which places the
-//!   file name at offset 80, and whose own doc comment calls the fixed
-//!   header 80 bytes). The committed `fuzz/corpus/fuzz_directory_buffer`
-//!   seeds follow that 80-byte layout, so under the offsets below most seeds
-//!   are rejected as malformed rather than decoded.
+//! The Windows FFI module (`fs::windows`) reads the same record and reads
+//! the same `FileId` offset. It imports these constants instead of declaring
+//! a second copy of the structure, so the parser and the FFI boundary cannot
+//! drift apart.
 
 /// NTFS file attribute bit: the entry is a reparse point (symlink, junction,
 /// mount point, …).
@@ -33,20 +63,34 @@ pub(crate) const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x00000400;
 /// NTFS file attribute bit: the entry is a directory.
 pub(crate) const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x00000010;
 
-/// Byte offset of `FileNameLength` inside a `FILE_ID_BOTH_DIR_INFO` record.
+/// Byte offset of `FileNameLength` (a `u32`) inside a `FILE_ID_BOTH_DIR_INFO`
+/// record.
+///
+/// See the module's authoritative layout table.
 pub(crate) const FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET: usize = 60;
 
-/// Byte offset of `FileAttributes` inside a `FILE_ID_BOTH_DIR_INFO` record.
+/// Byte offset of `FileAttributes` (a `u32`) inside a `FILE_ID_BOTH_DIR_INFO`
+/// record.
+///
+/// See the module's authoritative layout table.
 pub(crate) const FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET: usize = 56;
 
-/// Byte offset of `FileId` inside a `FILE_ID_BOTH_DIR_INFO` record.
+/// Byte offset of `FileId` (eight bytes) inside a `FILE_ID_BOTH_DIR_INFO`
+/// record.
+///
+/// See the module's authoritative layout table.
 pub(crate) const FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET: usize = 96;
 
-/// Byte offset of `FileName` inside a `FILE_ID_BOTH_DIR_INFO` record.
+/// Byte offset of `FileName` (the variable-length UTF-16 name) inside a
+/// `FILE_ID_BOTH_DIR_INFO` record.
+///
+/// See the module's authoritative layout table.
 pub(crate) const FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET: usize = 104;
 
 /// Fixed header size of `FILE_ID_BOTH_DIR_INFO` before the variable-length
 /// `FileName`.
+///
+/// See the module's authoritative layout table.
 pub(crate) const FILE_ID_BOTH_DIR_INFO_HEADER_SIZE: usize = FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET;
 
 /// A parsed directory entry from a Windows directory information buffer.
@@ -141,7 +185,8 @@ fn advance_offset(
 /// # Arguments
 ///
 /// * `buffer` - The raw bytes returned by NtQueryDirectoryFile
-/// * `max_entries` - Maximum number of entries to parse (for boundedness)
+/// * `max_entries` - Maximum number of entries returned (for boundedness).
+///   A budget of `0` yields an empty listing.
 ///
 /// # Filtering
 ///
@@ -156,6 +201,15 @@ pub fn parse_directory_buffer(
 
     loop {
         if offset >= total_len {
+            break;
+        }
+
+        // The entry budget bounds the number of entries *returned*, so it is
+        // checked before the next record is parsed. A budget of zero
+        // therefore yields an empty listing, and an exhausted budget stops
+        // the walk before the next record is touched — a malformed tail
+        // record cannot turn an already-complete listing into a rejection.
+        if entries.len() >= max_entries {
             break;
         }
 
@@ -326,8 +380,28 @@ pub(crate) fn build_dir_info_entry(
 mod tests {
     use super::{
         build_dir_info_entry, parse_directory_buffer, DirBufParseError, DirectoryEntryKind,
-        FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET, FILE_ID_BOTH_DIR_INFO_HEADER_SIZE,
+        FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET, FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET,
+        FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET, FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET,
+        FILE_ID_BOTH_DIR_INFO_HEADER_SIZE,
     };
+
+    /// Builds a buffer of `count` chained records named `file{index}.txt`.
+    ///
+    /// `NextEntryOffset` is relative to the current record, so each record
+    /// points at the aligned size of itself.
+    fn build_chain(count: usize) -> Vec<u8> {
+        let mut buf = Vec::new();
+        for index in 0..count {
+            let mut record =
+                build_dir_info_entry(&format!("file{index}.txt"), false, false, 0, index as u64);
+            if index + 1 < count {
+                let next_offset = record.len() as u32;
+                record[0..4].copy_from_slice(&next_offset.to_le_bytes());
+            }
+            buf.extend_from_slice(&record);
+        }
+        buf
+    }
 
     #[test]
     fn parse_single_entry() {
@@ -583,5 +657,184 @@ mod tests {
         // NextEntryOffset=0 (from the filename bytes), so it terminates.
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 1);
+    }
+
+    // ── Layout authority (Plan 316) ──────────────────────────────────
+
+    /// Machine check: the parser's constants agree with the authoritative NT
+    /// `FILE_ID_BOTH_DIR_INFO` layout documented in the module header.
+    ///
+    /// The literals below are transcribed from `winnt.h` (mirrored by
+    /// `windows-sys` 0.61.2). A constant changed without the layout changing
+    /// fails this test, so the documented layout and the parser cannot drift
+    /// apart.
+    #[test]
+    fn layout_constants_match_the_authoritative_nt_layout() {
+        assert_eq!(FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET, 56);
+        assert_eq!(FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET, 60);
+        assert_eq!(FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET, 96);
+        assert_eq!(FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET, 104);
+        assert_eq!(FILE_ID_BOTH_DIR_INFO_HEADER_SIZE, 104);
+        // The `FileId` ends exactly where the variable-length `FileName`
+        // begins, so the fixed header is exactly 104 bytes.
+        assert_eq!(
+            FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET + 8,
+            FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET
+        );
+    }
+
+    /// The parser reads the attributes, the name length, the identity and the
+    /// name at the offsets the layout table declares.
+    ///
+    /// Each field is placed at its documented offset by hand (not through the
+    /// shared constants), so a constant that moved would decode the wrong
+    /// bytes and fail here.
+    #[test]
+    fn parser_reads_the_documented_field_offsets() {
+        let mut buf = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + 8];
+        // FileAttributes @ 56: a directory.
+        buf[56..60].copy_from_slice(&0x0000_0010u32.to_le_bytes());
+        // FileNameLength @ 60: "ab" is two UTF-16 code units.
+        buf[60..64].copy_from_slice(&4u32.to_le_bytes());
+        // FileId @ 96.
+        buf[96..104].copy_from_slice(&0x0102_0304_0506_0708u64.to_le_bytes());
+        // FileName @ 104.
+        buf[104..106].copy_from_slice(&0x0061u16.to_le_bytes());
+        buf[106..108].copy_from_slice(&0x0062u16.to_le_bytes());
+
+        let entries = parse_directory_buffer(&buf, 10).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "ab");
+        assert_eq!(entries[0].kind, DirectoryEntryKind::Directory);
+        assert_eq!(entries[0].file_id, Some(0x0102_0304_0506_0708));
+    }
+
+    // ── Entry budget (Plan 316 finding F1) ───────────────────────────
+
+    #[test]
+    fn parse_zero_budget_returns_no_entries() {
+        let entry = build_dir_info_entry("hello.txt", false, false, 0, 42);
+        let result = parse_directory_buffer(&entry, 0).unwrap();
+        assert!(
+            result.is_empty(),
+            "a zero budget returned {} entries",
+            result.len()
+        );
+
+        // The budget is checked before the first record is parsed, so even a
+        // malformed buffer yields an empty listing rather than a rejection.
+        let malformed = vec![0u8; 4];
+        assert!(parse_directory_buffer(&malformed, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_budget_bounds_the_listing_exactly() {
+        let buf = build_chain(10);
+        for budget in 0..=12usize {
+            let entries = parse_directory_buffer(&buf, budget).unwrap();
+            assert!(
+                entries.len() <= budget,
+                "budget {} produced {} entries",
+                budget,
+                entries.len()
+            );
+            assert_eq!(
+                entries.len(),
+                budget.min(10),
+                "budget {} produced {} entries",
+                budget,
+                entries.len()
+            );
+        }
+    }
+
+    // ── One case per error variant (Plan 316) ────────────────────────
+
+    /// One case per reachable `DirBufParseError` variant.
+    ///
+    /// The two remaining variants are reserved contract variants the parser
+    /// cannot construct; `reserved_error_variants_are_never_returned` covers
+    /// them.
+    #[test]
+    fn every_reachable_error_variant_has_a_case() {
+        // TruncatedHeader: the buffer does not hold a full fixed header.
+        assert!(matches!(
+            parse_directory_buffer(&[0u8; 4], 100),
+            Err(DirBufParseError::TruncatedHeader)
+        ));
+
+        // OddFileNameLength: the name length is not a whole number of UTF-16
+        // code units.
+        let mut odd = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE];
+        odd[60..64].copy_from_slice(&5u32.to_le_bytes());
+        assert!(matches!(
+            parse_directory_buffer(&odd, 100),
+            Err(DirBufParseError::OddFileNameLength)
+        ));
+
+        // FileNameOutOfRange: the name extends past the end of the buffer.
+        let mut out_of_range = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE];
+        out_of_range[60..64].copy_from_slice(&100u32.to_le_bytes());
+        assert!(matches!(
+            parse_directory_buffer(&out_of_range, 100),
+            Err(DirBufParseError::FileNameOutOfRange)
+        ));
+
+        // OffsetUnderflow: the advance lands inside the current record's
+        // fixed header extent (a backward or overlapping move).
+        let underflow = build_dir_info_entry("a.txt", false, false, 8, 1);
+        assert!(matches!(
+            parse_directory_buffer(&underflow, 100),
+            Err(DirBufParseError::OffsetUnderflow)
+        ));
+
+        // OffsetOverflow: the advance leaves the buffer.
+        let overflow = build_dir_info_entry("a.txt", false, false, 0xFFFF_FFFF, 1);
+        assert!(matches!(
+            parse_directory_buffer(&overflow, 100),
+            Err(DirBufParseError::OffsetOverflow)
+        ));
+
+        // InvalidUtf16: the name carries an unpaired surrogate.
+        let mut invalid = build_dir_info_entry("A", false, false, 0, 1);
+        invalid[104..106].copy_from_slice(&0xD800u16.to_le_bytes());
+        assert!(matches!(
+            parse_directory_buffer(&invalid, 100),
+            Err(DirBufParseError::InvalidUtf16)
+        ));
+    }
+
+    /// The two reserved variants are never returned.
+    ///
+    /// `BufferOverflow` would require a returned byte count larger than the
+    /// buffer the parser was handed; the parser is given a slice, so the
+    /// count can never exceed the allocation. `OffsetLoop` would require a
+    /// non-monotonic advance; every advance is a strictly positive
+    /// `checked_add`, so the walk is monotonic and cannot cycle. Both are
+    /// retained as defensive contract variants for future parsers.
+    #[test]
+    fn reserved_error_variants_are_never_returned() {
+        let buffers = [
+            Vec::new(),
+            vec![0u8; 4],
+            build_dir_info_entry("a.txt", false, false, 0, 1),
+            build_dir_info_entry("a.txt", false, false, 8, 1),
+            build_dir_info_entry("a.txt", false, false, 0xFFFF_FFFF, 1),
+            build_chain(3),
+        ];
+        for buffer in &buffers {
+            if let Err(error) = parse_directory_buffer(buffer, 100) {
+                assert_ne!(
+                    std::mem::discriminant(&error),
+                    std::mem::discriminant(&DirBufParseError::BufferOverflow),
+                    "BufferOverflow is unreachable but was returned"
+                );
+                assert_ne!(
+                    std::mem::discriminant(&error),
+                    std::mem::discriminant(&DirBufParseError::OffsetLoop),
+                    "OffsetLoop is unreachable but was returned"
+                );
+            }
+        }
     }
 }

@@ -41,9 +41,11 @@ fn signature(
 
 fuzz_target!(|data: &[u8]| {
     // Entry budget derived from the input so different corpus entries drive
-    // different bounds. It is at least 1 for a non-empty buffer: the parser
-    // checks its budget *after* pushing an entry, so a budget of 0 would
-    // still yield one entry (Plan 310 finding F1).
+    // different bounds. The derivation is shared verbatim with the CI corpus
+    // replay (`crates/eggserve-core/tests/corpus_replay.rs`), so both drive
+    // the same inputs the same way. A budget of zero is legitimate: the
+    // parser checks the budget before it parses a record, so a zero budget
+    // yields an empty listing.
     let max_entries = if data.is_empty() {
         0
     } else {
@@ -150,13 +152,20 @@ fuzz_target!(|data: &[u8]| {
         );
     }
 
-    // === Boundary budgets: panic-freedom only ===
+    // === Boundary budgets: a zero budget is an empty listing ===
 
-    // A budget of 0 is not asserted on the entry count: the parser checks
-    // its budget after pushing an entry, so 0 still yields one entry
-    // (Plan 310 finding F1). The unbounded budget must stay bounded by the
-    // buffer size.
-    let _ = parse_directory_buffer(data, 0);
+    // The budget bounds the number of entries returned and is checked before
+    // the first record is parsed, so a budget of zero yields an empty
+    // listing — never an entry, never an error.
+    let zero_budget = parse_directory_buffer(data, 0)
+        .expect("a zero budget yields an empty listing, not an error");
+    assert!(
+        zero_budget.is_empty(),
+        "a zero budget produced {} entries",
+        zero_budget.len()
+    );
+
+    // The unbounded budget must stay bounded by the buffer size.
     let unbounded = parse_directory_buffer(data, usize::MAX);
     if let Ok(entries) = unbounded {
         assert!(

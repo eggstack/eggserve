@@ -54,9 +54,9 @@ cargo fuzz run request_target -- -max_total_time=60
 - Platform checks: drive prefix requires `X:` pattern, clean components pass
 - Header validation: no NUL/CR/LF in values, empty names rejected
 - Response normalization: body-forbidden statuses empty, TE stripped, CL correct
-- Directory buffer: entry budget bounds the listing, dotfile flag matches the parsed name, `.`/`..`
-  never leak into a listing, the parse is deterministic, and a rejected buffer stays rejected under
-  a wider entry budget
+- Directory buffer: entry budget bounds the listing, a zero budget is an empty listing, dotfile flag
+  matches the parsed name, `.`/`..` never leak into a listing, the parse is deterministic, and a rejected
+  buffer stays rejected under a wider entry budget
 
 Every assertion must be able to fail: no variant match over every enum variant, and no
 `!x.is_empty() || x.is_empty()`.
@@ -68,6 +68,21 @@ Each target has a `corpus/<target>/` directory with hand-crafted seeds covering:
 - Edge cases (empty, max-length, boundary values)
 - Malformed inputs (truncated, special chars, traversal attempts)
 - Regression inputs from existing test suites
+
+The `fuzz_directory_buffer` corpus is generated rather than hand-written: it is built from the
+authoritative NT `FILE_ID_BOTH_DIR_INFO` layout by
+`crates/eggserve-static/tests/directory_buffer_corpus.rs`, which records the generator, pins each
+seed's expected outcome, and asserts in routine CI that the committed corpus is byte-identical to
+the generator's output. Regenerate it with:
+
+```sh
+cargo test -p eggserve-static --test directory_buffer_corpus -- --ignored
+```
+
+The seeds cover the happy path (a valid single entry, a multi-entry buffer, a directory entry, a
+reparse-point entry, a dotfile entry) and every rejection (a truncated header, an odd file-name
+length, an over-long file name, an offset overflow, an offset underflow, invalid UTF-16), plus an
+empty buffer, the `.`/`..` pseudo-entries and a pseudo-random blob.
 
 ## Property tests
 

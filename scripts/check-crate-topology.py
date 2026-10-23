@@ -377,6 +377,9 @@ def main() -> int:
     if check_plan311_listing_renderer_authority() != 0:
         return 1
 
+    if check_plan316_directory_buffer_layout() != 0:
+        return 1
+
     if check_plan247_leaf_surfaces() != 0:
         return 1
 
@@ -1129,6 +1132,209 @@ def check_plan311_listing_renderer_authority() -> int:
         return 1
 
     return 0
+
+
+def check_plan316_directory_buffer_layout() -> int:
+    """Enforce the single NT directory-buffer layout authority (Plan 316).
+
+    The `FILE_ID_BOTH_DIR_INFO` record layout is a wire format the kernel
+    writes, so it has exactly one correct definition. Before Plan 316 two
+    definitions existed: the platform-neutral parser's constants (correct) and
+    a hand-rolled FFI struct in `fs/windows.rs` (wrong on every offset). The
+    committed corpus had been built against the wrong one, so six of its nine
+    seeds were rejected as malformed and the rest decoded to empty names —
+    the happy path had no coverage at all.
+
+    The gate enforces three things:
+
+    1. the parser's constants equal the authoritative NT layout;
+    2. no second layout definition exists, and the Windows FFI reads the
+       shared constant rather than its own byte offsets;
+    3. the committed corpus contains a seed that really decodes to a
+       non-empty name, so the corpus cannot drift back into covering only
+       the rejection path.
+    """
+    import re
+
+    repo = Path(__file__).resolve().parent.parent
+    dirbuf_path = repo / "crates/eggserve-static/src/fs/dirbuf.rs"
+    windows_path = repo / "crates/eggserve-static/src/fs/windows.rs"
+    corpus_dir = repo / "fuzz/corpus/fuzz_directory_buffer"
+
+    # The authoritative layout: the NT `FILE_ID_BOTH_DIR_INFO` record as
+    # written by the kernel and declared by `windows-sys` (mirrored from
+    # `winnt.h`). The fixed header is 104 bytes.
+    authoritative = {
+        "FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET": 60,
+        "FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET": 56,
+        "FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET": 96,
+        "FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET": 104,
+    }
+    header_size = 104
+
+    if not dirbuf_path.exists():
+        print(
+            "crates/eggserve-static/src/fs/dirbuf.rs is missing (Plan 316: the "
+            "platform-neutral parser owns the NT directory-buffer layout)",
+            file=sys.stderr,
+        )
+        return 1
+    dirbuf = dirbuf_path.read_text()
+
+    # A. The parser's constants equal the authoritative layout.
+    for constant, expected in authoritative.items():
+        match = re.search(
+            rf"const\s+{constant}\s*:\s*usize\s*=\s*(\d+)\s*;",
+            dirbuf,
+        )
+        if not match:
+            print(
+                f"the directory-buffer parser no longer declares `{constant}` "
+                "(Plan 316: one authority owns the NT layout offsets)",
+                file=sys.stderr,
+            )
+            return 1
+        actual = int(match.group(1))
+        if actual != expected:
+            print(
+                f"`{constant}` is {actual}, but the authoritative NT "
+                f"`FILE_ID_BOTH_DIR_INFO` layout puts it at {expected} "
+                "(Plan 316: the offsets are wire-format constants, not "
+                "trial-and-error values)",
+                file=sys.stderr,
+            )
+            return 1
+
+    if not re.search(
+        r"const\s+FILE_ID_BOTH_DIR_INFO_HEADER_SIZE\s*:\s*usize\s*=\s*"
+        r"FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET\s*;",
+        dirbuf,
+    ):
+        print(
+            "`FILE_ID_BOTH_DIR_INFO_HEADER_SIZE` must be derived from "
+            "`FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET` (Plan 316: the fixed "
+            "header size is the file-name offset)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # B. No second layout definition; the FFI reads the shared constant.
+    if not windows_path.exists():
+        print(
+            "crates/eggserve-static/src/fs/windows.rs is missing (Plan 316)",
+            file=sys.stderr,
+        )
+        return 1
+    windows = windows_path.read_text()
+    if re.search(r"struct\s+FILE_ID_BOTH_DIR_INFO\b", windows):
+        print(
+            "fs/windows.rs declares a second `FILE_ID_BOTH_DIR_INFO` layout "
+            "(Plan 316: the platform-neutral parser owns the record layout; a "
+            "second definition is how the offsets drifted in the first place)",
+            file=sys.stderr,
+        )
+        return 1
+    if "FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET" not in windows:
+        print(
+            "fs/windows.rs does not read the shared "
+            "`FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET` (Plan 316: the Windows FFI "
+            "must take the file-id offset from the authority, not from its "
+            "own byte literal)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # C. The corpus really covers the happy path.
+    if not corpus_dir.exists():
+        print(
+            "fuzz/corpus/fuzz_directory_buffer is missing (Plan 316: the "
+            "directory-buffer corpus is the routine guard for the Windows "
+            "listing path)",
+            file=sys.stderr,
+        )
+        return 1
+    seeds = sorted(p for p in corpus_dir.iterdir() if p.is_file())
+    if not seeds:
+        print(
+            "fuzz/corpus/fuzz_directory_buffer contains no seeds (Plan 316: an "
+            "empty corpus makes the replay vacuous)",
+            file=sys.stderr,
+        )
+        return 1
+
+    decoded_any = False
+    rejected_any = False
+    for seed in seeds:
+        names, rejected = _decode_directory_buffer(seed.read_bytes())
+        if names:
+            decoded_any = True
+        if rejected:
+            rejected_any = True
+
+    if not decoded_any:
+        print(
+            "no seed in fuzz/corpus/fuzz_directory_buffer decodes to a "
+            "non-empty name under the authoritative layout (Plan 316: the "
+            "corpus must cover the happy path, not only the rejection path)",
+            file=sys.stderr,
+        )
+        return 1
+    if not rejected_any:
+        print(
+            "no seed in fuzz/corpus/fuzz_directory_buffer is rejected under "
+            "the authoritative layout (Plan 316: the corpus must cover the "
+            "malformed-input rejections too)",
+            file=sys.stderr,
+        )
+        return 1
+
+    return 0
+
+
+def _decode_directory_buffer(buffer: bytes) -> tuple[list[str], bool]:
+    """Decode a directory-information buffer under the authoritative layout.
+
+    Returns the decoded non-pseudo file names and whether the buffer was
+    rejected as malformed. This mirrors the Rust parser's acceptance rules so
+    the topology gate can check the committed corpus without building it.
+    """
+    header_size = 104
+    name_length_offset = 60
+    offset = 0
+    total = len(buffer)
+    names: list[str] = []
+
+    while offset < total:
+        if offset + header_size > total:
+            return names, True
+        next_entry_offset = int.from_bytes(buffer[offset : offset + 4], "little")
+        name_length = int.from_bytes(
+            buffer[offset + name_length_offset : offset + name_length_offset + 4],
+            "little",
+        )
+        if name_length % 2 != 0:
+            return names, True
+        name_start = offset + header_size
+        name_end = name_start + name_length
+        if name_end > total:
+            return names, True
+        raw = buffer[name_start:name_end]
+        try:
+            name = raw.decode("utf-16-le")
+        except UnicodeDecodeError:
+            return names, True
+        if name not in (".", ".."):
+            names.append(name)
+        if next_entry_offset == 0:
+            break
+        next_offset = offset + next_entry_offset
+        if next_offset >= total:
+            return names, True
+        if next_offset - offset < header_size:
+            return names, True
+        offset = next_offset
+
+    return names, False
 
 
 def check_plan244_authority_convergence() -> int:
@@ -3522,7 +3728,126 @@ def run_self_tests() -> int:
             check_plan311_listing_renderer_authority() == 1,
         )
 
-    # 11. Live-tree positives: the real repository still passes.
+    # 11. Plan 316: one NT directory-buffer layout authority.
+    good_dirbuf = (
+        "pub(crate) const FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET: usize = 60;\n"
+        "pub(crate) const FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET: usize = 56;\n"
+        "pub(crate) const FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET: usize = 96;\n"
+        "pub(crate) const FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET: usize = 104;\n"
+        "pub(crate) const FILE_ID_BOTH_DIR_INFO_HEADER_SIZE: usize =\n"
+        "    FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET;\n"
+    )
+    good_windows = (
+        "use super::dirbuf::FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET;\n"
+        "pub(crate) fn get_file_id() -> u64 {\n"
+        "    let _ = FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET;\n"
+        "    0\n"
+        "}\n"
+    )
+
+    def dirinfo_seed(name: str) -> bytes:
+        """Build one valid `FILE_ID_BOTH_DIR_INFO` record."""
+        name_bytes = name.encode("utf-16-le")
+        record = bytearray(104 + len(name_bytes))
+        record[0:4] = (0).to_bytes(4, "little")
+        record[56:60] = (0).to_bytes(4, "little")
+        record[60:64] = len(name_bytes).to_bytes(4, "little")
+        record[96:104] = (42).to_bytes(8, "little")
+        record[104 : 104 + len(name_bytes)] = name_bytes
+        return bytes(record)
+
+    def make_316(root: Path) -> None:
+        write(root, "crates/eggserve-static/src/fs/dirbuf.rs", good_dirbuf)
+        write(root, "crates/eggserve-static/src/fs/windows.rs", good_windows)
+        seed_dir = root / "fuzz/corpus/fuzz_directory_buffer"
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        (seed_dir / "single_file").write_bytes(dirinfo_seed("hello.txt"))
+        (seed_dir / "truncated").write_bytes(b"\x00" * 32)
+
+    with fake_repo() as root:
+        make_316(root)
+        check("plan316-good", check_plan316_directory_buffer_layout() == 0)
+
+        write(
+            root,
+            "crates/eggserve-static/src/fs/windows.rs",
+            good_windows
+            + "#[repr(C)]\nstruct FILE_ID_BOTH_DIR_INFO {\n"
+            "    next_entry_offset: u32,\n}\n",
+        )
+        check(
+            "plan316-second-layout",
+            check_plan316_directory_buffer_layout() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-static/src/fs/dirbuf.rs",
+            good_dirbuf.replace(
+                "FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET: usize = 96;",
+                "FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET: usize = 72;",
+            ),
+        )
+        check(
+            "plan316-wrong-offset",
+            check_plan316_directory_buffer_layout() == 1,
+        )
+
+        write(
+            root,
+            "crates/eggserve-static/src/fs/dirbuf.rs",
+            good_dirbuf.replace(
+                "const FILE_ID_BOTH_DIR_INFO_HEADER_SIZE: usize =\n"
+                "    FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET;",
+                "const FILE_ID_BOTH_DIR_INFO_HEADER_SIZE: usize = 104;",
+            ),
+        )
+        check(
+            "plan316-underived-header",
+            check_plan316_directory_buffer_layout() == 1,
+        )
+
+        make_316(root)
+        write(
+            root,
+            "crates/eggserve-static/src/fs/windows.rs",
+            "pub(crate) fn get_file_id() -> u64 {\n    96\n}\n",
+        )
+        check(
+            "plan316-ffi-drops-shared-constant",
+            check_plan316_directory_buffer_layout() == 1,
+        )
+
+        make_316(root)
+        seed_dir = root / "fuzz/corpus/fuzz_directory_buffer"
+        for existing in seed_dir.iterdir():
+            existing.unlink()
+        (seed_dir / "truncated").write_bytes(b"\x00" * 32)
+        check(
+            "plan316-corpus-no-happy-path",
+            check_plan316_directory_buffer_layout() == 1,
+        )
+
+        make_316(root)
+        seed_dir = root / "fuzz/corpus/fuzz_directory_buffer"
+        for existing in seed_dir.iterdir():
+            existing.unlink()
+        (seed_dir / "single_file").write_bytes(dirinfo_seed("hello.txt"))
+        check(
+            "plan316-corpus-no-rejection",
+            check_plan316_directory_buffer_layout() == 1,
+        )
+
+        make_316(root)
+        for existing in (root / "fuzz/corpus/fuzz_directory_buffer").iterdir():
+            existing.unlink()
+        (root / "fuzz/corpus/fuzz_directory_buffer").rmdir()
+        check(
+            "plan316-missing-corpus",
+            check_plan316_directory_buffer_layout() == 1,
+        )
+
+    # 12. Live-tree positives: the real repository still passes.
     globals()["__file__"] = saved_file
     check("live-plan249", check_plan249_h1_authority() == 0)
     check("live-plan253", check_plan253_overlap() == 0)
@@ -3533,6 +3858,7 @@ def run_self_tests() -> int:
     check("live-plan309", check_plan309_accept_error_authority() == 0)
     check("live-plan310", check_plan310_fuzz_target_inventory() == 0)
     check("live-plan311", check_plan311_listing_renderer_authority() == 0)
+    check("live-plan316", check_plan316_directory_buffer_layout() == 0)
     globals()["__file__"] = saved_file
 
     if failures:

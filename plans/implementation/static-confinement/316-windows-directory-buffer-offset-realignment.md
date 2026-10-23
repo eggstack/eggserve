@@ -1,5 +1,30 @@
 # Static Confinement Milestone 316 — Windows directory-buffer offset realignment
 
+Status: active
+
+Repository baseline: `465b80cdabf90801e6ef929563b12886c509c201`
+
+Source roadmap:
+
+- `plans/subsystems/static-confinement-roadmap.md#milestone-4--windows-directory-buffer-offset-realignment`
+
+Long-term requirements:
+
+- `plans/000-long-term-specification.md#2` (the static authority owns every
+  static/path/filesystem decision; no serving outside the configured root)
+- `plans/001-terminology-and-domain-model.md`
+- `plans/003-planning-process.md#7-corrective-passes`
+
+Applicable historical contracts:
+
+- `docs/threat-model.md` (the confinement boundary)
+- `docs/unsafe-code-policy.md` (the reviewed Windows FFI boundary)
+- `docs/fuzzing.md`
+- `architecture/eggserve-static.md`
+- `architecture/testing-and-conformance.md`
+
+Primary class: invariant
+
 ## 1. Objective
 
 Correct the NT `FILE_ID_BOTH_DIR_INFO` layout that the Windows directory-buffer
@@ -102,6 +127,70 @@ semantics.
   is a **patch** release event when it is eventually published.
 
 ## 6. Required production changes
+
+0. **Recorded material deviation (resolved).** This plan was authored on the
+   premise that the *parser* disagreed with the `FILE_ID_BOTH_DIR_INFO` struct
+   in `fs/windows.rs` and that the parser's offsets were the side that had to
+   move. Work package A established the opposite: the authoritative layout is
+   the one the parser already implements, and the hand-rolled FFI struct was
+   wrong on every offset.
+
+   The authoritative layout is the NT `FILE_ID_BOTH_DIR_INFO` record as written
+   by the kernel and declared by `windows-sys` (mirrored from `winnt.h`):
+
+   | Field | Type | Offset |
+   |---|---|---|
+   | `NextEntryOffset` | `u32` | 0 |
+   | `FileIndex` | `u32` | 4 |
+   | `CreationTime` | `i64` | 8 |
+   | `LastAccessTime` | `i64` | 16 |
+   | `LastWriteTime` | `i64` | 24 |
+   | `ChangeTime` | `i64` | 32 |
+   | `EndOfFile` | `i64` | 40 |
+   | `AllocationSize` | `i64` | 48 |
+   | `FileAttributes` | `u32` | 56 |
+   | `FileNameLength` | `u32` | 60 |
+   | `EaSize` | `u32` | 64 |
+   | `ShortNameLength` | `i8` | 68 |
+   | `ShortName` | `[u16; 12]` | 70..94 |
+   | `FileId` | `i64` | 96 |
+   | `FileName` | `[u16; 1]` | 104 |
+
+   The fixed header is **104 bytes**. (`ntifs.h` orders `EndOfFile` before
+   `AllocationSize` and `winnt.h` orders it the other way; both occupy bytes
+   40..56, so no offset the parser reads is affected.)
+
+   The parser's constants — `FileNameLength` 60, `FileAttributes` 56, `FileId`
+   96, `FileName` 104, header 104 — are **correct** and must not change. The
+   struct in `fs/windows.rs` is the defective side: its `file_index: u64` field
+   forces four bytes of padding after the real `u32` `FileIndex` and shifts
+   every later field, so its computed layout puts `file_attributes` at 64,
+   `file_name_length` at 68, `file_id` at 76, and `file_name` at 84.
+
+   §6.1 below already anticipated this outcome ("If the authoritative layout
+   turns out to be the one the parser currently implements, then the struct and
+   the doc comment are what change"). The requirement of this milestone is
+   unchanged — one layout, one authority, agreement enforced mechanically — but
+   the direction of the realignment is the opposite of the one first assumed.
+
+   The deviation surfaced two further defects in `fs/windows.rs` that are
+   consequences of the same wrong struct and are therefore in scope here:
+
+   - `get_file_id` read `(*header).file_index`, i.e. bytes 8..16 of the real
+     record (the low half of `CreationTime`), instead of `FileId` at offset
+     96. Its documented contract — "stable across renames within the same
+     volume" — was violated. It had no production caller, so the defect was
+     latent rather than live.
+   - `get_file_id` sized its buffer as `80 + 256 * 2` bytes on the stated
+     assumption of an 80-byte header. The real record needs `104 + 2 * len`,
+     so file names longer than 244 UTF-16 code units (NTFS permits 255) made
+     `GetFileInformationByHandleEx` fail with `ERROR_INSUFFICIENT_BUFFER`.
+
+   The scope of this milestone is widened accordingly, and only accordingly: it
+   removes the second layout definition so the drift cannot recur, and it fixes
+   the two defects that the second definition caused. It does not add `unsafe`,
+   does not change the Windows FFI signatures, and does not change the
+   confinement boundary.
 
 1. **Realign the offsets.** Determine the authoritative `FILE_ID_BOTH_DIR_INFO`
    layout from the NT structure (not from the parser) and make the constants

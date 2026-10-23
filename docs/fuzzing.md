@@ -47,7 +47,7 @@ cargo test -p eggserve-core
 | `fuzz_header_block` | `fuzz_header_block` | `HeaderName`, `HeaderValue`, `HeaderBlock` operations | Token-only names, no CTL/DEL in values, valid header operations | `corpus_replay_header_block` |
 | `fuzz_normalize_response` | `fuzz_normalize_response` | `StatusCode`, `Response` builder, `normalize_response`, Content-Length reconciliation | Range 100–599, body-forbidden empty, HEAD carries no payload, TE stripped, CL correct | `corpus_replay_normalize_response` |
 | `fuzz_request_body` | `fuzz_request_body` | `RequestBody` state machine | One-shot enforcement, no double-consume | `corpus_replay_request_body` |
-| `fuzz_directory_buffer` | `fuzz_directory_buffer` | `eggserve_static::parse_directory_buffer` (NT `FILE_ID_BOTH_DIR_INFO` records) | Entry budget bounds the listing, dotfile flag matches the name, `.`/`..` never leak, parse is deterministic, a rejected buffer stays rejected under a wider budget | `corpus_replay_directory_buffer` |
+| `fuzz_directory_buffer` | `fuzz_directory_buffer` | `eggserve_static::parse_directory_buffer` (NT `FILE_ID_BOTH_DIR_INFO` records) | Entry budget bounds the listing, a zero budget is an empty listing, dotfile flag matches the name, `.`/`..` never leak, parse is deterministic, a rejected buffer stays rejected under a wider budget, each seed produces its recorded outcome | `corpus_replay_directory_buffer` |
 
 Build every target without running it:
 
@@ -79,6 +79,56 @@ The target therefore compiles and runs on every platform, and the parser's unit 
 platform too (they used to be `cfg(windows)`-only). The Windows FFI module
 (`crates/eggserve-static/src/fs/windows.rs`) imports the parser and the record types from that
 module; it does not reimplement them.
+
+#### The authoritative record layout
+
+The record layout is written down once, in the parser's module documentation (`fs/dirbuf.rs`), as the
+NT `FILE_ID_BOTH_DIR_INFO` layout (`winnt.h`, mirrored by `windows-sys` 0.61.2
+`Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO`):
+
+| Offset | Size | Field | Type |
+|--------|------|-------|------|
+| 0 | 4 | `NextEntryOffset` | `u32` |
+| 4 | 4 | `FileIndex` | `u32` |
+| 8 | 8 | `CreationTime` | `i64` |
+| 16 | 8 | `LastAccessTime` | `i64` |
+| 24 | 8 | `LastWriteTime` | `i64` |
+| 32 | 8 | `ChangeTime` | `i64` |
+| 40 | 8 | `EndOfFile` | `i64` |
+| 48 | 8 | `AllocationSize` | `i64` |
+| 56 | 4 | `FileAttributes` | `u32` |
+| 60 | 4 | `FileNameLength` | `u32` |
+| 64 | 4 | `EaSize` | `u32` |
+| 68 | 1 | `ShortNameLength` | `i8` |
+| 70 | 24 | `ShortName` | `[u16; 12]` |
+| 96 | 8 | `FileId` | `i64` |
+| 104 | 2·N | `FileName` | `[u16; N]` |
+
+The fixed header is 104 bytes and `FileName` starts at offset 104. The parser's constants are the
+single source of truth for those offsets; the Windows FFI module reads the same record at the same
+offsets instead of declaring a second copy of the structure. The parser's entry budget bounds the
+number of entries *returned*, so a budget of zero yields an empty listing.
+
+#### The directory-buffer corpus
+
+`fuzz/corpus/fuzz_directory_buffer/` is generated from that layout by
+`crates/eggserve-static/tests/directory_buffer_corpus.rs`, which also pins each seed's expected
+outcome. The corpus holds inputs only — never expectations. Regenerate it with:
+
+```sh
+cargo test -p eggserve-static --test directory_buffer_corpus -- --ignored
+```
+
+The same test file asserts, in routine CI, that the committed corpus is byte-identical to the
+generator's output and that no unrecorded file is committed, so the corpus cannot drift from its
+generator. The seeds cover the happy path (a valid single entry, a multi-entry buffer, a directory
+entry, a reparse-point entry, a dotfile entry) and every rejection (a truncated header, an odd
+file-name length, an over-long file name, an offset overflow, an offset underflow, invalid UTF-16),
+plus an empty buffer, the `.`/`..` pseudo-entries and a pseudo-random blob.
+
+The CI replay (`crates/eggserve-core/tests/corpus_replay.rs::corpus_replay_directory_buffer`) asserts
+each seed's recorded outcome and that the corpus is not vacuous (at least one seed decodes to a
+non-empty name).
 
 ## Seed corpora
 
