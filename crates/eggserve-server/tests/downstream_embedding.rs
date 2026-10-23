@@ -1,3 +1,11 @@
+//! Downstream embedding contract for the direct `eggserve-server` runtime.
+//!
+//! Covers the externally owned policy surface: typed rejection presentation
+//! that cannot change status or framing, caller-owned TLS over direct H1,
+//! external header-byte and request-target ceilings layered over the
+//! built-in ones, per-response external metadata, absolute-form request
+//! targets, and the external handler, admission, idle, and write deadlines.
+
 use std::time::Duration;
 
 use eggserve_primitives::{RequestBodyPolicy, Response, ResponseBody, StatusCode};

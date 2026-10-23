@@ -1,3 +1,5 @@
+//! Integration coverage for the neutral TLS substrate.
+
 use std::sync::Arc;
 
 use eggnet_tls::{

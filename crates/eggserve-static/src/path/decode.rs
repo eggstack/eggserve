@@ -1,5 +1,21 @@
 use super::rejected::PathRejection;
 
+/// Percent-decodes a request-target path.
+///
+/// The decoder is deliberately stricter than RFC 9110 § 4.2.1: it rejects
+/// percent escapes that would decode to NUL, to an ASCII control
+/// character, or to a separator (`/` or `\`), because decoding such an
+/// octet before segmentation would alias two distinct targets.
+///
+/// # Errors
+///
+/// Returns [`PathRejection::MalformedPercentEncoding`] when an escape is
+/// truncated or carries a non-hexadecimal digit,
+/// [`PathRejection::NulByte`] or
+/// [`PathRejection::ControlCharacter`] when the decoded octet is not
+/// admissible in a path, [`PathRejection::SeparatorAmbiguity`] when a
+/// decoded octet is a separator, and [`PathRejection::InvalidUtf8`] when
+/// the decoded octets do not form valid UTF-8.
 pub fn percent_decode(input: &str) -> Result<String, PathRejection> {
     let bytes = input.as_bytes();
     let mut result = Vec::with_capacity(bytes.len());

@@ -22,7 +22,8 @@
 //! Services may lower request-body ceilings but cannot raise the runtime hard
 //! ceiling (`max_request_body_bytes`).
 //!
-//! Compatibility adapters construct [`SharedRuntimeValues`] field-by-field
+//! Compatibility adapters construct
+//! [`crate::runtime_limits::SharedRuntimeValues`] field-by-field
 //! (via `From` impls next to their own config types) so no constant or
 //! constraint is duplicated. There is exactly one defaults table and one
 //! validation kernel.
@@ -126,24 +127,67 @@ pub const DEFAULT_MAX_ACTIVE_TUNNELS: usize = 64;
 /// Python, CLI, or FFI types appear here.
 #[derive(Debug, Clone)]
 pub struct SharedRuntimeValues {
+    /// Maximum concurrent connections. Must be greater than zero and at most
+    /// `Semaphore::MAX_PERMITS`.
     pub max_connections: usize,
+    /// Maximum concurrent file-stream responses. Must be greater than zero and
+    /// at most `Semaphore::MAX_PERMITS`.
     pub max_file_streams: usize,
+    /// Hard request-body ceiling in bytes. `0` rejects every request body;
+    /// values above [`MAX_REQUEST_BODY_BYTES`] (1 GiB) are rejected.
     pub max_request_body_bytes: u64,
+    /// Deadline for reading the request headers. Must be greater than zero and
+    /// no wider than `connection_total_timeout` when that total is enabled.
     pub header_read_timeout: Duration,
+    /// Deadline for a TLS handshake. Must be greater than zero. The direct H1
+    /// driver performs no handshake itself; the value is shared so direct and
+    /// compatibility construction reject the same values.
     pub tls_handshake_timeout: Duration,
+    /// Total lifetime of one connection, shared across keep-alive requests.
+    /// `Duration::ZERO` disables only this ceiling; every independent
+    /// timeout, admission, and shutdown bound stays active.
     pub connection_total_timeout: Duration,
+    /// Deadline for one service invocation. Must be greater than zero and no
+    /// wider than `connection_total_timeout` when that total is enabled.
     pub handler_timeout: Duration,
+    /// Total deadline for consuming the request body. Must be greater than
+    /// zero and no wider than `connection_total_timeout` when that total is
+    /// enabled.
     pub body_read_timeout: Duration,
+    /// Grace period for draining connections during shutdown. Must be greater
+    /// than zero.
     pub graceful_shutdown_timeout: Duration,
+    /// Read chunk size for file-streaming responses. Must be within
+    /// [`MIN_STREAM_CHUNK_SIZE`]..=[`MAX_STREAM_CHUNK_SIZE`].
     pub stream_chunk_size: usize,
+    /// HTTP/1 parser/read buffer ceiling in bytes. Must be at least
+    /// [`MIN_MAX_BUF_SIZE`] (Hyper's minimum). [`MAX_MAX_BUF_SIZE`] is legacy
+    /// guidance, not an enforced maximum.
     pub max_buf_size: usize,
+    /// Maximum request header field count. Must be greater than zero.
+    /// [`MAX_MAX_HEADERS`] is legacy guidance, not an enforced maximum.
     pub max_headers: usize,
+    /// Aggregate post-parse request-header name+value byte ceiling. Must be
+    /// within [`MIN_MAX_HEADER_BYTES`]..=[`MAX_MAX_HEADER_BYTES`].
     pub max_header_bytes: usize,
+    /// Maximum request-target length in bytes. Must be within
+    /// [`MIN_MAX_REQUEST_TARGET_BYTES`]..=[`MAX_MAX_REQUEST_TARGET_BYTES`].
     pub max_request_target_bytes: usize,
+    /// Maximum concurrent in-flight service executions. Must be greater than
+    /// zero and at most `Semaphore::MAX_PERMITS`.
     pub max_in_flight_requests: usize,
+    /// Keep-alive idle timeout; it resets on activity and is independent of
+    /// the total connection lifetime. Must be greater than zero.
     pub keep_alive_idle_timeout: Duration,
+    /// Maximum completed requests per connection. `None` disables the limit;
+    /// `Some(0)` is rejected because it would close the connection before the
+    /// first response.
     pub max_requests_per_connection: Option<u64>,
+    /// Deadline for response-write progress (no bytes written within the
+    /// window). Must be greater than zero.
     pub response_write_timeout: Duration,
+    /// Maximum concurrent active tunnels. Must be greater than zero and at
+    /// most `Semaphore::MAX_PERMITS`.
     pub max_active_tunnels: usize,
 }
 
@@ -176,7 +220,7 @@ impl Default for SharedRuntimeValues {
 /// One structured constraint violation.
 ///
 /// Adapters preserve actionable wording: `LimitsError` carries the triple
-/// directly; `ServerError::Config` renders it via [`Violation::to_string`].
+/// directly; `ServerError::Config` renders it via `Violation::to_string`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
     /// The field that failed validation.

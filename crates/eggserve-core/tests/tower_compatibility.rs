@@ -1,3 +1,10 @@
+//! Re-export check for the compatibility `http`-interop and Tower paths.
+//!
+//! Pins that the historical `eggserve_core::primitives::interop` and
+//! `eggserve_core::server::tower` paths still resolve to the single
+//! authority in `eggserve-server`, and that the adapter types are the same
+//! types the direct crate exports.
+
 #![cfg(feature = "tower")]
 
 use eggserve_core::primitives::interop::HttpRequestBody;

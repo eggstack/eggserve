@@ -31,3 +31,13 @@ The policy is enforced by `[workspace.lints.rust] unsafe_code = "deny"` in
 `Cargo.toml`, inherited by all seven workspace crates. The excluded Python crate
 declares the equivalent `unsafe_code = "deny"` lint locally because Cargo does
 not allow an excluded manifest to inherit workspace lints.
+
+The requirement that every approved `unsafe` block carry a `SAFETY` comment
+naming the invariant that makes it safe is now enforced mechanically as well:
+Plan 313 enabled `clippy::undocumented_unsafe_blocks` in
+`[workspace.lints.clippy]`. The lint fires only on code the compilation unit
+actually compiles, so the Windows boundary is checked where `#[cfg(windows)]`
+code is compiled — the `platform-compile` job's Windows leg in CI, and
+`cargo clippy -p eggserve-static --lib --target x86_64-pc-windows-msvc`
+locally. A block found outside the approved boundaries above is a finding to
+report, never a block to bless with a comment.

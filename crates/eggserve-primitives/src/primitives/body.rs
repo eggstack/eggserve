@@ -39,9 +39,13 @@ impl std::error::Error for BodySourceError {}
 /// The kind of body a response will carry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BodyKind {
+    /// No body bytes are sent.
     Empty,
+    /// The body is an in-memory byte buffer.
     Bytes,
+    /// The body is a whole file.
     FileFull,
+    /// The body is a byte range of a file.
     FileRange,
 }
 
@@ -60,17 +64,24 @@ pub enum BodySource {
     /// `len` is the file length; `BodySource::len()` returns the same value
     /// (the response length) for this variant.
     FileFull {
+        /// The resolver-opened file handle carried forward from path resolution.
         file: File,
+        /// The length of the file in bytes.
         len: u64,
+        /// The resolved media type of the file.
         mime: &'static str,
     },
     /// A byte range of a static file. `total_len` is the file length, while
     /// `range` describes the response slice; `BodySource::len()` returns
     /// `range.len()` (the response length), not `total_len`.
     FileRange {
+        /// The resolver-opened file handle carried forward from path resolution.
         file: File,
+        /// The byte range of the file this body carries.
         range: FileRange,
+        /// The length of the whole file in bytes.
         total_len: u64,
+        /// The resolved media type of the file.
         mime: &'static str,
     },
 }

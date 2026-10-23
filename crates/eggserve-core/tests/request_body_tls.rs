@@ -1,3 +1,9 @@
+//! Request-body handling over TLS.
+//!
+//! Covers a buffered `POST` body, a chunked TLS body, the 413 response for
+//! an exceeded body size, the body-read timeout, the reject policy's empty
+//! body, and the partial-body close behavior.
+
 #![cfg(feature = "tls")]
 
 use std::sync::Arc;

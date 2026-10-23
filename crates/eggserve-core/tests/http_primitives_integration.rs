@@ -1,3 +1,9 @@
+//! Live-server integration over the canonical `http` primitives.
+//!
+//! Drives a running static server with `hyper` request types instead of raw
+//! bytes, and checks the observable responses for live files, `HEAD`,
+//! missing paths, dotfiles, and directories without an index.
+
 use std::fs;
 
 use eggserve_core::policy::StaticPolicy;

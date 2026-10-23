@@ -1268,8 +1268,13 @@ impl PyMethod {
 // HttpVersion (canonical HTTP version)
 // ---------------------------------------------------------------------------
 
+// `PyHttpVersion` is deliberately `Clone` but not `Copy`: the
+// `from_py_object` derive generates a `.clone()` call on the extracted value,
+// and clippy's `clone_on_copy` rejects that generated call on a `Copy` type.
+// The trait is not needed by any caller, and dropping it keeps the derive's
+// expansion lint-clean without a blanket allow.
 #[pyclass(name = "HttpVersion", frozen, from_py_object)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct PyHttpVersion {
     inner: RustHttpVersion,
 }
@@ -1532,6 +1537,10 @@ struct PyCanonicalRequest {
 impl PyCanonicalRequest {
     #[new]
     #[pyo3(signature = (method, path, version="HTTP/1.1", headers=None, query=None, remote_addr=None, local_addr=None, scheme="http"))]
+    // The parameter list is the Python-visible constructor signature. Grouping
+    // the optional arguments into an options object would change that public
+    // API, so the arity is fixed and the lint is silenced at this one site.
+    #[allow(clippy::too_many_arguments)]
     fn py_new(
         method: &str,
         path: &str,

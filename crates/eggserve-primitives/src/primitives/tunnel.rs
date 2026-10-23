@@ -221,9 +221,19 @@ pub enum TunnelError {
     /// Handshake attempted to control runtime-owned framing.
     ForbiddenHeader(String),
     /// Too many handshake headers.
-    TooManyHeaders { count: usize, limit: usize },
+    TooManyHeaders {
+        /// The number of handshake headers supplied.
+        count: usize,
+        /// The configured maximum number of handshake headers.
+        limit: usize,
+    },
     /// Handshake headers too large.
-    TooLarge { bytes: usize, limit: usize },
+    TooLarge {
+        /// The aggregate number of handshake header bytes.
+        bytes: usize,
+        /// The configured maximum number of handshake header bytes.
+        limit: usize,
+    },
 }
 
 impl fmt::Display for TunnelError {

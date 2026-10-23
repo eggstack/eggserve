@@ -24,27 +24,57 @@ use crate::runtime_limits as rl;
 /// Allowed HTTP/1 request-target forms. Defaults preserve origin-form-only dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Http1RequestTargetMode {
+    /// Only origin-form targets (`/path?query`) are dispatched. An
+    /// absolute-form HTTP/1 target is rejected with `400` before the service
+    /// is invoked.
+    ///
+    /// CONNECT authority-form and asterisk-form targets are governed by their
+    /// own rules and are not affected by this mode.
     #[default]
     OriginOnly,
+    /// Origin-form and absolute-form HTTP/1 targets are both dispatched.
+    ///
+    /// An accepted absolute-form target is canonicalized from its scheme,
+    /// authority, and path/query; it still passes through the same
+    /// request-target and header-byte ceilings as an origin-form target. This
+    /// is the opt-in seam for a forward proxy.
     OriginOrAbsolute,
 }
 
 /// Owner of one configurable H1 runtime policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PolicyOwner {
+    /// EggServe enforces the corresponding deadline or ceiling.
     #[default]
     EggServe,
+    /// The embedder owns the corresponding deadline or ceiling. EggServe stops
+    /// enforcing it and the caller becomes responsible for the bound.
     External,
 }
 
 /// Explicit ownership for application-facing H1 deadlines and semantic ceilings.
+///
+/// Every field defaults to [`PolicyOwner::EggServe`], so the safe defaults
+/// are unchanged unless an embedder explicitly externalizes a bound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct H1PolicyOwnership {
+    /// Owner of the single-handler-invocation deadline
+    /// ([`RuntimeConfig::handler_timeout`]).
     pub handler_deadline: PolicyOwner,
+    /// Owner of the total request-body consumption deadline
+    /// ([`RuntimeConfig::body_read_timeout`]).
     pub request_body_deadline: PolicyOwner,
+    /// Owner of the keep-alive idle deadline
+    /// ([`RuntimeConfig::keep_alive_idle_timeout`]).
     pub keep_alive_idle_deadline: PolicyOwner,
+    /// Owner of the response-write no-progress deadline
+    /// ([`RuntimeConfig::response_write_timeout`]).
     pub response_write_progress_deadline: PolicyOwner,
+    /// Owner of the global request-body ceiling
+    /// ([`RuntimeConfig::max_request_body_bytes`]).
     pub global_request_body_ceiling: PolicyOwner,
+    /// Owner of the request-target length ceiling
+    /// ([`RuntimeConfig::max_request_target_bytes`]).
     pub request_target_ceiling: PolicyOwner,
 }
 
@@ -65,15 +95,26 @@ impl H1PolicyOwnership {
 /// Owner of bounded service and tunnel admission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AdmissionOwner {
+    /// EggServe enforces the corresponding admission gate and rejects with a
+    /// bounded runtime response when it is saturated.
     #[default]
     EggServe,
+    /// The embedder owns the corresponding admission gate. EggServe does not
+    /// take a permit and does not reject on saturation; the embedder is
+    /// responsible for bounding concurrent work.
     External,
 }
 
 /// Explicit owner for request-service and active-tunnel admission gates.
+///
+/// Both fields default to [`AdmissionOwner::EggServe`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AdmissionOwnership {
+    /// Owner of the in-flight `Service::call()` admission gate
+    /// ([`RuntimeConfig::max_in_flight_requests`]).
     pub service_calls: AdmissionOwner,
+    /// Owner of the active-tunnel admission gate
+    /// ([`RuntimeConfig::max_active_tunnels`]).
     pub tunnels: AdmissionOwner,
 }
 

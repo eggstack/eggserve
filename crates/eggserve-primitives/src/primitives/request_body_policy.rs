@@ -24,7 +24,10 @@ pub enum RequestBodyPolicy {
     ///
     /// `max_bytes` is the hard limit. Bodies exceeding this are rejected
     /// before service invocation.
-    Buffer { max_bytes: u64 },
+    Buffer {
+        /// The hard byte limit for the buffered body.
+        max_bytes: u64,
+    },
     /// Stream the request body in chunks.
     ///
     /// `max_bytes` is the cumulative decoded-size limit across all chunks.
@@ -34,7 +37,10 @@ pub enum RequestBodyPolicy {
     /// vs `Stream` behavioral difference — intentional, not a bug; chunked
     /// bodies without `Content-Length` are bounded only by `max_bytes` as
     /// the handler consumes them).
-    Stream { max_bytes: u64 },
+    Stream {
+        /// The cumulative decoded-size limit across all streamed chunks.
+        max_bytes: u64,
+    },
 }
 
 impl RequestBodyPolicy {

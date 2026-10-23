@@ -764,6 +764,59 @@ denial-of-service bound.
 `eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES` is now a re-export of
 the static authority's constant (same value, 4096).
 
+## Plan 316: Windows directory-buffer layout (patch-level behavior fix)
+
+`eggserve-static` owns the NT `FILE_ID_BOTH_DIR_INFO` record layout. Plan 316
+made that layout a single authority: the platform-neutral parser's constants
+were already correct, and the second definition — a hand-rolled FFI struct in
+`fs/windows.rs` — was wrong on every offset. The struct was deleted rather
+than realigned, and the two defects it had caused in `get_file_id` were fixed
+with it.
+
+### What changed
+
+- **`parse_directory_buffer(buf, 0)` now returns an empty vector.** It
+  previously returned one entry, because the entry budget was checked after
+  the first push. The budget is now honored as an upper bound on the number
+  of entries returned. For every `max_entries >= 1` the behavior is
+  bit-for-bit unchanged.
+- The public API shape is unchanged: `parse_directory_buffer`,
+  `DirectoryEntryRecord`, `DirectoryEntryKind`, and `DirBufParseError` keep
+  their signatures, variants, and meanings.
+- `get_file_id` now returns the stable 8-byte `FileId` instead of the low
+  half of `CreationTime`, and its buffer is sized from the real 104-byte
+  header. It has no production caller today, so no consumer sees a change
+  today — but it is now correct, and it is no longer a latent trap for the
+  first caller.
+
+### What is explicitly not a change
+
+- The Windows directory-listing path was **already** decoding real kernel
+  buffers correctly: `NtQueryDirectoryFile` feeds the platform-neutral parser
+  directly, and the parser's offsets were right. The committed fuzz corpus
+  was wrong, not the parser, which is why the corpus looked like it was
+  rejecting real listings.
+- The confinement boundary, the listing semantics, the dotfile and reparse
+  policies, and the response format are unchanged.
+
+This is a **patch** release event for `eggserve-static`.
+
+## Plans 313 and 315: lint policy and dependency consolidation (no migration required)
+
+Neither milestone changes observable behavior.
+
+- **Plan 313** enables `missing_docs` and `clippy::undocumented_unsafe_blocks`
+  in the root lint table and adds the doc comments and `SAFETY:` comments
+  they require. The doc comments are visible on docs.rs — a consumer reading
+  the published documentation sees more, not less. No public item was
+  removed, renamed, or made private, and no `unsafe` block's logic changed.
+- **Plan 315** moves shared dependency versions into a root
+  `[workspace.dependencies]` table. The published crates materialize the same
+  dependency requirements and the same feature sets, and all three lockfiles
+  are byte-identical before and after. A consumer's build is unchanged, and
+  the `rustls` `0.23.45` security floor (RUSTSEC-2026-0285) remains in force
+  in every constraining manifest.
+
 ## Breaking Change Policy
 
 Patch releases preserve stable source compatibility. Before 1.0, intentional

@@ -189,6 +189,7 @@ pub struct RequestShared {
 }
 
 impl RequestShared {
+    /// Creates shared state for a request whose body is still owned.
     pub fn new_active() -> Arc<Self> {
         Arc::new(Self {
             body_state: AtomicU8::new(BodyLifecycleState::Active as u8),
@@ -199,6 +200,7 @@ impl RequestShared {
         })
     }
 
+    /// Creates shared state for a request whose body is already complete.
     pub fn new_complete() -> Arc<Self> {
         Arc::new(Self {
             body_state: AtomicU8::new(BodyLifecycleState::Complete as u8),
@@ -209,18 +211,23 @@ impl RequestShared {
         })
     }
 
+    /// The current body ownership state.
     pub fn body_state(&self) -> BodyLifecycleState {
         BodyLifecycleState::from_u8(self.body_state.load(Ordering::Acquire))
     }
 
+    /// Returns `true` while the body is still owned (unread or streaming).
     pub fn is_body_active(&self) -> bool {
         self.body_state() == BodyLifecycleState::Active
     }
 
+    /// Returns `true` once the body was fully consumed and validated.
     pub fn is_body_complete(&self) -> bool {
         self.body_state() == BodyLifecycleState::Complete
     }
 
+    /// Returns `true` once the body reached any terminal state (complete,
+    /// abandoned, or failed).
     pub fn is_body_terminal(&self) -> bool {
         self.body_state() != BodyLifecycleState::Active
     }
@@ -306,10 +313,12 @@ impl RequestShared {
         }
     }
 
+    /// Returns `true` once cancellation has fired.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    /// The cancellation reason, when cancellation has fired.
     pub fn cancellation_reason(&self) -> Option<RequestCancellationReason> {
         self.reason.lock().ok().and_then(|g| *g)
     }
@@ -358,6 +367,7 @@ pub struct RequestLifecycle {
 }
 
 impl RequestLifecycle {
+    /// Creates an observer over the shared per-request state.
     pub fn from_shared(shared: Arc<RequestShared>) -> Self {
         Self { shared }
     }
@@ -388,6 +398,7 @@ impl RequestLifecycle {
         self.shared.is_body_active()
     }
 
+    /// The shared per-request state this observer reports on.
     #[allow(dead_code)]
     pub fn shared(&self) -> &Arc<RequestShared> {
         &self.shared

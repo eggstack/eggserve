@@ -6,48 +6,111 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Live, monotonically increasing runtime counters.
+///
+/// Every counter is a relaxed atomic; reads and writes never block and the
+/// values are advisory, not exact under concurrency. Counters belong to one
+/// runtime: an explicit [`super::OpsContext`] owns them, and the process-global
+/// set is only the compatibility default.
 #[derive(Debug)]
 pub struct OpsCounters {
+    /// Connections accepted by the listener and dispatched to a driver.
     pub connections_accepted: AtomicU64,
+    /// Connections dropped before dispatch because the connection limit was
+    /// saturated.
     pub connections_rejected: AtomicU64,
+    /// Connections currently being served.
     pub active_connections: AtomicU64,
+    /// File-stream responses currently in flight.
     pub active_file_streams: AtomicU64,
+    /// Service invocations currently in flight.
     pub active_service_requests: AtomicU64,
+    /// Connection tasks that ended because the connection panicked.
     pub connection_panics: AtomicU64,
+    /// Requests refused by the HTTP/1 parser.
     pub parser_rejects: AtomicU64,
+    /// Requests refused because the aggregate post-parse request-header byte
+    /// ceiling was exceeded.
     pub header_bytes_rejected: AtomicU64,
+    /// Requests refused because the request target exceeded its ceiling or
+    /// used an unsupported form.
     pub request_target_rejected: AtomicU64,
+    /// Service invocations refused because the in-flight request limit was
+    /// saturated.
     pub service_admission_rejected: AtomicU64,
+    /// Request bodies refused by the body policy or the body-size ceiling.
     pub body_rejections: AtomicU64,
+    /// Connections closed because the header-read deadline expired.
     pub header_timeouts: AtomicU64,
+    /// Request bodies that were not fully consumed before the body-read
+    /// deadline.
     pub body_read_timeouts: AtomicU64,
+    /// Keep-alive connections closed after the idle timeout elapsed.
     pub keepalive_idle_timeouts: AtomicU64,
+    /// Connections closed after reaching the per-connection request limit.
     pub max_requests_closes: AtomicU64,
+    /// Responses closed because no bytes were written within the
+    /// response-write no-progress deadline.
     pub write_stall_timeouts: AtomicU64,
+    /// Connections closed because the total connection lifetime expired.
     pub connection_total_timeouts: AtomicU64,
+    /// Shutdowns that drained every connection within the grace budget.
     pub graceful_shutdowns: AtomicU64,
+    /// Shutdowns that exceeded the drain budget and aborted the remaining
+    /// connections.
     pub forced_shutdowns: AtomicU64,
+    /// Accept-loop errors classified by the accept-error authority.
     pub listener_errors: AtomicU64,
+    /// Events that could not be delivered, either because a sink panicked or
+    /// because the owning sink filtered them out.
     pub dropped_log_events: AtomicU64,
+    /// Streaming responses that started producing body chunks.
     pub streaming_started: AtomicU64,
+    /// Streaming responses that produced their full body and finished
+    /// normally.
     pub streaming_completed: AtomicU64,
+    /// Streaming responses whose declared length did not match the number of
+    /// bytes emitted.
     pub stream_length_mismatches: AtomicU64,
+    /// Streaming producers that failed with an error.
     pub stream_producer_errors: AtomicU64,
+    /// Streaming producers that panicked; the panic was contained at the
+    /// stream boundary.
     pub stream_producer_panics: AtomicU64,
+    /// Streaming responses dropped before completion, for example after a
+    /// client disconnect or a shutdown.
     pub stream_cancelled: AtomicU64,
+    /// Request bodies handed to the service after the response had already
+    /// started (deferred body ownership).
     pub deferred_bodies_delegated: AtomicU64,
+    /// Deferred bodies that reached a complete terminal state.
     pub deferred_bodies_completed: AtomicU64,
+    /// Deferred bodies that were abandoned or failed after the response
+    /// started.
     pub deferred_bodies_abandoned: AtomicU64,
+    /// Deferred bodies that hit the body-read deadline.
     pub deferred_body_timeouts: AtomicU64,
+    /// Requests cancelled because the peer disconnected.
     pub lifecycle_peer_disconnects: AtomicU64,
+    /// Requests cancelled by the runtime, for example by a shutdown or a
+    /// connection timeout.
     pub lifecycle_runtime_cancels: AtomicU64,
+    /// Tunnel handshakes that were admitted and upgraded.
     pub tunnels_accepted: AtomicU64,
+    /// Tunnel handshakes refused because the active-tunnel limit was
+    /// saturated.
     pub tunnels_rejected: AtomicU64,
+    /// Tunnels currently active.
     pub active_tunnels: AtomicU64,
+    /// Tunnel transport upgrades that were unavailable or failed.
     pub tunnel_upgrade_failures: AtomicU64,
+    /// Connections whose PROXY protocol preamble was accepted.
     pub proxy_accepted: AtomicU64,
+    /// Connections whose PROXY protocol preamble was rejected.
     pub proxy_rejected: AtomicU64,
+    /// Requests whose forwarded metadata was accepted from a trusted peer.
     pub forwarded_accepted: AtomicU64,
+    /// Requests whose forwarded metadata was rejected.
     pub forwarded_rejected: AtomicU64,
 }
 
@@ -58,6 +121,7 @@ impl Default for OpsCounters {
 }
 
 impl OpsCounters {
+    /// Create a counter set with every counter at zero.
     pub fn new() -> Self {
         Self {
             connections_accepted: AtomicU64::new(0),
@@ -104,6 +168,10 @@ impl OpsCounters {
         }
     }
 
+    /// Read every counter into a plain snapshot.
+    ///
+    /// The read never resets the counters and is not atomic across them: the
+    /// snapshot may mix values observed at slightly different instants.
     pub fn snapshot(&self) -> OpsSnapshot {
         OpsSnapshot {
             connections_accepted: self.connections_accepted.load(Ordering::Relaxed),
@@ -151,48 +219,110 @@ impl OpsCounters {
     }
 }
 
+/// A point-in-time read of one runtime's counters.
+///
+/// Each field mirrors the identically named counter on [`OpsCounters`]. The
+/// snapshot is a plain value: reading it never resets the underlying
+/// counters and never blocks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpsSnapshot {
+    /// Connections accepted by the listener and dispatched to a driver.
     pub connections_accepted: u64,
+    /// Connections dropped before dispatch because the connection limit was
+    /// saturated.
     pub connections_rejected: u64,
+    /// Connections currently being served.
     pub active_connections: u64,
+    /// File-stream responses currently in flight.
     pub active_file_streams: u64,
+    /// Service invocations currently in flight.
     pub active_service_requests: u64,
+    /// Connection tasks that ended because the connection panicked.
     pub connection_panics: u64,
+    /// Requests refused by the HTTP/1 parser.
     pub parser_rejects: u64,
+    /// Requests refused because the aggregate post-parse request-header byte
+    /// ceiling was exceeded.
     pub header_bytes_rejected: u64,
+    /// Requests refused because the request target exceeded its ceiling or
+    /// used an unsupported form.
     pub request_target_rejected: u64,
+    /// Service invocations refused because the in-flight request limit was
+    /// saturated.
     pub service_admission_rejected: u64,
+    /// Request bodies refused by the body policy or the body-size ceiling.
     pub body_rejections: u64,
+    /// Connections closed because the header-read deadline expired.
     pub header_timeouts: u64,
+    /// Request bodies that were not fully consumed before the body-read
+    /// deadline.
     pub body_read_timeouts: u64,
+    /// Keep-alive connections closed after the idle timeout elapsed.
     pub keepalive_idle_timeouts: u64,
+    /// Connections closed after reaching the per-connection request limit.
     pub max_requests_closes: u64,
+    /// Responses closed because no bytes were written within the
+    /// response-write no-progress deadline.
     pub write_stall_timeouts: u64,
+    /// Connections closed because the total connection lifetime expired.
     pub connection_total_timeouts: u64,
+    /// Shutdowns that drained every connection within the grace budget.
     pub graceful_shutdowns: u64,
+    /// Shutdowns that exceeded the drain budget and aborted the remaining
+    /// connections.
     pub forced_shutdowns: u64,
+    /// Accept-loop errors classified by the accept-error authority.
     pub listener_errors: u64,
+    /// Events that could not be delivered, either because a sink panicked or
+    /// because the owning sink filtered them out.
     pub dropped_log_events: u64,
+    /// Streaming responses that started producing body chunks.
     pub streaming_started: u64,
+    /// Streaming responses that produced their full body and finished
+    /// normally.
     pub streaming_completed: u64,
+    /// Streaming responses whose declared length did not match the number of
+    /// bytes emitted.
     pub stream_length_mismatches: u64,
+    /// Streaming producers that failed with an error.
     pub stream_producer_errors: u64,
+    /// Streaming producers that panicked; the panic was contained at the
+    /// stream boundary.
     pub stream_producer_panics: u64,
+    /// Streaming responses dropped before completion, for example after a
+    /// client disconnect or a shutdown.
     pub stream_cancelled: u64,
+    /// Request bodies handed to the service after the response had already
+    /// started (deferred body ownership).
     pub deferred_bodies_delegated: u64,
+    /// Deferred bodies that reached a complete terminal state.
     pub deferred_bodies_completed: u64,
+    /// Deferred bodies that were abandoned or failed after the response
+    /// started.
     pub deferred_bodies_abandoned: u64,
+    /// Deferred bodies that hit the body-read deadline.
     pub deferred_body_timeouts: u64,
+    /// Requests cancelled because the peer disconnected.
     pub lifecycle_peer_disconnects: u64,
+    /// Requests cancelled by the runtime, for example by a shutdown or a
+    /// connection timeout.
     pub lifecycle_runtime_cancels: u64,
+    /// Tunnel handshakes that were admitted and upgraded.
     pub tunnels_accepted: u64,
+    /// Tunnel handshakes refused because the active-tunnel limit was
+    /// saturated.
     pub tunnels_rejected: u64,
+    /// Tunnels currently active.
     pub active_tunnels: u64,
+    /// Tunnel transport upgrades that were unavailable or failed.
     pub tunnel_upgrade_failures: u64,
+    /// Connections whose PROXY protocol preamble was accepted.
     pub proxy_accepted: u64,
+    /// Connections whose PROXY protocol preamble was rejected.
     pub proxy_rejected: u64,
+    /// Requests whose forwarded metadata was accepted from a trusted peer.
     pub forwarded_accepted: u64,
+    /// Requests whose forwarded metadata was rejected.
     pub forwarded_rejected: u64,
 }
 

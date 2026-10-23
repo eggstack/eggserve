@@ -27,11 +27,15 @@ pub use crate::runtime_limits::{
 /// all read the same constant instead of drifting apart. The value is
 /// unchanged (4096).
 pub use eggserve_static::DEFAULT_MAX_LISTING_ENTRIES;
+/// Upper bound for the rendered size of a directory-listing response body,
+/// in bytes (10 MiB).
 pub const MAX_LISTING_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 /// Upper bound for `max_listing_entries`. This is an entry count, not a
 /// byte size; it numerically matches the historical acceptance range.
 pub const MAX_LISTING_ENTRIES: usize = 10 * 1024 * 1024;
+/// Default maximum number of extra response headers per response.
 pub const DEFAULT_MAX_EXTRA_HEADERS: usize = 32;
+/// Default maximum combined name and value bytes for extra response headers.
 pub const DEFAULT_MAX_EXTRA_HEADER_BYTES: usize = 8 * 1024;
 
 /// Error returned when a [`Limits`] field violates its constraint.
@@ -57,21 +61,41 @@ impl fmt::Display for LimitsError {
 
 impl std::error::Error for LimitsError {}
 
+/// Resource limits for connections, streams, and request sizes.
+///
+/// Every field is a ceiling the runtime enforces, not an advisory value.
+/// [`Limits::validate`] checks each field against the canonical runtime
+/// constraints and returns one [`LimitsError`] per violation, so an invalid
+/// configuration is rejected before a listener is activated.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Limits {
+    /// Maximum concurrent connections. Must be greater than zero and no
+    /// greater than the semaphore's permit count. Default: 64.
     pub max_connections: usize,
+    /// Maximum concurrent file-stream responses. Must be greater than zero
+    /// and no greater than the semaphore's permit count. Default: 32.
     pub max_file_streams: usize,
     pub(crate) max_request_body_bytes: u64,
+    /// Deadline for reading the request headers. Must be greater than zero
+    /// and no wider than `connection_total_timeout` when that total is
+    /// enabled. Default: 10s.
     pub header_read_timeout: Duration,
     /// Timeout for a TLS handshake. Default: 10s.
     pub tls_handshake_timeout: Duration,
+    /// Total lifetime of one connection, shared across keep-alive requests.
+    /// Must be no narrower than the header, handler, and body-read
+    /// deadlines. [`Duration::ZERO`] disables only this ceiling; every
+    /// independent timeout, admission, and shutdown bound stays active.
+    /// Default: 60s.
     pub connection_total_timeout: Duration,
     /// Timeout for a single handler invocation. Default: 30s.
     pub handler_timeout: Duration,
     /// Timeout for reading the request body (total deadline, not idle).
     /// Default: 30s.
     pub body_read_timeout: Duration,
+    /// Grace period for draining connections during shutdown. Must be
+    /// greater than zero. Default: 10s.
     pub graceful_shutdown_timeout: Duration,
     /// Maximum number of entries to enumerate in a directory listing.
     pub max_listing_entries: usize,

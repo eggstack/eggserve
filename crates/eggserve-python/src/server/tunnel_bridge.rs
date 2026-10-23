@@ -235,10 +235,16 @@ impl PyTunnelCapability {
     }
 }
 
+/// The Python-facing receive half of a tunnel.
+///
+/// Factored out of the `PyTunnel` field so the type reads as a name instead of
+/// a nested generic.
+pub(super) type PyTunnelRx =
+    Arc<std::sync::Mutex<Option<mpsc::Receiver<Result<Vec<u8>, String>>>>>;
+
 #[pyclass(frozen, name = "Tunnel")]
 pub struct PyTunnel {
-    to_python_rx:
-        Arc<std::sync::Mutex<Option<mpsc::Receiver<Result<Vec<u8>, String>>>>>,
+    to_python_rx: PyTunnelRx,
     pub(super) to_runtime_tx: Arc<std::sync::Mutex<Option<mpsc::Sender<Vec<u8>>>>>,
     pub(super) lifecycle: Option<eggserve_primitives::request_lifecycle::RequestLifecycle>,
     pub(super) handle: Option<tokio::runtime::Handle>,

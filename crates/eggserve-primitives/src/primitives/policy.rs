@@ -9,8 +9,10 @@
 /// Default: `Disabled`. Directories without an index file return 403.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DirectoryListingPolicy {
+    /// Do not generate listings; a directory without an index file is refused.
     #[default]
     Disabled,
+    /// Generate a listing for a directory that has no index file.
     Enabled,
 }
 
@@ -20,8 +22,10 @@ pub enum DirectoryListingPolicy {
 /// descriptor-relative traversal (`openat` with `O_NOFOLLOW` on Unix).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SymlinkPolicy {
+    /// Refuse symbolic links during path resolution.
     #[default]
     Denied,
+    /// Follow symbolic links during path resolution.
     Follow,
 }
 
@@ -31,8 +35,10 @@ pub enum SymlinkPolicy {
 /// Default: `Denied`. Dotfiles return 403.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DotfilePolicy {
+    /// Refuse paths with a dot-prefixed component.
     #[default]
     Denied,
+    /// Serve paths with a dot-prefixed component.
     Serve,
 }
 
@@ -110,8 +116,12 @@ pub enum ErrorRepresentationPolicy {
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct StaticPolicy {
+    /// Whether directory listings are generated for directories without an
+    /// index file.
     pub directory_listing: DirectoryListingPolicy,
+    /// Whether symbolic links are followed during path resolution.
     pub symlinks: SymlinkPolicy,
+    /// Whether dot-prefixed path components are served.
     pub dotfiles: DotfilePolicy,
     /// Static validator emission policy. Default: emit both `ETag` and
     /// `Last-Modified`.
@@ -125,6 +135,8 @@ impl Default for StaticPolicy {
 }
 
 impl StaticPolicy {
+    /// The most restrictive policy: no directory listing, no symlink
+    /// following, no dotfiles, and both static validators emitted.
     pub fn safe_default() -> Self {
         Self {
             directory_listing: DirectoryListingPolicy::Disabled,

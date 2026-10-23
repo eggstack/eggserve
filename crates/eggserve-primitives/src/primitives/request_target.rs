@@ -63,7 +63,9 @@ pub struct RequestTarget {
 /// The accepted request-target syntax at the HTTP boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestTargetForm {
+    /// The origin form: a path, optionally with a query string.
     Origin,
+    /// The absolute form: a scheme, authority, path, and optional query.
     Absolute,
 }
 

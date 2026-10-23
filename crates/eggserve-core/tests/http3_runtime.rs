@@ -1,3 +1,11 @@
+//! HTTP/3 (QUIC) runtime behavior through the experimental `eggserve-h3`
+//! adapter.
+//!
+//! Covers UDP/TCP same-port binding, the QUIC identity precondition, the
+//! bounded stream-scoped reject presence probe, peer-close cancellation of
+//! the detached request lifecycle, early error isolation between streams,
+//! and shutdown waking outstanding lifecycle waiters.
+
 #![cfg(feature = "http3")]
 
 use std::net::SocketAddr;

@@ -1,7 +1,8 @@
 //! Final-boundary response privacy policy (Plan 215: moved from compatibility core).
 //!
-//! [`ResponsePolicy`] makes origin-response metadata explicit so a caller can
-//! minimize gratuitous server/host fingerprint signals without bypassing
+//! [`crate::response_policy::ResponsePolicy`] makes origin-response metadata
+//! explicit so a caller can minimize gratuitous server/host fingerprint signals
+//! without bypassing
 //! canonical HTTP framing.
 //!
 //! This does **not** make a server un-fingerprintable. Parser behavior,
@@ -19,7 +20,8 @@
 //!
 //! Normal defaults remain RFC-compatible and preserve the current one-`Date`
 //! behavior. The anonymity-sensitive profile composes stricter settings from
-//! ordinary config fields; see [`ResponsePolicy::minimal_fingerprint`] and
+//! ordinary config fields; see
+//! [`crate::response_policy::ResponsePolicy::minimal_fingerprint`] and
 //! `docs/deployment.md`.
 //!
 //! `eggserve_core::server::response_policy` re-exports this module during the

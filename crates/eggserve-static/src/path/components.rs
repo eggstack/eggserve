@@ -3,6 +3,20 @@ use super::platform;
 use super::policy::PathPolicy;
 use super::rejected::PathRejection;
 
+/// Validates every path component against the confinement rules.
+///
+/// This is the defense-in-depth boundary of the path layer: it rejects
+/// empty components, NUL bytes, ASCII control characters, embedded
+/// separators, `.` and `..` segments, dotfiles (per the policy), and
+/// platform-specific hazards such as Windows drive prefixes, reserved
+/// device names, and alternate data stream syntax. A second percent
+/// decode is attempted on components that still contain `%` so that a
+/// double-encoded dot segment cannot slip through.
+///
+/// # Errors
+///
+/// Returns the first [`PathRejection`] the component violates; `Ok(())`
+/// when every component is admissible.
 pub fn validate_components(
     components: &[String],
     policy: &PathPolicy,
@@ -65,6 +79,12 @@ pub fn validate_components(
     Ok(())
 }
 
+/// Splits a path into its non-empty components.
+///
+/// Empty segments (from a leading, trailing, or doubled `/`) are dropped
+/// rather than rejected, so the result never contains an empty component.
+/// The components are not validated; call [`validate_components`] on the
+/// result before resolving or consuming it.
 pub fn split_components(path: &str) -> Vec<String> {
     path.split('/')
         .filter(|s| !s.is_empty())

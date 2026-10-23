@@ -1,3 +1,10 @@
+//! Interaction between the handler, body-read, and shutdown deadlines.
+//!
+//! Checks which deadline wins when the handler timeout and the body-read
+//! timeout overlap, that graceful shutdown waits for body completion, that a
+//! forced shutdown interrupts body ingestion, and that the server keeps
+//! serving after a body timeout.
+
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

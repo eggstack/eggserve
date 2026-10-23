@@ -1,3 +1,9 @@
+//! Static-service integration over the canonical request/response types.
+//!
+//! Exercises the compatibility static service in process: live files,
+//! `HEAD`, missing paths, denied dotfiles, symlink handling under the safe
+//! default, and the listing and range responses.
+
 use std::fs;
 
 mod common;

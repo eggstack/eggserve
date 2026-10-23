@@ -1,3 +1,11 @@
+//! Request-body policy integration over the live server.
+//!
+//! Covers buffered bodies, the reject policy's empty body, the 413 responses
+//! for an exceeded or over-declared body size, an empty `POST` with
+//! `Content-Length: 0`, a `GET` carrying a body, chunked streaming bodies,
+//! the static service's pre-dispatch body rejection, and the body-read
+//! timeout.
+
 use std::sync::Arc;
 use std::time::Duration;
 

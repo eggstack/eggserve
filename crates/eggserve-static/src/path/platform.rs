@@ -1,5 +1,17 @@
 use super::rejected::PathRejection;
 
+/// Validates a single path component against the platform hazards.
+///
+/// The checks are applied on every platform, not only on Windows, so that
+/// a request crafted against one platform cannot alias a name on another.
+///
+/// # Errors
+///
+/// Returns [`PathRejection::WindowsPrefixDenied`] for a Windows drive
+/// prefix, [`PathRejection::WindowsAlternateStreamDenied`] for alternate
+/// data stream syntax, and [`PathRejection::WindowsReservedNameDenied`]
+/// for a reserved device name or a trailing dot or space; otherwise
+/// `Ok(())`.
 pub fn check_component(component: &str) -> Result<(), PathRejection> {
     if has_windows_drive_prefix(component) {
         return Err(PathRejection::WindowsPrefixDenied);
@@ -22,6 +34,10 @@ pub fn check_component(component: &str) -> Result<(), PathRejection> {
     Ok(())
 }
 
+/// Returns `true` when the component starts with a Windows drive prefix.
+///
+/// A drive prefix is a single ASCII alphabetic character followed by `:`.
+/// The check is textual and platform-independent.
 pub fn has_windows_drive_prefix(component: &str) -> bool {
     let bytes = component.as_bytes();
     if bytes.len() < 2 {
@@ -30,6 +46,12 @@ pub fn has_windows_drive_prefix(component: &str) -> bool {
     bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
+/// Returns `true` when the component names a Windows reserved device.
+///
+/// The comparison is case-insensitive and applies to the base name before
+/// the first `.` extension, with trailing dots and spaces stripped the way
+/// Windows strips them during name resolution. The reserved set is `CON`,
+/// `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, and `LPT1`–`LPT9`.
 pub fn is_windows_reserved_name(component: &str) -> bool {
     let base = component.split('.').next().unwrap_or("");
     let name = strip_trailing_dots(base);

@@ -212,6 +212,57 @@ No new crate. No dependency added or removed.
 - `python-bindings-internal` must be linted with the same strictness as
   the default feature set.
 
+- **Recorded material deviation (resolved).** This plan named the second lint
+  `undocumented_unsafe_blocks` and stated that it "is never enabled". There is
+  no lint by that name: neither `rustc` nor `rustdoc` knows it, and on the
+  current toolchain (1.99.1) both reject it as an unknown lint.
+
+  ```
+  $ rustc --crate-type lib -W undocumented_unsafe_blocks test.rs
+  warning[E0602]: unknown lint: `undocumented_unsafe_blocks`
+  $ rustdoc --crate-type lib -W rustdoc::undocumented_unsafe_blocks test.rs
+  warning[E0602]: unknown lint: `rustdoc::undocumented_unsafe_blocks`
+  ```
+
+  The lint that actually enforces the policy is the **clippy** lint
+  `clippy::undocumented_unsafe_blocks`, a restriction lint that requires a
+  safety comment on the line preceding each `unsafe` block:
+
+  ```
+  warning: unsafe block missing a safety comment
+   --> src/lib.rs:1:41
+    |
+  1 | pub unsafe fn f(p: *const i32) -> i32 { unsafe { *p } }
+    |                                         ^^^^^^^^^^^^^
+    = help: consider adding a safety comment on the preceding line
+  ```
+
+  It therefore belongs in `[workspace.lints.clippy]`, not
+  `[workspace.lints.rust]`, and it is enforced by the clippy invocation
+  rather than by `rustdoc`. The requirement is unchanged; only the lint's
+  identity and its enforcing tool differ from what this plan assumed.
+
+  Two consequences follow, and both change the shape of the work:
+
+  1. The lint only fires on code the compilation unit actually compiles. On
+     Linux the only compiled `unsafe` blocks are the two systemd
+     descriptor-adoption blocks in
+     `crates/eggserve-core/src/server/listener.rs` (both already carry a
+     `SAFETY:` comment). The **35** Windows FFI blocks in
+     `crates/eggserve-static/src/fs/windows.rs` are behind `#[cfg(windows)]`
+     and never compile on Linux, so on Linux the lint would cover 2 of the
+     repository's 37 unsafe blocks. Enforcing the policy therefore requires
+     a clippy lane that compiles the Windows confinement code — the
+     `platform-compile` job's Windows leg from Plan 312 is the natural home.
+  2. `clippy::missing_safety_doc` (warn by default) additionally requires a
+     `# Safety` section on every **public** `unsafe` function. That lint
+     already applies today, so the remediation must not regress it.
+
+  The clippy lint name is `clippy::undocumented_unsafe_blocks`; the bare name
+  in this plan resolves only inside clippy, and clippy itself warns that it
+  "is deprecated and may not have an effect in the future".
+
+
 ### Protocol and compatibility
 
 None. No wire or API behavior change.

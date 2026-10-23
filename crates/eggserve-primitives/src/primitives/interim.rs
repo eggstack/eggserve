@@ -120,9 +120,19 @@ pub enum InterimError {
     /// A runtime-owned framing field was supplied.
     ForbiddenHeader(String),
     /// Too many interim messages for this request.
-    TooMany { count: usize, limit: usize },
+    TooMany {
+        /// The number of interim messages already sent.
+        count: usize,
+        /// The configured maximum number of interim messages.
+        limit: usize,
+    },
     /// Aggregate interim header bytes exceed the limit.
-    TooLarge { bytes: usize, limit: usize },
+    TooLarge {
+        /// The aggregate number of interim header bytes.
+        bytes: usize,
+        /// The configured maximum number of interim header bytes.
+        limit: usize,
+    },
     /// Interim attempted after final commitment.
     AfterCommit,
     /// A second `100 Continue` was attempted through this capability.

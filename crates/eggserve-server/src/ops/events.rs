@@ -10,13 +10,24 @@ use std::borrow::Cow;
 use std::fmt;
 use std::time::SystemTime;
 
+/// Version of the event schema stamped into every [`Event`].
+///
+/// Bump this only when the shape or the semantics of an event changes in a
+/// way a consumer cannot already handle.
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// Severity of an event.
+///
+/// The ordering is by increasing severity, so a filter can compare with `>=`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum Severity {
+    /// Diagnostic detail that is normally filtered out.
     Debug,
+    /// Normal operational progress.
     Info,
+    /// A recoverable problem that an operator should notice.
     Warn,
+    /// A failure that ended an operation.
     Error,
 }
 
@@ -31,88 +42,183 @@ impl fmt::Display for Severity {
     }
 }
 
+/// The single event-kind vocabulary.
+///
+/// Every runtime event is labelled with one of these kinds; the kind is a
+/// stable, machine-readable classification that sinks and dashboards may
+/// switch on. The variants are grouped by the stage of the request lifecycle
+/// that produced them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventKind {
     // Process/Config
+    /// The runtime process is starting, before any listener is bound.
     ProcessStarting,
+    /// The serving root was resolved and initialized.
     RootInitialized,
+    /// A listener is bound and ready to accept connections.
     ListenerReady,
+    /// A shutdown was requested by the operator or supervisor.
     ShutdownRequested,
+    /// Draining of in-flight connections has begun.
     DrainingStarted,
+    /// The graceful drain budget expired; the remaining connections are being
+    /// aborted.
     ForcedShutdownStarted,
+    /// Shutdown finished; the message carries the terminal result.
     ShutdownComplete,
 
     // Connection
+    /// A connection was accepted and dispatched to a driver.
     ConnectionAccepted,
+    /// A connection was refused before dispatch, typically because the
+    /// connection limit was saturated.
     ConnectionRejected,
+    /// A TLS handshake completed successfully.
     TlsHandshakeSuccess,
+    /// A TLS handshake failed.
     TlsHandshakeFailure,
+    /// A TLS handshake exceeded its deadline.
     TlsHandshakeTimeout,
+    /// The application protocol for a connection was negotiated.
     ProtocolNegotiated,
+    /// A connection was closed because the header-read deadline expired.
     HeaderTimeout,
+    /// A request body was not consumed before the body-read deadline.
     BodyReadTimeout,
+    /// A request was refused by the HTTP parser.
     ParserRejection,
+    /// A request was refused because the aggregate post-parse request-header
+    /// byte ceiling was exceeded.
     HeaderBytesRejected,
+    /// A request was refused because the request target exceeded its ceiling.
     RequestTargetTooLong,
+    /// A service invocation was refused because the in-flight request limit
+    /// was saturated.
     ServiceAdmissionRejected,
+    /// A keep-alive connection was closed.
     KeepAliveClosed,
+    /// A keep-alive connection was closed after the idle timeout elapsed.
     KeepAliveIdleTimeout,
+    /// A connection was closed after reaching the per-connection request
+    /// limit.
     MaxRequestsClose,
+    /// A response was closed because no bytes were written within the
+    /// write-progress deadline.
     WriteStallTimeout,
+    /// A connection was closed because the total connection lifetime expired.
     ConnectionTotalTimeout,
+    /// The peer closed the connection.
     ClientDisconnect,
+    /// A connection task panicked.
     ConnectionPanic,
 
     // Request/Service
+    /// A request finished and its response was produced.
     RequestCompleted,
+    /// The requested path does not exist.
     FileNotFound,
+    /// The requested path was denied by the static serving policy.
     FileDenied,
+    /// The requested path could not be served because of an I/O error.
     FileError,
+    /// The requested path was denied because it names a dotfile.
     DotfileDenied,
+    /// The requested path was denied because it traverses or names a symlink.
     SymlinkDenied,
+    /// The requested path was denied because it resolved outside the serving
+    /// root.
     RootEscapeDenied,
+    /// The request body was refused by the body policy.
     BodyPolicyRejection,
+    /// The connection was closed because the request body was not fully read.
     IncompleteBodyClose,
+    /// The service was not invoked because the request was already answered
+    /// or its body was refused.
     ServiceInvocationSuppressed,
+    /// The service invocation exceeded its handler deadline.
     ServiceTimeout,
+    /// The service returned an error.
     ServiceError,
+    /// A directory listing was truncated at the configured entry or byte
+    /// budget.
     DirectoryListingLimit,
     // Streaming responses (Plan 162)
+    /// A streaming response started producing body chunks.
     ResponseStreamStarted,
+    /// A streaming response produced its full body.
     ResponseStreamCompleted,
+    /// A streaming response emitted a different number of bytes than it
+    /// declared.
     ResponseStreamLengthMismatch,
+    /// The streaming producer failed with an error.
     ResponseStreamProducerError,
+    /// The streaming producer panicked; the panic was contained at the stream
+    /// boundary.
     ResponseStreamProducerPanic,
+    /// A streaming response was dropped before completion.
     ResponseStreamCancelled,
     // Deferred request-body ownership + lifecycle (Plan 174)
+    /// The request body was handed to the service after the response had
+    /// already started.
     DeferredBodyDelegated,
+    /// A deferred body reached a complete terminal state.
     DeferredBodyCompleted,
+    /// A deferred body was abandoned or failed after the response started.
     DeferredBodyAbandoned,
+    /// A deferred body hit the body-read deadline.
     DeferredBodyTimeout,
+    /// An in-flight request was cancelled because the peer disconnected.
     RequestLifecyclePeerDisconnect,
+    /// An in-flight request was cancelled by the runtime, for example by a
+    /// shutdown or a connection timeout.
     RequestLifecycleRuntimeCancel,
     // Trailers + interim responses (Plan 198)
+    /// The request's trailer fields were refused.
     RequestTrailerRejected,
+    /// The response's trailer fields were suppressed.
     ResponseTrailerSuppressed,
+    /// An interim (1xx) response was sent to the client.
     InterimSent,
+    /// An interim (1xx) response was refused.
     InterimRejected,
+    /// The request's `Expect` header could not be satisfied.
     ExpectationFailed,
     // Generic tunnel / upgrade (Plan 199)
+    /// A tunnel handshake was admitted and upgraded.
     TunnelAccepted,
+    /// A tunnel handshake was refused, typically because the active-tunnel
+    /// limit was saturated.
     TunnelRejected,
+    /// A tunnel session ended.
     TunnelClosed,
+    /// The tunnel transport upgrade was unavailable or failed.
     TunnelUpgradeFailed,
     // Trusted proxy metadata (Plan 202)
+    /// A PROXY protocol preamble was accepted from a trusted peer.
     ProxyProtocolAccepted,
+    /// A PROXY protocol preamble was rejected.
     ProxyProtocolRejected,
+    /// Forwarded metadata was accepted from a trusted peer.
     ForwardedMetadataAccepted,
+    /// Forwarded metadata was rejected.
     ForwardedMetadataRejected,
 
     // Operational
+    /// The listener hit a recoverable accept error.
     ListenerTransientError,
+    /// The listener hit an accept error that repeated or could not be
+    /// recovered from.
     ListenerPersistentError,
+    /// The runtime could not obtain the resources a connection needs.
     ResourceExhaustion,
+    /// The blocking-worker pool is saturated.
     BlockingWorkerSaturation,
+    /// A log sink failed while handling an event.
+    ///
+    /// Reserved kind: it is deliberately not emitted today, because
+    /// reporting a sink failure through a logger would re-enter the same
+    /// failing sink. Sink failures are counted in the `dropped_log_events`
+    /// counter instead.
     LogSinkFailure,
 }
 
@@ -196,11 +302,18 @@ impl fmt::Display for EventKind {
     }
 }
 
+/// One structured key/value field carried by an [`Event`].
+///
+/// The first member is the field name; the second is its value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Field {
+    /// A boolean field.
     Bool(String, bool),
+    /// A signed integer field.
     I64(String, i64),
+    /// An unsigned integer field.
     U64(String, u64),
+    /// A string field. Its value is escaped when rendered as JSON.
     Str(String, String),
 }
 
@@ -215,19 +328,38 @@ impl fmt::Display for Field {
     }
 }
 
+/// One runtime event.
+///
+/// Build an event with [`Event::new`] and attach correlation data with
+/// [`Event::connection_id`], [`Event::request_seq`], and [`Event::field`].
 #[derive(Debug, Clone)]
 pub struct Event {
+    /// Schema version this event was produced under; always
+    /// [`SCHEMA_VERSION`] for events built by this crate.
     pub schema_version: u32,
+    /// Severity of the event.
     pub severity: Severity,
+    /// The machine-readable classification of what happened.
     pub event: EventKind,
+    /// UTC timestamp in RFC 3339 form with millisecond precision.
     pub timestamp: String,
+    /// Human-readable description of what happened.
     pub message: String,
+    /// Correlation ID of the connection this event belongs to, when the
+    /// event is connection-scoped.
     pub connection_id: Option<u64>,
+    /// Per-connection request sequence number, when the event is
+    /// request-scoped.
     pub request_seq: Option<u32>,
+    /// Structured key/value fields carrying additional structured detail.
     pub fields: Vec<Field>,
 }
 
 impl Event {
+    /// Create an event with the current timestamp and no correlation data.
+    ///
+    /// The schema version is stamped with [`SCHEMA_VERSION`] and the
+    /// timestamp is the current UTC time in RFC 3339 form.
     pub fn new(severity: Severity, event: EventKind, message: impl Into<String>) -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
@@ -241,16 +373,19 @@ impl Event {
         }
     }
 
+    /// Append one structured field and return the event.
     pub fn field(mut self, field: Field) -> Self {
         self.fields.push(field);
         self
     }
 
+    /// Set the connection correlation ID and return the event.
     pub fn connection_id(mut self, id: u64) -> Self {
         self.connection_id = Some(id);
         self
     }
 
+    /// Set the per-connection request sequence number and return the event.
     pub fn request_seq(mut self, seq: u32) -> Self {
         self.request_seq = Some(seq);
         self
@@ -290,6 +425,11 @@ fn days_to_civil(days: u64) -> (u64, u64, u64) {
     (y, m, d)
 }
 
+/// Reduce free-form text to a bounded, printable field value.
+///
+/// Every character outside printable ASCII (`0x20..=0x7E`) is dropped, which
+/// removes control characters and DEL. The result is truncated to 512
+/// characters.
 pub fn sanitize_text_field(text: &str) -> String {
     let filtered: String = text
         .chars()
@@ -306,6 +446,11 @@ pub fn sanitize_text_field(text: &str) -> String {
     truncate_str(&filtered, 512).into_owned()
 }
 
+/// Reduce a request path to a bounded, printable last-component field value.
+///
+/// The query string is discarded, only the final path component is kept, and
+/// every character outside printable ASCII is dropped. The result is truncated
+/// to 127 characters.
 pub fn sanitize_path(path: &str) -> String {
     let without_query = path.split('?').next().unwrap_or(path);
     let last_component = without_query
@@ -325,6 +470,12 @@ pub fn sanitize_path(path: &str) -> String {
     truncate_str(&sanitized, 127).into_owned()
 }
 
+/// Truncate `text` to at most `max_len` characters.
+///
+/// The limit counts characters, not bytes. When the text is longer than the
+/// limit, the retained prefix is returned with a `…` sentinel appended, so
+/// the result is one character longer than `max_len`. Shorter text is
+/// borrowed unchanged.
 pub fn truncate(text: &str, max_len: usize) -> Cow<'_, str> {
     truncate_str(text, max_len)
 }
@@ -339,6 +490,12 @@ fn truncate_str(text: &str, max_len: usize) -> Cow<'_, str> {
     }
 }
 
+/// Render one event as a JSON object.
+///
+/// The output matches the documented event schema: the schema version,
+/// severity, event kind, timestamp, and message are always present, the
+/// correlation fields appear only when they are set, and the structured
+/// fields are rendered as a `fields` array. String values are escaped.
 pub fn event_to_json(event: &Event) -> String {
     use std::fmt::Write;
 

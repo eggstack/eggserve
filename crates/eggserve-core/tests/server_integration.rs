@@ -1,3 +1,12 @@
+//! Runtime integration for the compatibility server pipeline.
+//!
+//! Covers static-root validation at build time, the 500 response for a
+//! panicking service and the 504 for a slow one, malformed-request
+//! rejection before the service runs, custom-service bytes through the
+//! pipeline, file-stream permit saturation mapping to 503 and recovering,
+//! permit release on client disconnect, hop-by-hop header stripping, and
+//! connection-metadata propagation to the service.
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

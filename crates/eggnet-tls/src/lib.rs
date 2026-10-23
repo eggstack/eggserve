@@ -37,25 +37,45 @@ pub const MAX_IDENTITY_CHAIN: usize = 8;
 /// Maximum PEM bytes accepted for trust-root/CRL parsing (1 MiB).
 pub const MAX_TRUST_PEM_BYTES: usize = 1024 * 1024;
 
+/// Errors from TLS identity, trust, and ALPN configuration.
 #[derive(Debug)]
 pub enum TlsError {
+    /// The certificate file could not be opened.
     CertFileNotFound(String),
+    /// The private key file could not be opened.
     KeyFileNotFound(String),
+    /// The certificate file could not be parsed as PEM.
     CertReadError(String),
+    /// The private key file could not be parsed as PEM.
     KeyReadError(String),
+    /// The certificate material contained no usable certificate.
     NoCertificatesFound,
+    /// The key material contained no usable private key.
     NoPrivateKeyFound,
+    /// The key material contained more than one private key; exactly one is
+    /// required.
     MultiplePrivateKeysFound,
+    /// The private key was malformed or did not match the certificate chain.
     InvalidKey(String),
+    /// The SNI identity name was malformed.
     InvalidSniName(String),
+    /// The same SNI identity name was configured more than once.
     DuplicateIdentity(String),
+    /// More SNI identities than [`MAX_TLS_IDENTITIES`] were configured.
     TooManyIdentities,
+    /// No SNI identity was configured.
     NoIdentities,
+    /// The trust anchors were malformed or not usable as trust anchors.
     InvalidTrustRoots(String),
+    /// More trust anchors than [`MAX_TRUST_ROOTS`] were supplied.
     TooManyTrustRoots,
+    /// The certificate revocation list was malformed.
     InvalidCrl(String),
+    /// More CRLs than [`MAX_CRLS`] were supplied.
     TooManyCrls,
+    /// Client authentication was requested without any trust anchor.
     TrustRootsRequired,
+    /// The ALPN advertisement was malformed or out of bounds.
     InvalidAlpn(String),
 }
 

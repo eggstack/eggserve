@@ -8,8 +8,9 @@
 //!
 //! [`serve_http1_connection`] is the canonical caller-owned driver: the
 //! caller supplies an already-established bidirectional async byte stream, a
-//! canonical [`Service`](crate::service::Service), a [`ConnectionContext`],
-//! shared [`RuntimeState`](crate::runtime::RuntimeState) admission, and a
+//! canonical [`crate::service::Service`], a
+//! [`crate::connection::ConnectionContext`], shared
+//! [`crate::runtime::RuntimeState`] admission, and a
 //! [`ConnectionShutdown`] token. EggServe supplies HTTP/1 parsing, request
 //! conversion, body policy, service dispatch, response
 //! normalization/framing, timeouts, and closure semantics. The TCP `Server`

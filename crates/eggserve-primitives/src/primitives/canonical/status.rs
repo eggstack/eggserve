@@ -21,7 +21,12 @@ pub enum ResponseConstructionError {
     /// The response body was already consumed.
     BodyAlreadyConsumed,
     /// The content-length header does not match the actual body length.
-    ContentLengthMismatch { declared: u64, actual: u64 },
+    ContentLengthMismatch {
+        /// The length the response declared in its `Content-Length` header.
+        declared: u64,
+        /// The length of the body actually produced.
+        actual: u64,
+    },
     /// No file-stream admission permit was available.
     FileStreamLimit,
 }
@@ -62,22 +67,39 @@ impl From<HeaderError> for ResponseConstructionError {
 pub struct StatusCode(u16);
 
 impl StatusCode {
+    /// `100 Continue`.
     pub const CONTINUE: Self = Self(100);
+    /// `101 Switching Protocols`.
     pub const SWITCHING_PROTOCOLS: Self = Self(101);
+    /// `200 OK`.
     pub const OK: Self = Self(200);
+    /// `201 Created`.
     pub const CREATED: Self = Self(201);
+    /// `204 No Content`.
     pub const NO_CONTENT: Self = Self(204);
+    /// `205 Reset Content`.
     pub const RESET_CONTENT: Self = Self(205);
+    /// `304 Not Modified`.
     pub const NOT_MODIFIED: Self = Self(304);
+    /// `301 Moved Permanently`.
     pub const MOVED_PERMANENTLY: Self = Self(301);
+    /// `400 Bad Request`.
     pub const BAD_REQUEST: Self = Self(400);
+    /// `403 Forbidden`.
     pub const FORBIDDEN: Self = Self(403);
+    /// `404 Not Found`.
     pub const NOT_FOUND: Self = Self(404);
+    /// `405 Method Not Allowed`.
     pub const METHOD_NOT_ALLOWED: Self = Self(405);
+    /// `408 Request Timeout`.
     pub const REQUEST_TIMEOUT: Self = Self(408);
+    /// `413 Content Too Large`.
     pub const PAYLOAD_TOO_LARGE: Self = Self(413);
+    /// `416 Range Not Satisfiable`.
     pub const RANGE_NOT_SATISFIABLE: Self = Self(416);
+    /// `500 Internal Server Error`.
     pub const INTERNAL_SERVER_ERROR: Self = Self(500);
+    /// `503 Service Unavailable`.
     pub const SERVICE_UNAVAILABLE: Self = Self(503);
 
     /// Create a validated status code.

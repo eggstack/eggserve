@@ -1,3 +1,9 @@
+//! Request-body framing observed on the wire.
+//!
+//! Checks connection reuse after a fully consumed fixed-length, chunked, or
+//! empty request body, and that an incomplete fixed-length or chunked body
+//! closes the connection and suppresses the next pipelined request.
+
 use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};

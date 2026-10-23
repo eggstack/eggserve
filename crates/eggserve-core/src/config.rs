@@ -15,14 +15,54 @@ use crate::primitives::header_block::{HeaderName, HeaderValue};
 // through the primitives facade instead of a second core resolver.
 use crate::primitives::SecureRoot;
 
+/// Static-serving configuration for one server instance.
+///
+/// `ServeConfig` carries the listen address, the served root, the resource
+/// [`Limits`], the [`StaticPolicy`], and the operator-supplied response
+/// metadata that the runtime validates before a listener is activated.
+///
+/// The [`Default`] values are the safe defaults: loopback bind, the current
+/// directory as root, no directory listing, no symlink following, and no
+/// dotfile serving. [`ServeConfig::startup_summary`] reports the effective
+/// values.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct ServeConfig {
+    /// Listen address of the server socket.
+    ///
+    /// Defaults to `127.0.0.1:8000`. A wildcard address (`0.0.0.0`) is an
+    /// explicit opt-out from the loopback default and is reported by
+    /// [`StartupSummary::bind_is_unspecified`].
     pub bind: SocketAddr,
+    /// Directory tree served by this instance.
+    ///
+    /// The path is resolved and pinned once, when the server starts, so a
+    /// later filesystem change cannot move the served tree. Defaults to the
+    /// current working directory.
     pub root: PathBuf,
+    /// Resource ceilings applied to connections, streams, and request sizes.
     pub limits: Limits,
+    /// Static path policy: directory listing, symlink, and dotfile handling.
+    ///
+    /// Defaults to [`StaticPolicy::safe_default()`], which denies every
+    /// optional behavior.
     pub static_policy: StaticPolicy,
+    /// Content type substituted for the MIME authority's generic
+    /// `application/octet-stream` result.
+    ///
+    /// The MIME authority reports `application/octet-stream` for a file whose
+    /// extension it does not recognize; this value replaces that result in
+    /// the response. Defaults to `application/octet-stream`, so the
+    /// substitution is a no-op unless an operator sets it.
     pub default_content_type: String,
+    /// Extra `(name, value)` response headers added to every response.
+    ///
+    /// A name the response plan already set is not overwritten. The list is
+    /// checked by [`validate_static_metadata`] before the server is
+    /// activated: runtime-owned and representation-owned names (hop-by-hop
+    /// fields, `Content-Length`, `Date`, `Server`, `Content-Type`,
+    /// `Content-Range`, `Accept-Ranges`, `ETag`, `Last-Modified`, and
+    /// `X-Content-Type-Options`) are rejected. Defaults to empty.
     pub extra_response_headers: Vec<(String, String)>,
     /// Canonical runtime-error representation for static errors (403/404/405…).
     /// Default: `Minimal`. `Empty` emits no body bytes. Application `Ok`
@@ -132,14 +172,26 @@ pub(crate) fn validate_static_metadata_with_limits(
     Ok(())
 }
 
+/// Logging-friendly summary of the effective [`ServeConfig`].
+///
+/// The summary reports the security-relevant switches an operator should
+/// surface at startup — an unspecified bind address, directory listing,
+/// symlink following, dotfile serving — plus the concurrency ceilings.
 #[derive(Debug, Clone, Copy)]
 #[must_use]
 pub struct StartupSummary {
+    /// `true` when the bind address uses a wildcard IP, so the server is
+    /// reachable from outside the host.
     pub bind_is_unspecified: bool,
+    /// `true` when directory listings are rendered.
     pub directory_listing_enabled: bool,
+    /// `true` when symbolic links inside the root are followed.
     pub symlinks_followed: bool,
+    /// `true` when dotfiles are served.
     pub dotfiles_served: bool,
+    /// Maximum concurrent connections.
     pub max_connections: usize,
+    /// Maximum concurrent file-stream responses.
     pub max_file_streams: usize,
 }
 
@@ -163,6 +215,11 @@ impl ServeConfig {
     }
 }
 
+/// Validated serving state shared by the server's components.
+///
+/// `ServeState` pairs the configuration with the [`SecureRoot`] capability
+/// resolved from it. The root is resolved and pinned once, at construction,
+/// so later filesystem changes cannot move the served tree.
 #[derive(Clone)]
 pub struct ServeState {
     pub(crate) config: Arc<ServeConfig>,
@@ -170,6 +227,14 @@ pub struct ServeState {
 }
 
 impl ServeState {
+    /// Validate the configuration and resolve the serving root it names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::ErrorKind::InvalidInput`] when the default content
+    /// type or the extra response headers are rejected by the static
+    /// metadata validation, and the underlying I/O error when the root
+    /// cannot be canonicalized, is not a directory, or cannot be opened.
     pub fn new(config: Arc<ServeConfig>) -> Result<Self, std::io::Error> {
         validate_static_metadata_with_limits(
             &config.default_content_type,
@@ -185,6 +250,7 @@ impl ServeState {
         })
     }
 
+    /// The configuration this state was built from.
     pub fn config(&self) -> &Arc<ServeConfig> {
         &self.config
     }

@@ -205,6 +205,50 @@ repository root.
 - Satisfiable ranges always fall within file size
 - All rejection reasons map to valid `PathRejection` variants
 
+## Enforced lint policy
+
+Two lint policies the repository states in prose are enforced mechanically
+(Plan 313). Both live in the root `[workspace.lints]` table, so every
+workspace member inherits them and a new crate inherits them automatically:
+
+| Lint | Level | What it requires |
+|---|---|---|
+| `missing_docs` (`[workspace.lints.rust]`) | `warn` | Every public item carries a doc comment. The crates are published on crates.io, so their public items are a published contract. |
+| `clippy::undocumented_unsafe_blocks` (`[workspace.lints.clippy]`) | `warn` | Every `unsafe` block carries a `SAFETY:` comment naming the invariant that makes it safe — the mechanical form of `docs/unsafe-code-policy.md`. |
+
+Both are set to `warn` on purpose: the existing clippy invocation
+(`-D warnings`) stays the single enforcement point, so a contributor sees one
+error, not two policies.
+
+```sh
+cargo clippy --workspace --lib --bins --tests -- -D warnings
+```
+
+Two lanes exist because the workspace does not compile every code path:
+
+```sh
+# The Python-facing bridge code, which the default feature set never compiles.
+cargo clippy -p eggserve-static --features python-bindings-internal --lib --tests -- -D warnings
+cargo clippy -p eggserve-core --features python-bindings-internal --lib --tests -- -D warnings
+
+# The excluded Python crate, which is outside the workspace.
+cargo clippy --manifest-path crates/eggserve-python/Cargo.toml --lib -- -D warnings
+
+# The Windows FFI boundary, which is #[cfg(windows)]-gated and therefore only
+# compiled where the Windows target is compiled.
+cargo clippy -p eggserve-static --lib --target x86_64-pc-windows-msvc -- -D warnings
+```
+
+The Windows lane matters because the `undocumented_unsafe_blocks` lint only
+fires on code the compilation unit actually compiles: on Linux the only
+compiled `unsafe` blocks are the two systemd descriptor-adoption blocks, while
+the Windows confinement boundary is not compiled at all. CI runs the Windows
+leg natively in the `platform-compile` job; the local cross-check above
+covers the same code from Linux.
+
+A contributor who hits either lint documents the item or records it as a
+finding. A blanket `#[allow]` is not a fix.
+
 ## Test Execution
 
 ### Rust tests

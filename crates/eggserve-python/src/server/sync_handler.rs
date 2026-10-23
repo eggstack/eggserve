@@ -511,17 +511,7 @@ pub(super) fn extract_python_response_body<'py>(
                 if is_head || suppress_forbidden {
                     drop(iterable);
                     drop(trailers);
-                    if status == CanonicalStatusCode::NOT_MODIFIED {
-                        if let Some(length) = content_length.or(representation_length) {
-                            Ok(ResponseBody::EmptyWithLength(length))
-                        } else {
-                            let empty =
-                                ResponseStream::new(futures_util::stream::empty::<
-                                    Result<Bytes, ResponseStreamError>,
-                                >());
-                            Ok(ResponseBody::Stream(empty))
-                        }
-                    } else if is_head {
+                    if status == CanonicalStatusCode::NOT_MODIFIED || is_head {
                         if let Some(length) = content_length.or(representation_length) {
                             Ok(ResponseBody::EmptyWithLength(length))
                         } else {

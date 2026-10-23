@@ -18,6 +18,13 @@ impl Default for Limits {
 }
 
 impl Limits {
+    /// Checks that the configured limits are usable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LimitsError::ZeroBodyLimit`] when
+    /// `max_request_body_bytes` is zero, which would reject every request
+    /// body including empty ones.
     pub fn validate(&self) -> Result<(), LimitsError> {
         if self.max_request_body_bytes == 0 {
             Err(LimitsError::ZeroBodyLimit)
@@ -27,8 +34,10 @@ impl Limits {
     }
 }
 
+/// Reasons a [`Limits`] configuration is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LimitsError {
+    /// `max_request_body_bytes` was zero.
     ZeroBodyLimit,
 }
 

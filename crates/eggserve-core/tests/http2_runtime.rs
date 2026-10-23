@@ -1,3 +1,9 @@
+//! HTTP/2 runtime behavior over the compatibility server.
+//!
+//! Covers cleartext prior-knowledge multiplexing and metadata mapping, the
+//! strictness of the caller-owned H1 entry, stream-scoped body rejection,
+//! and ALPN selection of `h2` over TLS with `h1` fallback.
+
 #![cfg(feature = "http2")]
 
 use std::convert::Infallible;

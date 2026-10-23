@@ -1,3 +1,9 @@
+//! Canonical response normalization checked on the wire.
+//!
+//! Starts a live static server and compares the bytes it emits against the
+//! canonical normalization rules: status line and header casing, duplicate
+//! header fields, `HEAD` body suppression, and conditional `304` responses.
+
 use std::fs;
 
 use eggserve_core::policy::StaticPolicy;

@@ -1,3 +1,10 @@
+//! Canonical primitives conformance against the shared canonical corpus.
+//!
+//! Replays `conformance/corpus.json` and pins the canonical
+//! request/response behavior: method and version classification, header
+//! name/value validation, the body-forbidden status matrix, and response
+//! normalization.
+
 use std::collections::HashMap;
 
 use eggserve_core::primitives::canonical::{

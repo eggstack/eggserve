@@ -17,7 +17,9 @@ use super::super::response_stream::ResponseStream;
 /// Unknown must never become `Content-Length: 0` accidentally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyLength {
+    /// The exact payload length is known before transport.
     Known(u64),
+    /// The payload length is not known; framing is left to the transport.
     Unknown,
 }
 

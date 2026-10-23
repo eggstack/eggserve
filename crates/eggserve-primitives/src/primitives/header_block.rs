@@ -273,7 +273,9 @@ fn trim_ows(bytes: &[u8]) -> &[u8] {
 /// A single header field as a name/value pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderField {
+    /// The validated field name.
     pub name: HeaderName,
+    /// The validated field value.
     pub value: HeaderValue,
 }
 

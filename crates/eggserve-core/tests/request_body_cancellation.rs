@@ -1,3 +1,10 @@
+//! Request-body consumption under shutdown and client disconnect.
+//!
+//! Checks that an in-flight body read is cancelled cleanly when the server
+//! shuts down before the first body byte, mid-body, between chunks, and under
+//! a forced shutdown with a pending body, and that a client disconnect
+//! releases the body read.
+
 use std::sync::Arc;
 use std::time::Duration;
 

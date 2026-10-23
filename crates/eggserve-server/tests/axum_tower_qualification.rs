@@ -1,3 +1,10 @@
+//! Downstream-style Axum-over-Tower qualification against the direct server.
+//!
+//! Composes a caller-bound `TcpListener` with the direct `eggserve-server`
+//! Tower adapter and an Axum `Router`, then checks that Axum response
+//! metadata survives external ownership and that a router with streaming,
+//! upload, and cancellation routes composes with the direct server.
+
 #![cfg(feature = "tower")]
 
 use axum::body::Body;

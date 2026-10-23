@@ -1,3 +1,9 @@
+//! Request-body policy conformance against the shared body corpus.
+//!
+//! Replays `conformance/body_corpus.json` over a live server and checks
+//! that each request-body policy (`Reject`, `Buffer`, `Stream`) produces
+//! the expected status, handler invocation, and echoed body.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

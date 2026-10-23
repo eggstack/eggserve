@@ -121,8 +121,17 @@ pub(crate) struct ResolvedDirectory {
 /// would 404). `stat` and child resolution always use raw bytes.
 #[derive(Debug, Clone)]
 pub struct ListingEntry {
+    /// Display name of the entry.
+    ///
+    /// Lossy for non-UTF-8 filenames on Unix: the raw bytes are preserved
+    /// only in `href`.
     pub name: String,
+    /// Percent-encoded link target derived from the raw filename bytes.
+    ///
+    /// Distinct raw names always produce distinct targets, so two
+    /// non-UTF-8 names never collide on one link.
     pub href: String,
+    /// Whether the entry is a directory.
     pub is_dir: bool,
 }
 
@@ -1367,6 +1376,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let fifo_path = tmp.path().join("pipe.fifo");
         let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+        // SAFETY: `c_path` is a `CString`, so it holds no interior NUL byte
+        // and `c_path.as_ptr()` is a valid NUL-terminated string. The
+        // `CString` outlives the call, `mkfifo` only reads the path, and it
+        // does not retain the pointer after returning.
         let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
         assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 
@@ -1393,6 +1406,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let fifo_path = tmp.path().join("pipe.fifo");
         let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+        // SAFETY: `c_path` is a `CString`, so it holds no interior NUL byte
+        // and `c_path.as_ptr()` is a valid NUL-terminated string. The
+        // `CString` outlives the call, `mkfifo` only reads the path, and it
+        // does not retain the pointer after returning.
         let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
         assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 
@@ -1417,6 +1434,10 @@ mod tests {
         fs::create_dir(tmp.path().join("dir")).unwrap();
         let fifo_path = tmp.path().join("dir").join("pipe.fifo");
         let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+        // SAFETY: `c_path` is a `CString`, so it holds no interior NUL byte
+        // and `c_path.as_ptr()` is a valid NUL-terminated string. The
+        // `CString` outlives the call, `mkfifo` only reads the path, and it
+        // does not retain the pointer after returning.
         let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
         assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 
@@ -1465,6 +1486,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let fifo_path = tmp.path().join("pipe.fifo");
         let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+        // SAFETY: `c_path` is a `CString`, so it holds no interior NUL byte
+        // and `c_path.as_ptr()` is a valid NUL-terminated string. The
+        // `CString` outlives the call, `mkfifo` only reads the path, and it
+        // does not retain the pointer after returning.
         let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
         assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 

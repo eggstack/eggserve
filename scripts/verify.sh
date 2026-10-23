@@ -82,6 +82,12 @@ cmd_platform_check() {
       continue
     fi
     run cargo check -p eggserve-static --lib --target "$target"
+    # Plan 313: `clippy::undocumented_unsafe_blocks` only fires on code the
+    # compilation unit actually compiles. The Windows FFI boundary lives in
+    # `#[cfg(windows)]` code, so it is only linted when the Windows target is
+    # compiled — which the Windows platform lane in CI does natively and this
+    # cross-check does for the static crate.
+    run cargo clippy -p eggserve-static --lib --target "$target" -- -D warnings
   done
 }
 
@@ -115,6 +121,15 @@ cmd_fast() {
   run cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
   run cargo test -p eggserve-bin --features http3,tls
   run cargo check --manifest-path "$REPO_ROOT/crates/eggserve-python/Cargo.toml" --locked
+  # Plan 313: the excluded Python crate is outside the workspace, so
+  # `cargo clippy --workspace` never sees it. It carries the Python-facing
+  # surface, so it gets the same lint strictness as the workspace crates.
+  run cargo clippy --manifest-path "$REPO_ROOT/crates/eggserve-python/Cargo.toml" --lib -- -D warnings
+  # Plan 313: the `python-bindings-internal` feature compiles the Python-facing
+  # bridge code inside eggserve-static and eggserve-core. Without a lane that
+  # code path is never linted.
+  run cargo clippy -p eggserve-static --features python-bindings-internal --lib --tests -- -D warnings
+  run cargo clippy -p eggserve-core --features python-bindings-internal --lib --tests -- -D warnings
   # Plan 310: the fuzz crate is a separate workspace with its own lockfile, so
   # `cargo test --workspace` never covers it. Build it here so a target that
   # rots against the current API fails a routine local check.

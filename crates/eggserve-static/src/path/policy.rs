@@ -10,8 +10,10 @@ use super::rejected::PathRejection;
 /// for them to be served.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DotfilePolicy {
+    /// Reject any component that begins with `.`.
     #[default]
     Denied,
+    /// Admit components that begin with `.`.
     Allow,
 }
 
@@ -20,7 +22,11 @@ pub enum DotfilePolicy {
 /// Default: dotfiles denied, backslash rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathPolicy {
+    /// Whether components beginning with `.` are admitted.
     pub dotfiles: DotfilePolicy,
+    /// Whether a component containing a backslash is rejected as a
+    /// separator ambiguity. `true` keeps the target unambiguous on every
+    /// platform; `false` admits `a\b` as a single literal component name.
     pub reject_backslash: bool,
 }
 
@@ -34,6 +40,12 @@ impl Default for PathPolicy {
 }
 
 impl PathPolicy {
+    /// Rejects a component that begins with `.` when dotfiles are denied.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PathRejection::DotfileDenied`] when the component starts
+    /// with `.` and this policy denies dotfiles; otherwise `Ok(())`.
     #[allow(dead_code)]
     pub fn check_dotfile(&self, component: &str) -> Result<(), PathRejection> {
         if self.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
@@ -42,6 +54,13 @@ impl PathPolicy {
         Ok(())
     }
 
+    /// Rejects a component that contains a backslash when this policy
+    /// rejects backslashes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PathRejection::SeparatorAmbiguity`] when the component
+    /// contains `\` and this policy rejects backslashes; otherwise `Ok(())`.
     #[allow(dead_code)]
     pub fn check_backslash(&self, component: &str) -> Result<(), PathRejection> {
         if self.reject_backslash && component.contains('\\') {

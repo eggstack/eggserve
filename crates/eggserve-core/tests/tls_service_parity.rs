@@ -1,3 +1,8 @@
+//! Parity between the plaintext and TLS service paths.
+//!
+//! Runs the same custom-service and static-service requests over plaintext
+//! and over TLS and checks that the observable responses match.
+
 #![cfg(feature = "tls")]
 
 use std::sync::Arc;

@@ -79,6 +79,17 @@ jobs:
           cargo test -p eggserve-core --no-default-features --features http-interop --lib
       - name: Check excluded Python crate
         run: cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked
+      - name: Python-facing lint lanes
+        # Plan 313: the excluded Python crate is outside the workspace, so
+        # `cargo clippy --workspace` never sees it. Separately, the
+        # `python-bindings-internal` feature compiles the Python-facing bridge
+        # code inside eggserve-static and eggserve-core, which the default
+        # feature set never compiles. Both paths are linted here so neither
+        # can rot unnoticed.
+        run: |
+          cargo clippy --manifest-path crates/eggserve-python/Cargo.toml --lib -- -D warnings
+          cargo clippy -p eggserve-static --features python-bindings-internal --lib --tests -- -D warnings
+          cargo clippy -p eggserve-core --features python-bindings-internal --lib --tests -- -D warnings
       - name: Build fuzz harness
         # Plan 310: the fuzz crate is its own workspace and is therefore not
         # covered by `cargo test --workspace`. Without this gate its targets
@@ -140,6 +151,13 @@ jobs:
         run: cargo check --workspace --all-targets --features http3,tls
       - name: Excluded Python crate compile
         run: cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked
+      - name: Windows confinement clippy lane
+        # Plan 313: `clippy::undocumented_unsafe_blocks` only fires on code the
+        # compilation unit actually compiles. The Windows FFI boundary lives in
+        # `#[cfg(windows)]` code, so a Linux-hosted lane cannot enforce it.
+        # The Windows leg of this job is where that policy is actually checked.
+        if: runner.os == 'Windows'
+        run: cargo clippy -p eggserve-static --lib -- -D warnings
 
   supply-chain:
     name: supply-chain

@@ -1,8 +1,9 @@
 //! Canonical outbound conversion adapters (Plan 215: moved from compatibility core).
 //!
 //! Owns the explicit low-level `Response -> hyper::Response` boundary
-//! ([`to_hyper_response`] plus the file-stream/chunk-size overloads used by
-//! the runtime pipeline). Returns an opaque `http_body::Body`; downstream
+//! ([`crate::adapters::to_hyper_response`] plus the file-stream/chunk-size
+//! overloads used by the runtime pipeline). Returns an opaque `http_body::Body`;
+//! downstream
 //! code must not name `BoxBody`/`UnsyncBoxBody`. Normalization stays in
 //! `canonical::response`; this module never invents framing.
 //!

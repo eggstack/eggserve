@@ -7,11 +7,14 @@
 /// Supported read-only HTTP methods for static file serving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReadOnlyMethod {
+    /// `GET`: read the representation.
     Get,
+    /// `HEAD`: read the metadata of the representation without its body.
     Head,
 }
 
 impl ReadOnlyMethod {
+    /// The uppercase method token as it appears on the request line.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Get => "GET",

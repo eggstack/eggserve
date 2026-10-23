@@ -1,9 +1,9 @@
 //! Transport-independent service abstraction (Plan 215: converged with the
 //! mature compatibility contract; Plan 216: additive tunnel entry point).
 //!
-//! A [`Service`] receives a canonical [`Request`](eggserve_primitives::Request)
-//! and produces a canonical [`Response`](eggserve_primitives::Response). The
-//! runtime owns transport, parsing, normalization, and timeout enforcement.
+//! A [`Service`] receives a canonical [`Request`] and produces a canonical
+//! [`eggserve_primitives::canonical::Response`]. The runtime owns transport,
+//! parsing, normalization, and timeout enforcement.
 //! Services never see raw sockets or Hyper types.
 //!
 //! Tunnel-aware services implement [`Service::call_with_tunnel`] (or use
@@ -45,6 +45,13 @@ use eggserve_primitives::request_body_error::RequestBodyError;
 use eggserve_primitives::request_body_policy::RequestBodyPolicy;
 use eggserve_primitives::StatusCode;
 
+/// Boxed future returned by a service invocation.
+///
+/// The future resolves to a canonical [`Response`] or a [`ServiceError`]. It is
+/// `Send` so the runtime can move the in-flight invocation between tasks, and
+/// the `'a` lifetime keeps it tied to the borrowed service it was created
+/// from. The runtime enforces the handler deadline around this future; a
+/// service that never settles is dropped when the deadline fires.
 pub type ServiceFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + 'a>>;
 

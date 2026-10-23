@@ -77,6 +77,10 @@ push/tag/merge ever publishes.
 ## Toolchain notes
 
 - Rust edition 2021, resolver `"2"`, MSRV 1.89. No `rustfmt.toml`/`clippy.toml`; CI enforces `cargo fmt --check` + clippy `-D warnings`.
+- Two lint policies are now **mechanically enforced** in the root `[workspace.lints]` table, so every workspace member inherits them: `missing_docs` (every public item needs a doc comment) and `clippy::undocumented_unsafe_blocks` (every `unsafe` block needs a `SAFETY:` comment naming the invariant that makes it safe). Both are set to `warn`; the existing `-D warnings` clippy invocation is the single enforcement point. Do **not** silence them with a blanket `#[allow]` — document the item, or record it as a finding.
+  - The lint only fires on code the compilation unit actually compiles, so the Windows FFI boundary is only linted where `#[cfg(windows)]` code is compiled: the `platform-compile` job's Windows leg in CI, and `cargo clippy -p eggserve-static --lib --target x86_64-pc-windows-msvc` locally.
+  - The excluded `eggserve-python` crate is outside the workspace, so it inherits neither lint table nor the workspace clippy invocation. It is linted by its own CI lane.
+
 - No pre-build/codegen: `cargo build` / `cargo test` suffice.
 - The `rustls` `0.23.45` caret floor (RUSTSEC-2026-0285) is declared once in
   the root `[workspace.dependencies]` table and inherited by every workspace

@@ -12,23 +12,38 @@ use eggserve_primitives::policy::{
     DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy,
 };
 
+/// The operational log format selected by `--log-format`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogFormat {
+    /// Human-readable, line-oriented log output.
     Text,
+    /// Structured JSON log output, one object per event.
     Json,
+    /// No log output.
     None,
 }
 
+/// The parsed command line of the `eggserve` executable.
 #[derive(Debug)]
 pub struct Args {
+    /// The resolved listen address.
     pub bind: SocketAddr,
+    /// The directory to serve.
     pub root: PathBuf,
+    /// Whether directory listings are generated for directories without an
+    /// index file.
     pub directory_listing: DirectoryListingPolicy,
+    /// Whether symbolic links are followed during path resolution.
     pub symlinks: SymlinkPolicy,
+    /// Whether dot-prefixed path components are served.
     pub dotfiles: DotfilePolicy,
+    /// The fallback MIME type used for unknown file extensions.
     pub default_content_type: String,
+    /// Extra headers added to final `200` responses, in command-line order.
     pub extra_response_headers: Vec<(String, String)>,
+    /// The selected operational log format.
     pub log_format: LogFormat,
+    /// Whether routine informational output is suppressed.
     pub quiet: bool,
     max_connections: Option<usize>,
     max_file_streams: Option<usize>,
@@ -45,10 +60,13 @@ pub struct Args {
     max_header_bytes: Option<usize>,
     max_request_target_bytes: Option<usize>,
     #[cfg(feature = "tls")]
+    /// The PEM certificate chain path; `None` when TLS is not configured.
     pub tls_cert: Option<PathBuf>,
     #[cfg(feature = "tls")]
+    /// The PEM private key path; `None` when TLS is not configured.
     pub tls_key: Option<PathBuf>,
     #[cfg(feature = "http3")]
+    /// Whether the experimental HTTP/3 (QUIC) listener is enabled beside TCP.
     pub http3: bool,
 }
 
@@ -199,11 +217,29 @@ fn resolve_bind_ip(bind_host: &str, bind_port: u16) -> Result<IpAddr, String> {
 }
 
 impl Args {
+    /// Parses the process command line.
+    ///
+    /// # Errors
+    ///
+    /// Returns the sentinel message `"help"` or `"version"` when the command
+    /// line asks for the usage text or the version banner, and a diagnostic
+    /// message for any other invalid command line.
     pub fn parse() -> Result<Self, String> {
         let args: Vec<String> = std::env::args().skip(1).collect();
         Self::parse_from(args)
     }
 
+    /// Parses an explicit argument vector.
+    ///
+    /// The vector holds the arguments that follow the program name and uses
+    /// the same grammar as the `eggserve` executable: options first, then at
+    /// most one `PORT` positional and one `DIRECTORY` positional.
+    ///
+    /// # Errors
+    ///
+    /// Returns the sentinel message `"help"` or `"version"` when the command
+    /// line asks for the usage text or the version banner, and a diagnostic
+    /// message for any other invalid command line.
     pub fn parse_from(args: Vec<String>) -> Result<Self, String> {
         let args = expand_attached_long_values(args)?;
         let mut bind_host = Ipv4Addr::LOCALHOST.to_string();
@@ -755,6 +791,10 @@ impl Args {
         })
     }
 
+    /// The static-serving security policy implied by the command line.
+    ///
+    /// The static-metadata policy is always the standard profile, so both
+    /// `ETag` and `Last-Modified` are emitted regardless of the other flags.
     pub fn static_policy(&self) -> StaticPolicy {
         StaticPolicy {
             directory_listing: self.directory_listing,
@@ -764,6 +804,15 @@ impl Args {
         }
     }
 
+    /// The runtime limits implied by the command line.
+    ///
+    /// Limits that were not given on the command line keep the defaults from
+    /// [`Limits::default`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the joined validation messages when a configured limit is out
+    /// of range.
     pub fn limits(&self) -> Result<Limits, String> {
         let mut limits = Limits::default();
         if let Some(v) = self.max_connections {
@@ -820,6 +869,7 @@ impl Args {
     }
 }
 
+/// Prints the CLI usage text to standard output.
 pub fn print_usage() {
     println!("Usage: eggserve [OPTIONS] [PORT] [DIRECTORY]");
     println!();
@@ -880,6 +930,7 @@ pub fn print_usage() {
     println!("verbatim, including numeric names. --bind and --addr cannot be combined.");
 }
 
+/// Prints the `eggserve` version banner to standard output.
 pub fn print_version() {
     println!("eggserve {}", env!("CARGO_PKG_VERSION"));
 }

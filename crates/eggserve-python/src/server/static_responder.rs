@@ -43,6 +43,10 @@ impl PyStaticResponder {
     }
 
     #[pyo3(signature = (method, target, headers=None, has_body=false, remote_addr=None, http_version=None, index_pages=None, mime_overrides=None, default_content_type=None, extra_response_headers=None))]
+    // The parameter list is the Python-visible method signature. Grouping the
+    // optional arguments into an options object would change that public API,
+    // so the arity is fixed and the lint is silenced at this one site.
+    #[allow(clippy::too_many_arguments)]
     fn respond(
         &self,
         method: &str,

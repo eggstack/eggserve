@@ -10,8 +10,21 @@ use std::sync::Arc;
 use super::counters::OpsCounters;
 use super::events::{event_to_json, Event};
 
+/// Destination for runtime events.
+///
+/// Implementations must be usable from multiple threads: the runtime emits
+/// from connection tasks and accept loops concurrently.
 pub trait LogSink: Send + Sync {
+    /// Deliver one event to this sink.
+    ///
+    /// A panicking implementation is contained by the caller: the panic is
+    /// caught and counted as a dropped event rather than unwinding the
+    /// connection task.
     fn emit(&self, event: &Event);
+    /// Flush any buffered events.
+    ///
+    /// The default is a no-op, which is correct for sinks that write each
+    /// event immediately.
     fn flush(&self);
 
     /// Return whether an event at `severity` can reach at least one sink.
@@ -24,6 +37,10 @@ pub trait LogSink: Send + Sync {
     }
 }
 
+/// A sink that discards every event.
+///
+/// It also reports [`LogSink::enabled`] as `false`, so callers can skip
+/// building event payloads entirely.
 pub struct NopLogSink;
 
 impl LogSink for NopLogSink {
@@ -43,6 +60,8 @@ pub struct FilteredLogSink {
 }
 
 impl FilteredLogSink {
+    /// Wrap `inner` so that only events at or above `min_severity` are
+    /// forwarded.
     pub fn new(inner: Box<dyn LogSink>, min_severity: super::events::Severity) -> Self {
         Self {
             inner,
@@ -67,6 +86,10 @@ impl LogSink for FilteredLogSink {
     }
 }
 
+/// A sink that fans one event out to several child sinks.
+///
+/// Each child sink is isolated: a panic in one child is caught and counted,
+/// and the remaining children still receive the event.
 pub struct CompositeLogSink {
     sinks: Vec<Box<dyn LogSink>>,
     /// Failure accounting for contained child-sink panics. `None` preserves
@@ -79,6 +102,11 @@ pub struct CompositeLogSink {
 }
 
 impl CompositeLogSink {
+    /// Build a composite whose child-sink failures are counted in the
+    /// process-global counters.
+    ///
+    /// Prefer [`CompositeLogSink::with_failure_counters`] for a per-runtime
+    /// context so the failure is accounted where the sink is owned.
     pub fn new(sinks: Vec<Box<dyn LogSink>>) -> Self {
         Self {
             sinks,
@@ -139,13 +167,22 @@ impl LogSink for CompositeLogSink {
     }
 }
 
+/// Rendering format used by [`StderrLogSink`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogFormat {
+    /// One human-readable line per event, prefixed with the severity.
     Text,
+    /// One JSON object per event, matching the documented event schema.
     Json,
 }
 
+/// A sink that writes events to standard error.
+///
+/// This is a CLI/frontend sink; library runtime code emits through an
+/// [`super::OpsContext`] instead of writing to the process's standard error
+/// directly.
 pub struct StderrLogSink {
+    /// Format used for each emitted event.
     pub log_format: LogFormat,
 }
 

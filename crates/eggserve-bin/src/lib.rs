@@ -1,3 +1,14 @@
+//! The `eggserve` command-line static file server.
+//!
+//! This crate owns the packaged CLI: the argument grammar
+//! ([`args`]), the process-level entry points ([`run`] and [`run_cli`]), and
+//! the signal-driven shutdown path. The serving runtime itself lives in
+//! `eggserve-server`, the static authority in `eggserve-static`, and the
+//! canonical values in `eggserve-primitives`; this crate composes them.
+//!
+//! [`run_cli`] is the extension-backed entry point used by the Python wheel.
+//! It is not a general Rust embedding API — Rust applications should depend
+//! on `eggserve-core` (or the leaf crates) instead.
 use std::sync::Arc;
 
 use eggserve_core::config::ServeConfig;
@@ -14,11 +25,17 @@ use eggserve_server::ops::{
 };
 use tokio::sync::broadcast;
 
+/// The manual CLI grammar: option parsing, the parsed [`args::Args`], and the
+/// usage and version banners.
 pub mod args;
 mod shutdown;
+/// The neutral TLS substrate (`eggnet-tls`), re-exported for the CLI's
+/// certificate loading.
 #[cfg(feature = "tls")]
 pub mod tls;
 
+/// Runs the CLI from the process command line and exits the process with the
+/// CLI's exit code.
 pub fn run() {
     let code = run_cli(std::env::args().skip(1).collect());
     std::process::exit(code);

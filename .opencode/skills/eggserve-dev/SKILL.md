@@ -238,6 +238,18 @@ cargo +1.89 check -p eggserve-core --all-targets --no-default-features --feature
 cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features tower
 cargo clippy --workspace --lib --bins --tests -- -D warnings  # lint (warnings are errors)
 cargo test --workspace
+# Plan 313: two lint policies are enforced in the root [workspace.lints] table.
+#   missing_docs                      -> every public item needs a doc comment
+#   clippy::undocumented_unsafe_blocks -> every `unsafe` block needs a SAFETY: comment
+# Both are `warn`; the `-D warnings` clippy invocation is the single enforcement
+# point. Do NOT silence them with a blanket #[allow] - document the item, or
+# record it as a finding.
+# The lint only fires on compiled code, so these lanes cover the paths the
+# default feature set never compiles:
+cargo clippy -p eggserve-static --features python-bindings-internal --lib --tests -- -D warnings
+cargo clippy -p eggserve-core --features python-bindings-internal --lib --tests -- -D warnings
+cargo clippy --manifest-path crates/eggserve-python/Cargo.toml --lib -- -D warnings  # excluded crate
+cargo clippy -p eggserve-static --lib --target x86_64-pc-windows-msvc -- -D warnings  # #[cfg(windows)] FFI
 cargo clippy -p eggserve-server --no-default-features --features tower --lib --tests -- -D warnings
 cargo test -p eggserve-server --no-default-features --features tower
 cargo clippy -p eggserve-core --no-default-features --features tower --lib --tests -- -D warnings

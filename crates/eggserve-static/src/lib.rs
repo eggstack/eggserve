@@ -50,6 +50,13 @@ pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
 /// that would exceed the ceiling is refused, never truncated.
 pub const DEFAULT_MAX_LISTING_RESPONSE_BYTES: usize = 1024 * 1024;
 
+/// Builder for a [`StaticService`].
+///
+/// The builder carries the served root, the static policy, and the response
+/// defaults. Unset options keep the crate's safe defaults: a restrictive
+/// [`StaticPolicy`], `application/octet-stream` as the fallback content
+/// type, no extra response headers, and [`ErrorRepresentationPolicy::Minimal`]
+/// error bodies.
 #[derive(Debug, Clone)]
 pub struct StaticServiceBuilder {
     root: std::path::PathBuf,
@@ -62,21 +69,26 @@ pub struct StaticServiceBuilder {
 }
 
 impl StaticServiceBuilder {
+    /// Sets the static policy applied to every request.
     pub fn policy(mut self, policy: StaticPolicy) -> Self {
         self.policy = policy;
         self
     }
 
+    /// Sets the content type used when the response planner cannot derive
+    /// one from the file extension.
     pub fn default_content_type(mut self, content_type: impl Into<String>) -> Self {
         self.default_content_type = content_type.into();
         self
     }
 
+    /// Sets headers added to every response this service produces.
     pub fn extra_response_headers(mut self, headers: Vec<(String, String)>) -> Self {
         self.extra_response_headers = headers;
         self
     }
 
+    /// Sets how runtime-generated error bodies are represented.
     pub fn error_policy(mut self, policy: ErrorRepresentationPolicy) -> Self {
         self.error_policy = policy;
         self
@@ -89,6 +101,13 @@ impl StaticServiceBuilder {
         self
     }
 
+    /// Builds the service and pins the configured root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ServiceError`] when the root cannot be pinned, for
+    /// example because it does not exist, is not a directory, or cannot be
+    /// opened.
     pub fn build(self) -> Result<StaticService, ServiceError> {
         let root = SecureRoot::new(self.root, self.policy).map_err(|error| {
             ServiceError::internal(format!("failed to initialize static root: {error}"))
@@ -104,6 +123,12 @@ impl StaticServiceBuilder {
     }
 }
 
+/// The static request-to-response service.
+///
+/// The service resolves request targets against a pinned [`SecureRoot`] and
+/// renders file, directory-listing, and error responses. It is the sole
+/// static-serving authority in the workspace; compatibility layers project
+/// their configuration into it rather than resolving paths themselves.
 #[derive(Clone)]
 pub struct StaticService {
     root: Arc<SecureRoot>,
@@ -115,6 +140,7 @@ pub struct StaticService {
 }
 
 impl StaticService {
+    /// Starts a builder for a service rooted at `root`.
     pub fn builder(root: impl AsRef<Path>) -> StaticServiceBuilder {
         StaticServiceBuilder {
             root: root.as_ref().to_path_buf(),
@@ -146,6 +172,7 @@ impl StaticService {
         }
     }
 
+    /// Returns the pinned root this service resolves against.
     pub fn root(&self) -> &SecureRoot {
         &self.root
     }

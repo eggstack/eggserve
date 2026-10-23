@@ -1,3 +1,11 @@
+//! Server lifecycle integration.
+//!
+//! Covers bind behavior (explicit address, port zero, pre-bound listener,
+//! an occupied address, a listener dropped before start) and the connection
+//! lifecycle around them: idle keep-alive expiry, graceful and forced
+//! shutdown, draining in-flight work, connection-limit saturation, the
+//! supervisor's completion reporting, and the timeout-specific responses.
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

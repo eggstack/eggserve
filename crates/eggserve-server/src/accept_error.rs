@@ -13,7 +13,8 @@
 //! direct dependency graph (no `rustix`, no `windows-sys`).
 //!
 //! Classification is a pure function of the error. Accounting and emission
-//! stay with the caller's runtime context ([`report_accept_error`]), so the
+//! stay with the caller's runtime context
+//! ([`crate::accept_error::report_accept_error`]), so the
 //! `OpsContext` event taxonomy and the `listener_errors` counter keep their
 //! meaning in both loops.
 

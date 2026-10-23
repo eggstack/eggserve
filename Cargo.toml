@@ -78,6 +78,19 @@ libc = "0.2"
 # documented `allow(unsafe_code)` exceptions; all other Rust code, including
 # future additions, is denied unsafe code by default.
 unsafe_code = "deny"
+# Plan 313: every crate in this workspace is published on crates.io, so its
+# public items are a published contract and must carry a doc comment. The
+# level is `warn` so that the existing clippy invocation (`-D warnings`)
+# remains the single enforcement point.
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# Plan 313: the mechanical form of `docs/unsafe-code-policy.md`. Every
+# `unsafe` block must carry a `SAFETY:` comment naming the invariant that
+# makes the block safe, so that a later edit which invalidates that invariant
+# is visible in review. A block outside the approved boundaries is a finding
+# to report, never a block to bless with a comment.
+undocumented_unsafe_blocks = "warn"
 
 [profile.dist]
 inherits = "release"

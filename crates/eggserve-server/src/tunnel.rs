@@ -14,9 +14,10 @@
 //!   `classify_extended_protocol`, `validate_handshake_headers`) lives in
 //!   `eggserve-primitives` and is re-exported here for convenience. There is
 //!   one validation authority; this crate never parses a second one.
-//! - Execution lives here: [`TunnelCapability`] (one-shot, transport-backed),
-//!   [`TunnelIo`] (bounded duplex), acceptance state, H1 detection against
-//!   live `OnUpgrade`, admission, bridging, and cleanup.
+//! - Execution lives here: [`crate::tunnel::TunnelCapability`] (one-shot,
+//!   transport-backed), [`crate::tunnel::TunnelIo`] (bounded duplex), acceptance
+//!   state, H1 detection against live `OnUpgrade`, admission, bridging, and
+//!   cleanup.
 //!
 //! # How services use it
 //!
@@ -26,7 +27,8 @@
 //! ordinary HTTP). Tunnel-aware services implement `call_with_tunnel`,
 //! inspect `capability.request()` for routing, and either ignore/drop the
 //! capability (ordinary HTTP denial) or consume it via
-//! [`TunnelCapability::accept`] to produce the handshake [`Response`].
+//! [`crate::tunnel::TunnelCapability::accept`] to produce the handshake
+//! [`eggserve_primitives::canonical::Response`].
 //!
 //! ```no_run
 //! use eggserve_primitives::header_block::HeaderBlock;
@@ -84,15 +86,15 @@
 //!   is rejected, hop-by-hop is stripped. Only `accept` can produce the
 //!   handshake; ordinary responses cannot forge one (the pipeline only
 //!   performs the transport handoff when the sidecar acceptance is present).
-//! - Bounded single-owner duplex ([`TunnelIo`], 32 KiB), H1 read-ahead
-//!   preserved exactly once via Hyper's `Upgraded` buffering, lifecycle
+//! - Bounded single-owner duplex ([`crate::tunnel::TunnelIo`], 32 KiB), H1
+//!   read-ahead preserved exactly once via Hyper's `Upgraded` buffering, lifecycle
 //!   cancellation wakes idle work, permits/tasks release on every terminal
 //!   path, errors sanitized.
 //!
 //! # H2 readiness (Plan 217 input)
 //!
-//! [`TunnelKind::ExtendedConnect`] and validated `:protocol` metadata are
-//! first-class here so Plan 217 can attach H2 Extended CONNECT transport
+//! [`crate::tunnel::TunnelKind::ExtendedConnect`] and validated `:protocol`
+//! metadata are first-class here so Plan 217 can attach H2 Extended CONNECT transport
 //! without a new service API. This module classifies H1 only; H2 attachment
 //! stays compatibility-owned until Plan 217.
 
@@ -160,8 +162,8 @@ impl Default for TunnelShared {
 /// `Send + 'static` so downstream tasks can own it; single-owner duplex.
 /// The runtime spawns it after the validated handshake. Cancellation
 /// (peer/reset/shutdown/timeout/close) is observed by capturing the
-/// request's [`RequestLifecycle`](eggserve_primitives::RequestLifecycle)
-/// in the handler closure before accepting; the bridge additionally ends
+/// request's [`RequestLifecycle`] in the handler closure before accepting;
+/// the bridge additionally ends
 /// on transport close even if the handler never polls cancellation.
 ///
 /// Runtime-internal alias (named by the hidden acceptance type); services
@@ -638,8 +640,8 @@ pub(crate) async fn admit_and_spawn(
 ///
 /// Awaits `OnUpgrade` (buffered H1 read-ahead preserved via Hyper's
 /// `Upgraded`), bridges with bounded backpressure to an EggServe-owned
-/// [`TunnelIo`], runs the downstream handler, and releases the permit +
-/// gauge exactly once. `cancel` (usually the request lifecycle) wakes idle
+/// [`crate::tunnel::TunnelIo`], runs the downstream handler, and releases the
+/// permit + gauge exactly once. `cancel` (usually the request lifecycle) wakes idle
 /// work; without it the bridge still ends on peer close/reset, and the
 /// owning driver aborts remainders past its drain budget. Errors are
 /// sanitized (no payload bytes).

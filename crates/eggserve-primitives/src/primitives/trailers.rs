@@ -108,9 +108,19 @@ pub enum TrailerValidationError {
     /// A runtime-owned framing/routing field was supplied as a trailer.
     ForbiddenField(String),
     /// Too many trailer fields.
-    TooManyFields { count: usize, limit: usize },
+    TooManyFields {
+        /// The number of trailer fields supplied.
+        count: usize,
+        /// The configured maximum number of trailer fields.
+        limit: usize,
+    },
     /// Decoded aggregate trailer bytes exceed the limit.
-    TooLarge { bytes: usize, limit: usize },
+    TooLarge {
+        /// The aggregate number of decoded trailer bytes.
+        bytes: usize,
+        /// The configured maximum number of decoded trailer bytes.
+        limit: usize,
+    },
     /// Configured limits are outside the accepted range.
     InvalidLimits(String),
 }

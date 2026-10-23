@@ -83,7 +83,7 @@ pub(super) fn spawn_python_stream_producer(
     std::thread::spawn(move || {
         let iterator = Python::attach(|py| {
             let bound = iterable.bind(py);
-            PyIterator::from_object(&bound)
+            PyIterator::from_object(bound)
                 .map(|it| it.into_any().unbind())
                 .map_err(|e| {
                     let type_name = e

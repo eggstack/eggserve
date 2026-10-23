@@ -9,11 +9,23 @@ use eggserve_primitives::http::ReadOnlyMethod;
 use eggserve_primitives::policy::StaticPolicy;
 use eggserve_primitives::response::{BodyPlan, FileRange, StaticResponsePlan};
 
+/// The reason a resource was denied during confined resolution.
+///
+/// A denial is a policy outcome, not an I/O failure: the target existed
+/// but the active policy refused to serve it, or the resolved path tried
+/// to leave the served root.
 #[derive(Debug)]
 pub enum ResourceDeniedReason {
+    /// The target resolved to a symlink and the policy denies symlinks.
     SymlinkDenied,
+    /// The target resolved to a dotfile and the policy denies dotfiles.
     DotfileDenied,
+    /// The canonical path of the target escaped the served root.
     RootEscapeDenied,
+    /// The path was refused by the parse-level path policy.
+    ///
+    /// The inner [`PathRejection`] names the specific rule that was
+    /// violated.
     PolicyDenied(PathRejection),
 }
 
@@ -65,16 +77,24 @@ pub struct ResolvedFile {
 }
 
 impl ResolvedFile {
+    /// Returns the size of the resolved file in bytes, as captured during
+    /// confined resolution.
     #[allow(dead_code)]
     pub fn len(&self) -> u64 {
         self.inner.metadata.len()
     }
 
+    /// Returns `true` when the resolved file is empty.
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Returns the file's last-modification time, as captured during
+    /// confined resolution.
+    ///
+    /// The value is `None` when the platform or filesystem does not
+    /// report a modification time.
     #[allow(dead_code)]
     pub fn modified(&self) -> Option<std::time::SystemTime> {
         self.inner.metadata.modified().ok()
@@ -90,6 +110,10 @@ impl ResolvedFile {
         &self.inner.metadata
     }
 
+    /// Returns the content type derived from the resolved file's extension.
+    ///
+    /// The value is `application/octet-stream` when the extension is
+    /// absent or not recognized.
     #[allow(dead_code)]
     pub fn content_type(&self) -> &'static str {
         let path: PathBuf = self.inner.safe_relative_components.iter().collect();
@@ -147,6 +171,11 @@ impl ResolvedFile {
         )
     }
 
+    /// Returns the path components of the resolved file, relative to the
+    /// served root.
+    ///
+    /// The components are the validated ones the file was opened under, so
+    /// they name the same file the capability refers to.
     #[allow(dead_code)]
     pub fn safe_relative_components(&self) -> &[String] {
         &self.inner.safe_relative_components
@@ -203,6 +232,17 @@ impl ResolvedFile {
         }
     }
 
+    /// Converts the resolved file into a body source for `plan`.
+    ///
+    /// The plan's [`BodyPlan`] selects the body shape: an empty body, an
+    /// in-memory byte body, the whole file, or a byte range of the file.
+    /// The file capability is consumed, so the caller cannot resolve the
+    /// same file twice.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BodySourceError::InvalidRange`] when the plan asks for a
+    /// byte range that is inverted or reaches past the end of the file.
     #[allow(dead_code)]
     pub fn into_body(self, plan: &StaticResponsePlan) -> Result<BodySource, BodySourceError> {
         match &plan.body {
@@ -240,6 +280,17 @@ impl ResolvedFile {
         }
     }
 
+    /// Converts the resolved file into a body source covering the given
+    /// inclusive byte range.
+    ///
+    /// The file capability is consumed, so the caller cannot resolve the
+    /// same file twice.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BodySourceError::InvalidRange`] when `end_inclusive` is
+    /// below `start` or reaches past the end of the file, or when the
+    /// range length is not representable as a `u64`.
     #[allow(dead_code)]
     pub fn into_range_body(
         self,
@@ -263,23 +314,48 @@ impl ResolvedFile {
     }
 }
 
+/// A resolved directory capability created by the filesystem resolver.
+///
+/// The type cannot be constructed directly by external callers; it is only
+/// created through the resolver's path confinement pipeline.
 #[derive(Debug)]
 pub struct ResolvedDirectory {
     inner: crate::fs::ResolvedDirectory,
 }
 
 impl ResolvedDirectory {
+    /// Returns the path components of the resolved directory, relative to
+    /// the served root.
     #[allow(dead_code)]
     pub fn components(&self) -> &[String] {
         &self.inner.components
     }
 
+    /// Resolves a single child name relative to this directory.
+    ///
+    /// The child is validated against the same component rules the
+    /// parse-level path layer enforces, and is resolved relative to the
+    /// already-open directory capability rather than by pathname.
+    ///
+    /// The result is a denial when the child is refused by the policy,
+    /// and [`ResolvedResource::NotFound`] when no such child exists.
     #[allow(dead_code)]
     pub fn resolve_child(&self, child: &str, root: &SecureRoot) -> ResolvedResource {
         let guard = RootGuard::new(&root.pinned);
         guard.resolve_child(&self.inner, child, &root.policy).into()
     }
 
+    /// Enumerates the directory's entries.
+    ///
+    /// The listing is read from the already-open directory capability, so
+    /// it observes the same directory the resolution did. Entries are
+    /// sorted by display name.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating-system error if the directory cannot be read.
+    /// `max_entries` bounds the number of entries returned; a directory
+    /// with more entries is truncated at that ceiling.
     #[allow(dead_code)]
     pub fn list(
         &self,
@@ -291,11 +367,22 @@ impl ResolvedDirectory {
     }
 }
 
+/// The outcome of resolving a path against a [`SecureRoot`].
+///
+/// Exactly one of the four shapes applies to a resolution: a file
+/// capability, a directory capability, a denial, or a miss. An operating
+/// system failure is reported separately as
+/// [`ResolvedResource::IoError`] so that a transient I/O fault is never
+/// confused with a missing resource.
 #[derive(Debug)]
 pub enum ResolvedResource {
+    /// The target resolved to a regular file.
     File(ResolvedFile),
+    /// The target resolved to a directory.
     Directory(ResolvedDirectory),
+    /// No resource exists at the requested path.
     NotFound,
+    /// The resource exists but the active policy refuses to serve it.
     Denied(ResourceDeniedReason),
     /// Resource resolution failed due to an operating-system I/O error.
     /// This is distinct from [`ResolvedResource::NotFound`].
@@ -303,31 +390,38 @@ pub enum ResolvedResource {
 }
 
 impl ResolvedResource {
+    /// Returns `true` when the resolution produced a file capability.
     #[allow(dead_code)]
     pub fn is_file(&self) -> bool {
         matches!(self, Self::File(_))
     }
 
+    /// Returns `true` when the resolution produced a directory capability.
     #[allow(dead_code)]
     pub fn is_directory(&self) -> bool {
         matches!(self, Self::Directory(_))
     }
 
+    /// Returns `true` when no resource exists at the requested path.
     #[allow(dead_code)]
     pub fn is_not_found(&self) -> bool {
         matches!(self, Self::NotFound)
     }
 
+    /// Returns `true` when the policy refused to serve the resource.
     #[allow(dead_code)]
     pub fn is_denied(&self) -> bool {
         matches!(self, Self::Denied(_))
     }
 
+    /// Returns `true` when resolution failed with an operating-system
+    /// error.
     #[allow(dead_code)]
     pub fn is_error(&self) -> bool {
         matches!(self, Self::IoError(_))
     }
 
+    /// Borrows the file capability, if the resolution produced one.
     #[allow(dead_code)]
     pub fn as_file(&self) -> Option<&ResolvedFile> {
         match self {
@@ -336,6 +430,7 @@ impl ResolvedResource {
         }
     }
 
+    /// Borrows the directory capability, if the resolution produced one.
     #[allow(dead_code)]
     pub fn as_directory(&self) -> Option<&ResolvedDirectory> {
         match self {
@@ -344,6 +439,7 @@ impl ResolvedResource {
         }
     }
 
+    /// Takes the file capability, if the resolution produced one.
     #[allow(dead_code)]
     pub fn into_file(self) -> Option<ResolvedFile> {
         match self {
@@ -352,6 +448,7 @@ impl ResolvedResource {
         }
     }
 
+    /// Takes the directory capability, if the resolution produced one.
     #[allow(dead_code)]
     pub fn into_directory(self) -> Option<ResolvedDirectory> {
         match self {
@@ -377,6 +474,12 @@ impl From<crate::fs::ResolvedResource> for ResolvedResource {
     }
 }
 
+/// A served root pinned for the lifetime of the process.
+///
+/// The root is canonicalized and opened once, so every later resolution
+/// walks the pinned directory capability instead of re-resolving the root
+/// path. That is what makes the confinement guarantee hold when the root
+/// is renamed or replaced underneath the server.
 #[derive(Debug, Clone)]
 pub struct SecureRoot {
     pinned: Arc<crate::fs::PinnedRoot>,
@@ -384,27 +487,55 @@ pub struct SecureRoot {
 }
 
 impl SecureRoot {
+    /// Pins `root` as the served root under `policy`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating-system error if the root does not exist,
+    /// cannot be canonicalized, is not a directory, or cannot be opened.
     pub fn new(root: impl AsRef<Path>, policy: StaticPolicy) -> Result<Self, std::io::Error> {
         let pinned = Arc::new(crate::fs::PinnedRoot::new(root.as_ref())?);
         Ok(Self { pinned, policy })
     }
 
+    /// Returns the static policy applied to every resolution.
     #[allow(dead_code)]
     pub fn policy(&self) -> &StaticPolicy {
         &self.policy
     }
 
+    /// Returns the canonical path of the served root.
+    ///
+    /// The value is for diagnostics and fallback resolution; it is not the
+    /// authority for what may be served.
     #[allow(dead_code)]
     pub fn root_path(&self) -> &Path {
         self.pinned.canonical_root()
     }
 
+    /// Resolves a confined path against the pinned root.
+    ///
+    /// The resolution walks the pinned root capability, so the result
+    /// cannot escape the root even if the filesystem is mutated during
+    /// the walk.
     #[allow(dead_code)]
     pub fn resolve(&self, path: &ConfinedPath) -> ResolvedResource {
         let guard = RootGuard::new(&self.pinned);
         guard.resolve(path, &self.policy).into()
     }
 
+    /// Parses a request target and resolves it against the pinned root.
+    ///
+    /// The parse-level path policy is derived from this root's
+    /// [`StaticPolicy`]: the dotfile decision follows the root's dotfile
+    /// policy, and backslashes are always rejected so a target cannot
+    /// alias a different path on another platform.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`PathRejection`] that stopped the parse. A path that
+    /// parses but cannot be resolved is reported through the returned
+    /// [`ResolvedResource`], not as an error.
     #[allow(dead_code)]
     pub fn resolve_uri(&self, uri: &str) -> Result<ResolvedResource, PathRejection> {
         let path_policy = PathPolicy {
@@ -476,10 +607,15 @@ pub fn resolve_and_plan(
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum ResolveAndPlanError {
+    /// No resource exists at the requested path.
     NotFound,
+    /// The requested path is a directory, not a file.
     IsDirectory,
+    /// The policy refused to serve the resolved resource.
     Denied(ResourceDeniedReason),
+    /// The response body could not be produced from the resolved file.
     Body(BodySourceError),
+    /// Filesystem resolution failed with an operating-system error.
     Io(std::io::Error),
 }
 

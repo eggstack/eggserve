@@ -5,8 +5,9 @@
 //!   `EventKind`, `Field`, `Event`, sanitization, JSON rendering).
 //! - `sinks` owns `LogSink` implementations and containment semantics.
 //! - `counters` owns `OpsCounters`/`OpsSnapshot`.
-//! - This module owns the single runtime authority [`OpsContext`] plus the
-//!   process-global compatibility [`Logger`]/[`global_counters`] path.
+//! - This module owns the single runtime authority
+//!   [`crate::ops::OpsContext`] plus the process-global compatibility
+//!   [`crate::ops::Logger`]/[`crate::ops::global_counters`] path.
 //!
 //! Public import paths are preserved: `crate::ops::Event`,
 //! `crate::ops::OpsContext`, etc. continue to resolve through re-exports
@@ -29,6 +30,13 @@ pub use sinks::{CompositeLogSink, FilteredLogSink, LogFormat, LogSink, NopLogSin
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
+/// Process-global compatibility logger.
+///
+/// This is the frontend-initialization path only: library runtime code emits
+/// through an explicit [`OpsContext`] (for example
+/// [`crate::runtime::RuntimeState::with_ops`]), never through the global
+/// logger. The global sink is adopted by [`OpsContext::global`] so a
+/// CLI-initialized process keeps emitting to it.
 #[allow(dead_code)]
 pub struct Logger {
     sink: Arc<dyn LogSink>,
@@ -64,6 +72,12 @@ impl Logger {
         Self::install(sink)
     }
 
+    /// Install the global logger, returning `Err(())` if a logger has
+    /// already been installed.
+    ///
+    /// Identical to [`Logger::init`]; prefer this name when the caller only
+    /// wants to observe that installation failed rather than treat it as a
+    /// programming error.
     #[allow(clippy::result_unit_err)]
     pub fn try_init(sink: Box<dyn LogSink>) -> Result<(), ()> {
         Self::install(sink)
@@ -84,16 +98,23 @@ impl Logger {
         Ok(())
     }
 
+    /// The process-global logger.
+    ///
+    /// Installs a no-op sink on first use. The returned value is the
+    /// compatibility frontend path; runtime code emits through an explicit
+    /// [`OpsContext`].
     pub fn global() -> &'static Logger {
         GLOBAL_LOGGER.get_or_init(|| Logger {
             sink: Arc::new(NopLogSink),
         })
     }
 
+    /// Emit one event to this logger's sink.
     pub fn emit(&self, event: Event) {
         self.sink.emit(&event);
     }
 
+    /// Emit one event when `condition` holds.
     pub fn emit_if(&self, condition: bool, event: Event) {
         if condition {
             self.sink.emit(&event);
@@ -267,6 +288,10 @@ impl OpsContext {
     }
 }
 
+/// Monotonic source of connection correlation IDs.
+///
+/// IDs are allocated from a single atomic counter, so they are unique within
+/// one runtime but carry no cross-runtime meaning.
 pub struct CorrelationId {
     connection_id: AtomicU64,
 }
@@ -278,12 +303,14 @@ impl Default for CorrelationId {
 }
 
 impl CorrelationId {
+    /// Create a source whose first allocated ID is `1`.
     pub fn new() -> Self {
         Self {
             connection_id: AtomicU64::new(1),
         }
     }
 
+    /// Allocate the next connection correlation ID.
     pub fn next(&self) -> u64 {
         self.connection_id.fetch_add(1, Ordering::Relaxed)
     }

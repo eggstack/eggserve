@@ -1,14 +1,27 @@
 //! Path confinement: request-target parsing, validation, and policy enforcement.
 
+/// Component splitting, normalization, and per-component validation.
 pub mod components;
+/// Percent decoding of request-target paths.
 pub mod decode;
+/// Platform-specific component hazards (Windows prefixes, reserved names,
+/// alternate data streams).
 pub mod platform;
+/// Parse-level path policy configuration.
 pub mod policy;
+/// The rejection reasons the path layer can return.
 pub mod rejected;
 
 pub use policy::{DotfilePolicy, PathPolicy};
 pub use rejected::PathRejection;
 
+/// A request-target path that has been parsed and validated for
+/// confinement.
+///
+/// The type holds the decoded path, its validated components, and the
+/// [`PathPolicy`] the target was admitted under. It is produced only by
+/// [`ConfinedPath::parse`] or [`ConfinedPath::from_path_component`], so
+/// every instance has already passed the component validation boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfinedPath {
     decoded: String,
@@ -17,6 +30,17 @@ pub struct ConfinedPath {
 }
 
 impl ConfinedPath {
+    /// Parses a request target into a confined path.
+    ///
+    /// The canonical request-target parser classifies the target form
+    /// first; this function then decodes, normalizes, and validates the
+    /// path component under `policy`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`PathRejection`] that stopped the parse: an
+    /// over-long target, an embedded NUL byte, a target form the path
+    /// layer does not accept, or any component the policy refuses.
     pub fn parse(raw: &str, policy: &PathPolicy) -> Result<Self, PathRejection> {
         if raw.len() > 8192 {
             return Err(PathRejection::TooLong);
@@ -77,15 +101,23 @@ impl ConfinedPath {
         })
     }
 
+    /// Returns the decoded, normalized path.
+    ///
+    /// The value is always absolute and starts with `/`.
     #[allow(dead_code)]
     pub fn as_str(&self) -> &str {
         &self.decoded
     }
 
+    /// Returns the validated path components, in order.
+    ///
+    /// The list never contains an empty component, a `.` or `..`
+    /// segment, or a component the admission policy refused.
     pub fn components(&self) -> &[String] {
         &self.components
     }
 
+    /// Returns the policy the path was admitted under.
     pub fn path_policy(&self) -> &PathPolicy {
         &self.path_policy
     }

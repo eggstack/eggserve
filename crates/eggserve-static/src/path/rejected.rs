@@ -1,25 +1,53 @@
 use std::fmt;
 
+/// The reason a request target was refused before filesystem resolution.
+///
+/// Every variant names the specific rule the path layer enforces, so a caller
+/// can distinguish a policy denial from a malformed target without parsing
+/// the `Display` text. The path layer never resolves a rejected target: the
+/// rejection is the answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PathRejection {
+    /// The target carried no path at all.
     Empty,
+    /// The target exceeded the parse-level length ceiling (8192 bytes).
     #[allow(dead_code)]
     TooLong,
+    /// The target was not in the origin form the path layer accepts (for
+    /// example, it contained whitespace or was not classified as a path).
     UnsupportedUriForm,
+    /// A percent escape was truncated or carried a non-hexadecimal digit.
     MalformedPercentEncoding,
+    /// The percent-decoded octets did not form valid UTF-8.
     InvalidUtf8,
+    /// The target contained a NUL byte, literal or percent-encoded.
     NulByte,
+    /// The target contained an ASCII control character.
     ControlCharacter,
+    /// The path was absolute rather than root-relative.
     #[allow(dead_code)]
     AbsolutePath,
+    /// A component was `..`.
     ParentComponent,
+    /// A component was `.`.
     CurrentComponent,
+    /// A component carried a separator (`/` or `\`), including a
+    /// percent-encoded separator that would otherwise alias a distinct
+    /// target.
     SeparatorAmbiguity,
+    /// A component began with `.` and the dotfile policy denies dotfiles.
     DotfileDenied,
+    /// A component carried a Windows drive prefix (for example `C:`).
     WindowsPrefixDenied,
+    /// A component named a Windows reserved device (`CON`, `NUL`, `COM1`,
+    /// …) or ended in a dot or space, which Windows trims during name
+    /// resolution.
     WindowsReservedNameDenied,
+    /// A component carried NTFS alternate data stream syntax (a `:`).
     WindowsAlternateStreamDenied,
+    /// The resolved path was a symlink and the policy denies symlinks.
     SymlinkDenied,
+    /// The canonical path of the resolved target escaped the served root.
     RootEscapeDenied,
 }
 

@@ -21,18 +21,35 @@ pub enum RequestBodyError {
     /// Body rejected by policy (e.g. static service rejects all bodies).
     RejectedByPolicy,
     /// The declared Content-Length exceeds the effective limit.
-    DeclaredLengthTooLarge { declared: u64, limit: u64 },
+    DeclaredLengthTooLarge {
+        /// The `Content-Length` the client declared.
+        declared: u64,
+        /// The effective byte limit that was exceeded.
+        limit: u64,
+    },
     /// The body exceeded the effective byte limit during consumption.
-    LimitExceeded { limit: u64, received: u64 },
+    LimitExceeded {
+        /// The effective byte limit that was exceeded.
+        limit: u64,
+        /// The number of bytes received before the limit was hit.
+        received: u64,
+    },
     /// The body read timed out.
     ReadTimeout,
     /// The connection was closed before the body was fully received.
     PrematureEof {
+        /// The number of body bytes received before the connection closed.
         received: u64,
+        /// The body length that was expected, when one was declared.
         expected: Option<u64>,
     },
     /// The actual body length did not match the declared Content-Length.
-    LengthMismatch { declared: u64, actual: u64 },
+    LengthMismatch {
+        /// The length the client declared in `Content-Length`.
+        declared: u64,
+        /// The length of the body actually received.
+        actual: u64,
+    },
     /// The body transport framing is invalid.
     InvalidChunkFraming(String),
     /// The body consumption was cancelled.

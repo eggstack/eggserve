@@ -8,19 +8,32 @@
 pub struct ResponseStatus(pub u16);
 
 impl ResponseStatus {
+    /// `200 OK`.
     pub const OK: Self = Self(200);
+    /// `304 Not Modified`.
     pub const NOT_MODIFIED: Self = Self(304);
+    /// `206 Partial Content`.
     pub const PARTIAL_CONTENT: Self = Self(206);
+    /// `416 Range Not Satisfiable`.
     pub const NOT_RANGE_SATISFIABLE: Self = Self(416);
+    /// `412 Precondition Failed`.
     pub const PRECONDITION_FAILED: Self = Self(412);
+    /// `405 Method Not Allowed`.
     pub const METHOD_NOT_ALLOWED: Self = Self(405);
+    /// `404 Not Found`.
     pub const NOT_FOUND: Self = Self(404);
+    /// `403 Forbidden`.
     pub const FORBIDDEN: Self = Self(403);
+    /// `400 Bad Request`.
     pub const BAD_REQUEST: Self = Self(400);
+    /// `413 Content Too Large`.
     pub const PAYLOAD_TOO_LARGE: Self = Self(413);
+    /// `500 Internal Server Error`.
     pub const INTERNAL_SERVER_ERROR: Self = Self(500);
+    /// `503 Service Unavailable`.
     pub const SERVICE_UNAVAILABLE: Self = Self(503);
 
+    /// The numeric status code carried by this value.
     pub fn as_u16(&self) -> u16 {
         self.0
     }
@@ -35,7 +48,9 @@ impl std::fmt::Display for ResponseStatus {
 /// A single response header as a name/value pair.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ResponseHeader {
+    /// Field name, stored in the casing the producer supplied.
     pub name: String,
+    /// Field value, stored verbatim.
     pub value: String,
 }
 
@@ -46,12 +61,15 @@ pub struct HeaderMapPlan {
 }
 
 impl HeaderMapPlan {
+    /// Creates an empty plan.
     pub fn new() -> Self {
         Self {
             headers: Vec::new(),
         }
     }
 
+    /// Appends a header, preserving insertion order and allowing repeated
+    /// field names.
     pub fn push(&mut self, name: impl Into<String>, value: impl Into<String>) {
         self.headers.push(ResponseHeader {
             name: name.into(),
@@ -59,6 +77,8 @@ impl HeaderMapPlan {
         });
     }
 
+    /// Returns the value of the first header whose name matches `name`
+    /// case-insensitively, or `None` when no header matches.
     pub fn get(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
@@ -66,20 +86,25 @@ impl HeaderMapPlan {
             .map(|h| h.value.as_str())
     }
 
+    /// Returns `true` when at least one header name matches `name`
+    /// case-insensitively.
     pub fn contains(&self, name: &str) -> bool {
         self.headers
             .iter()
             .any(|h| h.name.eq_ignore_ascii_case(name))
     }
 
+    /// Iterates the headers in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = &ResponseHeader> {
         self.headers.iter()
     }
 
+    /// The number of headers in the plan.
     pub fn len(&self) -> usize {
         self.headers.len()
     }
 
+    /// Returns `true` when the plan holds no headers.
     pub fn is_empty(&self) -> bool {
         self.headers.is_empty()
     }
@@ -147,6 +172,8 @@ impl FileRange {
             .expect("FileRange length must be representable as u64")
     }
 
+    /// The number of bytes in this range, or `None` when the length is not
+    /// representable as a `u64`.
     pub fn checked_len(&self) -> Option<u64> {
         if self.is_empty() {
             return Some(0);
@@ -156,6 +183,8 @@ impl FileRange {
             .and_then(|len| len.checked_add(1))
     }
 
+    /// Returns `true` when the range selects no bytes, that is when its end
+    /// offset precedes its start offset.
     pub fn is_empty(&self) -> bool {
         self.end_inclusive < self.start
     }
@@ -164,21 +193,35 @@ impl FileRange {
 /// Body plan for a response.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BodyPlan {
+    /// No body bytes are sent.
     Empty,
+    /// The body is the given in-memory bytes.
     FullBytes(Vec<u8>),
+    /// The body is the whole file the runtime already opened for the response.
     FileFull,
-    FileRange { start: u64, end_inclusive: u64 },
+    /// The body is an inclusive byte range of the file the runtime already
+    /// opened for the response.
+    FileRange {
+        /// First byte offset of the range.
+        start: u64,
+        /// Last byte offset of the range, inclusive.
+        end_inclusive: u64,
+    },
 }
 
 /// A complete response plan that can be translated into any HTTP framework.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticResponsePlan {
+    /// Status code to send.
     pub status: ResponseStatus,
+    /// Headers to send with the response.
     pub headers: HeaderMapPlan,
+    /// Body to send with the response.
     pub body: BodyPlan,
 }
 
 impl StaticResponsePlan {
+    /// The numeric status code of the planned response.
     pub fn status_code(&self) -> u16 {
         self.status.as_u16()
     }

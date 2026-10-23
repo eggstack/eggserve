@@ -34,13 +34,25 @@ pub fn is_qualification_mode() -> bool {
 /// Record of environment capabilities for the qualification preflight.
 #[derive(Debug, Clone)]
 pub struct Capabilities {
+    /// Windows version string reported by the `OS` environment variable, or
+    /// `"unknown"` when the variable is unset.
     pub os_version: String,
+    /// Target architecture reported by the Rust standard library.
     pub arch: String,
+    /// Filesystem type of the test root, as reported by the platform
+    /// detection helper.
     pub filesystem_type: String,
+    /// `true` when a file symlink could be created, i.e. Developer Mode (or
+    /// an equivalent privilege) is available.
     pub developer_mode: bool,
+    /// `true` when a directory symlink could be created.
     pub symlink_dir_privilege: bool,
+    /// `true` when a directory junction could be created.
     pub junction_creation: bool,
+    /// `true` when the test root is on an NTFS volume.
     pub is_ntfs: bool,
+    /// `true` when the test root is on a local volume rather than a network
+    /// or cloud-backed one.
     pub is_local_volume: bool,
 }
 

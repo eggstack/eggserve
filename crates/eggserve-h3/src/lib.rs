@@ -40,8 +40,12 @@ pub use h3_quinn;
 pub use quinn;
 
 /// Versions of the coordinated H3/QUIC compatibility set used by this crate.
+///
+/// `H3_VERSION` is the `h3` crate version in that set.
 pub const H3_VERSION: &str = "0.0.8";
+/// The `h3-quinn` crate version in the coordinated H3/QUIC compatibility set.
 pub const H3_QUINN_VERSION: &str = "0.0.10";
+/// The `quinn` crate version in the coordinated H3/QUIC compatibility set.
 pub const QUINN_VERSION: &str = "0.11.11";
 
 /// Returns the dependency set used for qualification and diagnostics.
