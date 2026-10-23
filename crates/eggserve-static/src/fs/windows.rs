@@ -1818,116 +1818,146 @@ mod tests {
         assert!(id.is_ok(), "get_file_id failed: {:?}", id.err());
     }
 
+    /// The NT information class the enumeration path depends on.
+    ///
+    /// `NtQueryDirectoryFile` numbers its `FILE_INFORMATION_CLASS` argument
+    /// with the *kernel* (`ntifs.h`) enumeration, where
+    /// `FileIdBothDirectoryInformation` is 37. The user-mode `winnt.h` list
+    /// numbers the same member 16, and the two headers disagree — a very
+    /// plausible thing to "fix" by accident. This test pins the value
+    /// against a live kernel: class 37 must be accepted and select the
+    /// `FILE_ID_BOTH_DIR_INFORMATION` layout, and class 16 must be rejected
+    /// as an invalid parameter.
     #[test]
-    #[ignore = "diagnostic probe for the NtQueryDirectoryFile information class"]
-    fn diagnostic_query_directory_information_class() {
-        use std::fmt::Write as _;
+    fn nt_query_directory_file_uses_the_kernel_information_class() {
+        const STATUS_INVALID_PARAMETER: i32 = 0xC0000003u32.cast_signed();
+        const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC0000004u32.cast_signed();
 
         let tmp = TempDir::new().unwrap();
         let root = tmp.path().to_path_buf();
-        std::fs::create_dir_all(root.join("subdir")).unwrap();
-        std::fs::write(root.join("hello.txt"), "hello").unwrap();
-        std::fs::write(root.join("subdir").join("file.txt"), "nested").unwrap();
+        std::fs::create_dir_all(root.join("subdir")).expect("create subdir");
+        std::fs::write(root.join("hello.txt"), "hello").expect("write hello.txt");
         let root_utf16 = to_utf16_null(root.to_str().unwrap());
 
-        // Open the same directory with and without FILE_FLAG_OPEN_REPARSE_POINT.
-        for (label, flags) in [
-            (
-                "reparse-point",
-                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            ),
-            ("plain", FILE_FLAG_BACKUP_SEMANTICS),
-        ] {
-            // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that
-            // stays alive for the call and `CreateFileW` does not retain the
-            // pointer. The two null arguments are the optional
-            // security-attributes and template-handle parameters, which
-            // `CreateFileW` accepts as absent.
-            let handle = unsafe {
-                CreateFileW(
-                    root_utf16.as_ptr(),
-                    FILE_LIST_DIRECTORY | SYNCHRONIZE,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                    ptr::null_mut(),
-                    OPEN_EXISTING,
-                    flags,
-                    ptr::null_mut(),
-                )
-            };
-            assert_ne!(handle, INVALID_HANDLE_VALUE);
+        // SAFETY: `root_utf16` is a null-terminated UTF-16 buffer that stays
+        // alive for the call and `CreateFileW` does not retain the pointer.
+        // The two null arguments are the optional security-attributes and
+        // template-handle parameters, which `CreateFileW` accepts as absent.
+        let handle = unsafe {
+            CreateFileW(
+                root_utf16.as_ptr(),
+                FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(handle, INVALID_HANDLE_VALUE);
 
-            for class in [37u32, 16u32, 3u32] {
-                for buffer_len in [DIR_ENUM_BUFFER_SIZE, 616usize, 104] {
-                    let mut buffer = vec![0u8; buffer_len];
-                    let mut io_status = IoStatusBlock {
-                        status: 0,
-                        information: 0,
-                    };
-                    // SAFETY: `handle` is a live directory handle opened with
-                    // `FILE_LIST_DIRECTORY`; `buffer` is a live heap byte
-                    // buffer of `buffer_len` bytes; `io_status` is a live
-                    // stack output parameter. All optional pointers are null.
-                    let status = unsafe {
-                        NtQueryDirectoryFile(
-                            handle,
-                            ptr::null_mut(),
-                            ptr::null_mut(),
-                            ptr::null_mut(),
-                            &mut io_status,
-                            buffer.as_mut_ptr() as *mut c_void,
-                            buffer_len as DWORD,
-                            class,
-                            FALSE,
-                            ptr::null(),
-                            TRUE,
-                        )
-                    };
-                    let mut report = String::new();
-                    let _ = writeln!(
-                        report,
-                        "open={label} class={class} len={buffer_len} status=0x{:08x} information={}",
-                        status as u32, io_status.information
-                    );
-                    if status >= 0 && io_status.information > 0 {
-                        let _ = writeln!(
-                            report,
-                            "  next_entry_offset={} name_len@60={} name_len@96={} attrs@56=0x{:08x} fileid@96=0x{:016x}",
-                            u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]),
-                            u32::from_le_bytes([
-                                buffer[60], buffer[61], buffer[62], buffer[63]
-                            ]),
-                            u32::from_le_bytes([
-                                buffer[96], buffer[97], buffer[98], buffer[99]
-                            ]),
-                            u32::from_le_bytes([
-                                buffer[56], buffer[57], buffer[58], buffer[59]
-                            ]),
-                            u64::from_le_bytes([
-                                buffer[96], buffer[97], buffer[98], buffer[99], buffer[100], buffer[101],
-                                buffer[102], buffer[103],
-                            ]),
-                        );
-                        let hex: String = buffer
-                            .iter()
-                            .take(160)
-                            .map(|b| format!("{b:02x}"))
-                            .collect::<Vec<_>>()
-                            .join("");
-                        let _ = writeln!(report, "  hex={hex}");
-                    }
-                    eprint!("{report}");
-                }
-            }
+        let mut buffer = vec![0u8; DIR_ENUM_BUFFER_SIZE];
+        let mut io_status = IoStatusBlock {
+            status: 0,
+            information: 0,
+        };
+        // SAFETY: `handle` is a live directory handle opened with
+        // `FILE_LIST_DIRECTORY`; `buffer` is a live heap byte buffer of
+        // `DIR_ENUM_BUFFER_SIZE` bytes, which is the length passed to the
+        // kernel; `io_status` is a live stack output parameter. All optional
+        // pointers are null, which requests a synchronous call.
+        let status = unsafe {
+            NtQueryDirectoryFile(
+                handle,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                &mut io_status,
+                buffer.as_mut_ptr() as *mut c_void,
+                DIR_ENUM_BUFFER_SIZE as DWORD,
+                FILE_ID_BOTH_DIRECTORY_INFO,
+                FALSE,
+                ptr::null(),
+                TRUE,
+            )
+        };
+        assert_eq!(
+            status, 0,
+            "the kernel information class must be accepted, got 0x{:08x}",
+            status as u32
+        );
+        assert!(
+            io_status.information > 0,
+            "the enumeration must return at least one record"
+        );
 
-            // SAFETY: `handle` came from `CreateFileW` above, is still open,
-            // and is closed exactly once here — no other code path owns or
-            // closes it.
-            unsafe {
-                CloseHandle(handle);
-            }
+        // The user-mode numbering of the same member is not a valid NT
+        // information class. If this ever stops holding, the two headers
+        // have converged and this test's premise needs revisiting.
+        let mut io_status = IoStatusBlock {
+            status: 0,
+            information: 0,
+        };
+        // SAFETY: as above: `handle` is live, `buffer` is a live heap buffer
+        // of the length passed, `io_status` is a live stack output
+        // parameter, and all optional pointers are null.
+        let status = unsafe {
+            NtQueryDirectoryFile(
+                handle,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                &mut io_status,
+                buffer.as_mut_ptr() as *mut c_void,
+                DIR_ENUM_BUFFER_SIZE as DWORD,
+                16,
+                FALSE,
+                ptr::null(),
+                TRUE,
+            )
+        };
+        assert_eq!(
+            status, STATUS_INVALID_PARAMETER,
+            "the user-mode information class numbering must be rejected, got 0x{:08x}",
+            status as u32
+        );
+
+        // A buffer that cannot hold a whole fixed header is too small.
+        let mut small = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE - 1];
+        let mut io_status = IoStatusBlock {
+            status: 0,
+            information: 0,
+        };
+        // SAFETY: `small` is a live heap buffer of exactly the length passed
+        // to the kernel, `handle` is live, and `io_status` is a live stack
+        // output parameter. All optional pointers are null.
+        let status = unsafe {
+            NtQueryDirectoryFile(
+                handle,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                &mut io_status,
+                small.as_mut_ptr() as *mut c_void,
+                small.len() as DWORD,
+                FILE_ID_BOTH_DIRECTORY_INFO,
+                FALSE,
+                ptr::null(),
+                TRUE,
+            )
+        };
+        assert_eq!(
+            status, STATUS_INFO_LENGTH_MISMATCH,
+            "an undersized buffer must be reported as a length mismatch, got 0x{:08x}",
+            status as u32
+        );
+
+        // SAFETY: `handle` came from `CreateFileW` above, is still open, and
+        // is closed exactly once here — no other code path owns or closes it.
+        unsafe {
+            CloseHandle(handle);
         }
     }
-
     #[test]
     fn owned_handle_try_clone_and_drop() {
         let (_tmp, root_handle) = setup_test_root();
@@ -1938,7 +1968,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "NtQueryDirectoryFile STATUS_INFO_LENGTH_MISMATCH on CI runners; needs Windows VM qualification"]
     fn enumerate_directory_entries() {
         let (_tmp, root_handle) = setup_test_root();
         let entries = enumerate_directory(root_handle.raw(), 4096);
@@ -1965,7 +1994,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "NtQueryDirectoryFile STATUS_INFO_LENGTH_MISMATCH on CI runners; needs Windows VM qualification"]
     fn enumerate_directory_subdir() {
         let (_tmp, root_handle) = setup_test_root();
         let dir_handle = open_directory_relative(root_handle.raw(), "subdir").unwrap();

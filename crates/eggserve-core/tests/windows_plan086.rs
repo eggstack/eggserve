@@ -3366,6 +3366,16 @@ fn windows_race_index_file_replacement_during_resolution() {
     let running2 = running.clone();
     let dir_path = tmp.path().join("subdir");
 
+    // The content the fixture wrote before the writer starts. A reader that
+    // opens the handle before the writer's first replacement observes exactly
+    // this version: reading a stale but *complete* file is the correct
+    // behaviour for a pinned handle, and the invariant under test is that the
+    // reader never observes a torn or mixed read. The accepted set therefore
+    // has to include the pre-replacement version, not only the two the
+    // writer alternates between.
+    let original =
+        fs::read_to_string(dir_path.join("index.html")).expect("read original index.html");
+
     // Writer: rapidly replaces index.html.
     let writer = thread::spawn(move || {
         let v1 = "<html>version1</html>";
@@ -3391,7 +3401,9 @@ fn windows_race_index_file_replacement_during_resolution() {
                     if let Ok(data) = body.read_all() {
                         let s = String::from_utf8_lossy(&data);
                         assert!(
-                            s == "<html>version1</html>" || s == "<html>version2</html>",
+                            s == original
+                                || s == "<html>version1</html>"
+                                || s == "<html>version2</html>",
                             "inconsistent index content: {s}"
                         );
                         successes += 1;

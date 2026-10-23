@@ -53,6 +53,12 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 # (`.github/workflows/ci.yml`, job `platform-compile`) covers the full
 # workspace natively instead.
 #
+# Plan 317: the Windows confinement path is now *tested* on a hosted Windows
+# runner (the `Windows confinement test lane` in `ci.yml`), not merely
+# compiled there. A cross-compiled target still cannot *run* those tests, so
+# the local proxy remains the compile + clippy cross-check below; the run
+# itself only happens on a native Windows host.
+#
 # Enable with EGGSERVE_PLATFORM_CHECK=1. Any skip is printed, never silent.
 cmd_platform_check() {
   header "Platform compile coverage"
