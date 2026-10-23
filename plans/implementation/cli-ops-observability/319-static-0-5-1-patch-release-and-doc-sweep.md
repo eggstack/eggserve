@@ -112,7 +112,22 @@ history and are left alone.
 
 ## 8. Recorded material deviation
 
-None yet.
+**The plan's scope did not anticipate the documentation defects it found.**
+Work package A was scoped to the *version strings* in the normative
+documentation. Auditing Plan 313's 539-item doc-comment remediation — which
+the plan did not call for — found five doc comments that were factually
+wrong and one that was ambiguous. They are corrected here, because a
+release that publishes a crate while leaving false statements on docs.rs
+about response-header semantics and the Windows reserved-name check would
+not be a correct release. The correction is recorded in the closure record's
+§3, which lists each defect with the code that contradicts it.
+
+**The dependent crates' requirements were deliberately left alone.** The
+plan's work package B says the caret requirements "already accept `0.5.1`;
+they are left alone", and that is what was done: `eggserve-core` and
+`eggserve-bin` keep `eggserve-static = "0.5.0"`. Bumping them to `"0.5.1"`
+would narrow the accepted range for no benefit and would force a coordinated
+republish of crates that have no reason to move.
 
 ## 9. Verification strategy
 
@@ -163,11 +178,37 @@ registry-only consumer proof.
 
 ## 14. Implementation notes
 
-Recorded as implementation proceeds.
+The version bump touches one manifest. The lockfiles move because the
+version moved — the one legitimate lockfile change in this line of work, and
+the only one since Plan 315 proved the dependency consolidation was
+resolution-neutral.
+
+The publication was made from the green commit `4a38141` after the layered
+package dry-run, the publish dry-run, the workspace suite, and the hosted
+CI run `39927249552` were all green. The publish dry-run is a real proof
+rather than a formality: `cargo publish --dry-run` resolves the crate's path
+dependencies from the *registry*, so it verifies that the published artifact
+builds against what consumers will actually resolve.
 
 ## 15. Verification evidence
 
-Recorded as verification proceeds.
+- Layered package verification: `bash scripts/verify-cargo-packages.sh
+  --mode all` — "Layered crates passed local-registry package verification",
+  with the layered build resolving `eggserve-static v0.5.1` from the
+  synthetic local registry.
+- Publish dry-run: packaged 23 files (480.5 KiB, 95.6 KiB compressed),
+  verified, compiled against the registry `eggserve-primitives 0.2.3` and
+  `eggserve-server 0.5.0`.
+- Hosted CI: run `39927249552` on `4a38141` — all five jobs green.
+- Publication: `eggserve-static 0.5.1` published
+  `2026-10-23T09:08:28.400497Z`, checksum
+  `655225bc857178bf322cdd7e25beea912e90cc1c55623644f9d1a9caea0a9651`.
+- Registry-only consumer: resolved `0.5.1` from the registry; "zero budget
+  -> 0 entries, budget 1 -> [hello.txt]".
+- `cargo test --workspace`: exit 0. `cargo clippy --workspace --lib --bins
+  --tests -- -D warnings`: clean. `cargo fmt --all -- --check`: clean.
+  `python3 scripts/check-crate-topology.py` and `--self-test`: exit 0, 89
+  checks passed.
 
 ## 16. Rollback
 

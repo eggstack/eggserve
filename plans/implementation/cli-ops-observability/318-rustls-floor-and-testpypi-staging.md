@@ -118,9 +118,24 @@ raised floor to reach consumers of that crate.
 
 ## 8. Recorded material deviation
 
-None yet. If the account-side TestPyPI registration cannot be completed from
-the build environment, that is recorded here as a scoped deferral with the
-exact remaining step, not as a completed staging run.
+**The account-side TestPyPI registration cannot be completed from the build
+environment**, and it is recorded here as a scoped deferral with the exact
+remaining step — not as a completed staging run. The GitHub-side
+configuration was established and verified: the `testpypi` environment exists
+in `eggstack/eggserve`, and the release workflow's `publish-testpypi` job
+targets `https://test.pypi.org/legacy/` with `id-token: write` and
+`environment: testpypi`. What remains is registering the trusted publisher
+on the TestPyPI account for `eggstack/eggserve`, workflow `release.yml`,
+environment `testpypi` — the same three fields the production `pypi`
+publisher uses, pointed at TestPyPI. Registering it requires a human with
+TestPyPI account access; this repository does not control that service.
+
+**Work package A added a work package that the plan did not name.**
+`docs/dependency-policy.md` states that "a static guard must protect the
+floor", and no such guard existed in any script — the policy described a
+check the repository did not have. The guard was added
+(`check_plan318_rustls_floor`) because the plan's own goal, making the floor
+mean something, is not met by a floor nothing checks.
 
 ## 9. Verification strategy
 
@@ -182,12 +197,32 @@ maintainer step if the account-side registration was not completed; and the
 
 ## 14. Implementation notes
 
-Recorded as implementation proceeds. Deviations from §6 are recorded here,
-not hidden.
+The floor raise itself is two version literals. Everything else is the
+narrative references and the missing guard.
+
+The resolution-neutrality proof is worth stating precisely, because it is
+the point of the change: the lockfiles were **already** on `0.23.46`, so the
+advisory scan had been clean and the gap had gone unnoticed. A clean
+`cargo audit` says the *resolution* is safe; it says nothing about what the
+crates *accept*. `docs/dependency-policy.md` now states that distinction
+explicitly.
 
 ## 15. Verification evidence
 
-Recorded as verification proceeds.
+- Lockfile neutrality: all three lockfiles byte-identical before and after
+  (`sha256`).
+- Feature-tree neutrality: `cargo tree -e features` unchanged for the
+  workspace and for the excluded crate.
+- The new rule fails closed: a deliberately regressed floor in the excluded
+  crate and in the workspace table were each caught and the tree restored.
+- Topology self-test: 89 checks passed (83 → 89 with this milestone's five
+  mutations).
+- `cargo audit` over all three lockfiles: clean.
+- `cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked`
+  and `cargo check --manifest-path fuzz/Cargo.toml --bins --locked`: clean.
+- `cargo test --workspace`: exit 0. `cargo clippy --workspace --lib --bins
+  --tests -- -D warnings`: clean. `cargo fmt --all -- --check`: clean.
+- Hosted CI: run `39927249552`, all five jobs green.
 
 ## 16. Rollback
 

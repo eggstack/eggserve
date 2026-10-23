@@ -207,12 +207,52 @@ tests, and the confirmed statement that no confinement decision changed.
 
 ## 14. Implementation notes
 
-Recorded as implementation proceeds. Deviations from §6 are recorded here,
-not hidden.
+**Deviation from §6 work package A.** The plan treated the recorded
+`STATUS_INFO_LENGTH_MISMATCH` ignore reason as a finding to be confirmed. It
+was a hypothesis, and it was wrong: a hosted Windows runner showed the
+enumeration succeeding with the production 64 KiB buffer and the length
+mismatch appearing only when the buffer cannot hold a whole fixed header.
+The two enumeration tests were therefore un-ignored, and the probe that
+settled it was kept as a permanent regression test rather than discarded.
+
+**Deviation from §6 work package D.** The plan's scope did not anticipate
+that the Windows qualification would surface a *second*, unrelated failure
+(the race test's accepted-content set) that the first failure had masked by
+aborting the step. Both were fixed in this milestone; the second was a
+genuine test defect, not a product defect.
+
+**Deviation from §6 work package B.** The plan expected to hold the corpus
+to a no-trailing-terminator rule generally. It is held to it only for the two
+corpora whose targets consume the seed as an exact value
+(`path_components`, `platform_component`); the other four corpora parse a
+header value or a method, where a line terminator is a plausible input and
+the target's assertions are reached either way. The reason is recorded in
+`docs/fuzzing.md`.
+
+**One contradiction was resolved against the change.** The parser's
+zero-length-name behavior is asserted by two tests that disagreed: an
+active test (`parse_zero_length_filename`) that a zero-length name decodes
+to an empty-named record, and a never-passing ignored test
+(`parse_offset_before_current_record_end`) that expected one entry where the
+parser produced two. The parser's behavior was **not** changed to satisfy the
+never-passing test. The active, deliberately-written contract won; the
+never-passing test became an active test that states the real contract. The
+plan did not anticipate this and the resolution is recorded here.
 
 ## 15. Verification evidence
 
-Recorded as verification proceeds.
+- Hosted Windows qualification: platform-qualification runs `39915458146`
+  (the failure that exposed the inert corpus) and `39922248877` (green).
+- Routine hosted CI: the `platform-compile` job's Windows leg runs the
+  static crate's tests — CI run `39927249552`, `Windows confinement test
+  lane` 363 passed / 0 failed / 7 ignored, `Windows static integration test
+  lane` 4 passed / 0 failed / 1 ignored.
+- Topology gate: `check_plan317_corpus_seed_hygiene` with six self-test
+  mutations; the self-test grew 76 → 83 with this milestone.
+- Local: `cargo test --workspace` exit 0; `cargo fmt --all -- --check` clean;
+  `cargo clippy --workspace --lib --bins --tests -- -D warnings` clean;
+  `cargo clippy -p eggserve-static --lib --tests --target
+  x86_64-pc-windows-msvc -- -D warnings` clean.
 
 ## 16. Rollback
 

@@ -223,6 +223,57 @@ Exit conditions: both lockfiles are byte-identical before and after the
 change; `cargo deny`/`cargo audit` stay green; no resolved dependency
 version changes.
 
+### Milestone 318 — Rustls security floor and its mechanical guard
+
+Class: invariant
+
+Objective: make the declared `rustls` floor match the patched release and
+protect it mechanically, so a consumer cannot unify to a vulnerable release
+alongside these crates.
+
+Dependencies: Milestone 315 (hard, closed) — the floor lives in the
+`[workspace.dependencies]` table that milestone created.
+
+Deliverable boundary: the floor raised from `0.23.45` to `0.23.46` in the
+workspace table and in the excluded Python crate; a gate rule that fails
+when any constraining manifest declares a lower floor; the TestPyPI
+staging path's GitHub-side configuration established and its one remaining
+account-side step recorded.
+
+User or operator value: the floor is what protects a *consumer*, not the
+resolution. Every lockfile in this repository already resolved the patched
+release, but a consumer who pinned `rustls = "=0.23.45"` could unify to the
+vulnerable release alongside these crates while the floor sat below it.
+
+Exit conditions: all three lockfiles and the resolved feature sets are
+unchanged; the floor is declared once and inherited; the gate rule fails
+closed on a regressed floor in either the table or the excluded crate.
+
+### Milestone 319 — `eggserve-static` 0.5.1 patch release and current-line sweep
+
+Class: polish
+
+Objective: publish the `eggserve-static` patch that carries the NT
+directory-buffer fixes, and make the normative documentation name the
+published line instead of the superseded one.
+
+Dependencies: Milestone 316 and Milestone 317 (hard, closed) — they produced
+the `eggserve-static` changes this release carries. Independent of
+Milestone 318: `eggserve-static` does not constrain `rustls`.
+
+Deliverable boundary: `eggserve-static` bumped to `0.5.1` and published; the
+current-line version statements corrected in `docs/release-contract.md` and
+the `architecture/` deep dives; the changelog entry for the patch.
+
+User or operator value: the published `eggserve-static` no longer carries the
+NT directory-buffer defect batch, and the release contract — the normative
+reference for what EggServe ships — names the line that actually exists.
+
+Exit conditions: the layered package dry-run passes; the published version
+resolves from the registry and a registry-only consumer installs against it;
+no current-line statement names a superseded version.
+
+
 ## 8. Cross-cutting requirements
 
 ### Storage and migration
@@ -296,3 +347,5 @@ changing any resolved version.
 | 312 | closed | `plans/implementation/cli-ops-observability/312-cross-platform-compile-coverage.md` | `plans/closure/cli-ops-observability/312-cross-platform-compile-coverage.md` | Routine CI now compiles the workspace (base, `http2,tls`, `http3,tls`) and the excluded Python crate on native `windows-latest` and `macos-latest` runners. Compile-only: runtime qualification stays manual and the Windows posture stays functional-only. The gate was proven to catch a deliberate `#[cfg(windows)]` break (run `39820541031`: the Windows leg failed, the macOS leg stayed green). |
 | 313 | closed | `plans/implementation/cli-ops-observability/313-lint-policy-enforcement.md` | `plans/closure/cli-ops-observability/313-lint-policy-enforcement.md` | `missing_docs` and `clippy::undocumented_unsafe_blocks` are enabled in the root `[workspace.lints]` table; 539 undocumented public items and 23 missing `SAFETY:` comments were remediated; the `python-bindings-internal`, excluded-Python-crate, and Windows-confinement clippy lanes are in CI. The plan's lint name was wrong — the lint is `clippy::undocumented_unsafe_blocks`, not a rustc or rustdoc lint — and the deviation is recorded in the plan and the closure record. |
 | 315 | closed | `plans/implementation/cli-ops-observability/315-dependency-specification-consolidation.md` | `plans/closure/cli-ops-observability/315-dependency-specification-consolidation.md` | A root `[workspace.dependencies]` table owns every shared dependency version and the `rustls` `0.23.45` floor; the excluded Python crate keeps explicit specs. All three lockfiles are byte-identical and the resolved package and feature sets are unchanged. The plan's `default-features` guidance was factually backwards and is recorded as a deviation. |
+| 318 | closed | `plans/implementation/cli-ops-observability/318-rustls-floor-and-testpypi-staging.md` | `plans/closure/cli-ops-observability/318-rustls-floor-and-testpypi-staging.md` | The manifest `rustls` floor is raised from `0.23.45` to `0.23.46` in the workspace table and in the excluded Python crate. The resolution does not move — all three lockfiles and the resolved feature sets are unchanged — but a consumer pinned to `=0.23.45` can no longer unify to the vulnerable release alongside these crates. The guard `docs/dependency-policy.md` already required but that never existed now does: gate rule `check_plan318_rustls_floor`. The TestPyPI trusted publisher's GitHub-side environment exists and its workflow job is wired; the PyPI-side account registration remains a maintainer step. |
+| 319 | closed | `plans/implementation/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md` | `plans/closure/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md` | `eggserve-static` is bumped to `0.5.1` and published with the NT directory-buffer fixes the published `0.5.0` still carried; the dependent crates' caret requirements already accept it and are unchanged. `docs/release-contract.md` and five `architecture/` deep dives no longer name the superseded `0.4.0` line's versions. The six factually-wrong doc comments an audit found in Plan 313's 539-item remediation are corrected. |
