@@ -50,25 +50,25 @@ eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.3" }
 eggserve-server = { path = "../eggserve-server", version = "0.5.0" }
 eggserve-static = { path = "../eggserve-static", version = "0.5.0" }
 eggserve-h3 = { path = "../eggserve-h3", version = "0.5.0", optional = true }
-bytes = "1"
-futures-util = "0.3"
+bytes = { workspace = true }
+futures-util = { workspace = true }
 # Direct use: TrackedBody implements http_body::Body to observe response-body
 # completion for the write-no-progress timeout (Plan 164). Already in the
 # tree via hyper; pinned directly so the impl does not rely on transitive
 # re-exports.
-http-body = "1"
-http-body-util = "0.1"
-httpdate = "1"
-hyper = { version = "1", features = ["http1", "server"] }
-hyper-util = { version = "0.1", features = ["tokio", "server", "http1"] }
+http-body = { workspace = true }
+http-body-util = { workspace = true }
+httpdate = { workspace = true }
+hyper = { workspace = true, features = ["http1", "server"] }
+hyper-util = { workspace = true, features = ["tokio", "server", "http1"] }
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "net", "signal", "time", "fs", "io-util", "sync"] }
+tokio = { workspace = true, features = ["macros", "net", "signal", "time", "fs", "io-util", "sync"] }
 
 # TLS dependencies (feature-gated)
-# Security floor (Plan 218, RUSTSEC-2026-0285): caret floor keeps Cargo from
-# resolving below the patched 0.23.45 line.
-rustls = { version = "0.23.45", optional = true, default-features = false, features = ["std", "ring"] }
-tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }
+# The rustls security floor (Plan 218, RUSTSEC-2026-0285) is declared once in
+# the root `[workspace.dependencies]` table and inherited here.
+rustls = { workspace = true, optional = true, default-features = false, features = ["std", "ring"] }
+tokio-rustls = { workspace = true, optional = true, features = ["ring"] }
 
 [target.'cfg(unix)'.dependencies]
 # Plan 219: the static confinement implementation (and its `rustix::fs` use)
@@ -76,19 +76,19 @@ tokio-rustls = { version = "0.26", optional = true, default-features = false, fe
 # accept/socket validation (`rustix::net`). The descriptor-exhaustion
 # predicate moved to `eggserve_server::accept_error` (Plan 309), so core no
 # longer needs `rustix::io::Errno`.
-rustix = { version = "1", features = ["net"] }
+rustix = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
-hyper = { version = "1", features = ["client", "http2"] }
-libc = "0.2"
-proptest = "1"
+hyper = { workspace = true, features = ["client", "http2"] }
+libc = { workspace = true }
+proptest = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tempfile = "3"
-rcgen = "0.13"
-tokio = { version = "1", features = ["rt-multi-thread"] }
-rustls-pki-types = "1"
-tokio-rustls = "0.26"
+tempfile = { workspace = true }
+rcgen = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+rustls-pki-types = { workspace = true }
+tokio-rustls = { workspace = true, default-features = true }
 # Plan 199 Track I: dev-only WebSocket interop fixture proving the generic
 # tunnel handoff is sufficient for a downstream codec. Production core has no
 # WebSocket framing/dependency; this stays in tests only.

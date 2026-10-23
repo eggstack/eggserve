@@ -43,12 +43,12 @@ eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.3" }
 eggserve-server = { path = "../eggserve-server", version = "0.5.0" }
 eggserve-static = { path = "../eggserve-static", version = "0.5.0" }
 eggnet-tls = { path = "../eggnet-tls", version = "0.2.0" }
-tokio = { version = "1", features = ["macros", "net", "signal", "time", "sync"] }
+tokio = { workspace = true, features = ["macros", "net", "signal", "time", "sync"] }
 
 [dev-dependencies]
-tempfile = "3"
-# Security floor (Plan 218, RUSTSEC-2026-0285): caret floor keeps Cargo from
-# resolving below the patched 0.23.45 line.
-rustls = { version = "0.23.45", default-features = false, features = ["std", "ring"] }
-tokio-rustls = "0.26"
-rustls-pki-types = "1"
+tempfile = { workspace = true }
+# The rustls security floor (Plan 218, RUSTSEC-2026-0285) is declared once in
+# the root `[workspace.dependencies]` table and inherited here.
+rustls = { workspace = true, default-features = false, features = ["std", "ring"] }
+tokio-rustls = { workspace = true, default-features = true }
+rustls-pki-types = { workspace = true }

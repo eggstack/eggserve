@@ -20,12 +20,12 @@ default = []
 http2 = []
 
 [dependencies]
-# Security floor (Plan 218, RUSTSEC-2026-0285): caret floor keeps Cargo from
-# resolving below the patched 0.23.45 line.
-rustls = { version = "0.23.45", default-features = false, features = ["std", "ring"] }
-rustls-pki-types = { version = "1", features = ["std"] }
+# The rustls security floor (Plan 218, RUSTSEC-2026-0285) is declared once in
+# the root `[workspace.dependencies]` table and inherited here.
+rustls = { workspace = true, default-features = false, features = ["std", "ring"] }
+rustls-pki-types = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
-rcgen = "0.13"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util"] }
-tokio-rustls = "0.26"
+rcgen = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util"] }
+tokio-rustls = { workspace = true, default-features = true }

@@ -26,10 +26,10 @@ default = []
 http-interop = []
 
 [dependencies]
-bytes = "1"
-futures-util = "0.3"
+bytes = { workspace = true }
+futures-util = { workspace = true }
 
 [dev-dependencies]
-proptest = "1"
-tempfile = "3"
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", "sync"] }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "macros", "sync"] }

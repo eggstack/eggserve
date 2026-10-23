@@ -299,9 +299,11 @@ crate keeps its own lockfile, so never replace the shared script with a root
 only `cargo audit` or `cargo deny check` invocation. A scheduled daily
 workflow (`.github/workflows/advisory-scan.yml`, Plan 218) re-runs the same
 gates without a push/PR. Both lockfiles are distributed security boundaries;
-direct `rustls` constraints carry a `0.23.45` caret floor (RUSTSEC-2026-0285)
-in every constraining manifest including the excluded Python crate — never
-roll it back. `deny.toml` denies wildcard requirements and bans
+the `rustls` `0.23.45` caret floor (RUSTSEC-2026-0285) is declared once in the
+root `[workspace.dependencies]` table and inherited by every workspace member
+that constrains `rustls`, while the excluded Python crate keeps an explicit
+`0.23.45` spec — never roll the floor back. `deny.toml` denies wildcard
+requirements and bans
 `native-tls`/`openssl-sys` for the rustls/ring-only stack (see
 `docs/dependency-policy.md`).
 
@@ -319,8 +321,9 @@ roll it back. `deny.toml` denies wildcard requirements and bans
   the neutral ALPN hook (`alpn_protocols` / `load_tls_config_with_alpn`,
   16×255 bounds via `TlsError::InvalidAlpn`, last-wins against the HTTP-only
   `http2` convenience) so non-HTTP transports never reuse `http_alpn_protocols`.
-  Never roll back the `0.23.45` rustls caret floor (RUSTSEC-2026-0285) in any
-  constraining manifest including the excluded Python crate; sibling eggress/
+  Never roll back the `0.23.45` rustls caret floor (RUSTSEC-2026-0285): it is
+  declared once in the root `[workspace.dependencies]` table for the workspace
+  members and restated literally in the excluded Python crate; sibling eggress/
   eggfetch floors are still bare `0.23` (locks at .45) and are follow-ups in
   those repos. Eggress server migration (its optional-mTLS branch is missing
   `allow_unauthenticated()`) and the eggfetch no-dependency evaluation live in

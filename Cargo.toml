@@ -23,6 +23,55 @@ keywords = ["http", "static-file-server", "security", "hardened", "http-server"]
 categories = ["web-programming::http-server"]
 rust-version = "1.89"
 
+[workspace.dependencies]
+# Shared dependency specifications (Plan 315). Workspace members inherit the
+# version with `workspace = true` and keep the crate-specific parts
+# (`features`, `optional`, `default-features`) in their own manifest: Cargo
+# adds member features to the inherited set instead of replacing it, so the
+# per-crate feature sets stay exactly as declared today.
+#
+# `default-features` is stated here only where every member that constrains
+# the dependency agrees on it. A member that needs a different value states it
+# locally. Dependencies used by exactly one crate stay in that crate's
+# manifest, and `crates/eggserve-python` (excluded from this workspace) keeps
+# every specification explicit in its own manifest.
+#
+# Security floor (Plan 218, RUSTSEC-2026-0285): the rustls caret floor keeps
+# Cargo from resolving below the patched 0.23.45 line. It is declared once
+# here and inherited by every workspace member that constrains rustls; the
+# excluded Python crate restates it literally because it cannot use this table.
+rustls = { version = "0.23.45", default-features = false }
+# The async TLS wrapper tracks the rustls floor. Members that need the crate's
+# default feature set restate `default-features = true`.
+tokio-rustls = { version = "0.26", default-features = false }
+rustls-pki-types = "1"
+
+# HTTP/1 runtime and transport
+hyper = "1"
+hyper-util = "0.1"
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+httpdate = "1"
+
+# Async runtime and streaming
+tokio = "1"
+futures-util = "0.3"
+bytes = "1"
+
+# Unix syscall surface
+rustix = "1"
+
+# Minimal Tower traits
+tower-service = "0.3"
+tower-layer = "0.3"
+
+# Shared dev-dependency specifications
+rcgen = "0.13"
+tempfile = "3"
+proptest = "1"
+libc = "0.2"
+
 [workspace.lints.rust]
 # EggServe owns a small amount of platform FFI for descriptor/handle-relative
 # confinement and systemd listener adoption. Those modules carry narrow,

@@ -27,6 +27,48 @@ Every dependency must have an explicit purpose. The following rules apply to all
 - **No default TLS dependency** — TLS dependencies are optional, behind the `tls` feature flag, and not included in the default build
 - **Feature flags must isolate optional surfaces** — optional dependencies are behind feature flags
 - **Security-critical parsing dependencies require review** — any dependency that handles HTTP parsing, path resolution, or encoding must be reviewed before adoption
+- **Shared versions are declared once** — a dependency used by more than one workspace member takes its version from the root `[workspace.dependencies]` table (see below)
+
+## Shared dependency specifications (Plan 315)
+
+A dependency that more than one workspace member consumes takes its version
+from the root `[workspace.dependencies]` table. Members inherit the version
+with `workspace = true` and keep the crate-specific parts in their own
+manifest:
+
+```toml
+# crates/eggserve-core/Cargo.toml
+rustls = { workspace = true, optional = true, default-features = false, features = ["std", "ring"] }
+```
+
+Rules:
+
+- **Only genuinely shared dependencies belong in the table.** A dependency
+  consumed by exactly one crate stays in that crate's manifest: `phf`
+  (static-only), `thiserror` (core-only), the H3/QUIC stack
+  (`h3`/`h3-quinn`/`quinn`, H3-only), and the dev-only `axum`/`serde`
+  fixtures.
+- **The table carries versions, not feature policy.** Cargo *adds* a member's
+  `features` to the inherited set instead of replacing it, so the intentionally
+  divergent per-crate feature sets (for example `tokio-rustls` with `["ring"]`
+  where a crate needs it and without where it does not) stay in the crates
+  that need them.
+- **`default-features` is a per-crate decision, stated in the table only when
+  every member agrees.** A member-level `default-features = false` on top of a
+  table entry that leaves the defaults enabled is ignored by Cargo (and
+  warned about), so the table entry and the members must agree. The workspace
+  table therefore carries `default-features = false` for `rustls` and
+  `tokio-rustls`, and members that need the crate's default feature set
+  restate `default-features = true`.
+- **The excluded Python crate stays explicit.** `crates/eggserve-python` is
+  excluded from the workspace and cannot use the workspace table at all. It
+  keeps every specification — including the `rustls` `0.23.45` floor —
+  literal in its own manifest, and it keeps its own `Cargo.lock`.
+- **Path dependencies stay local.** The `eggserve-*` crates are published path
+  dependencies with per-crate versions; they are not table entries.
+- **Consolidation never changes resolution.** Moving a version into the table
+  must leave both `Cargo.lock` files byte-identical and the resolved feature
+  sets unchanged; if it would not, the dependency stays explicit.
 
 ## Initially allowed categories
 
@@ -125,8 +167,10 @@ The following dependency categories are approved for initial development:
 
 Advisory response can require minimum versions newer than the broad semver
 declarations elsewhere in this document. When that happens, the floor is set
-explicitly in every manifest that directly constrains the affected crate so a
-future lock regeneration cannot legitimately resolve below the patched line:
+explicitly — once in the root `[workspace.dependencies]` table for the
+workspace members, and literally in the manifest of any crate that cannot use
+that table — so a future lock regeneration cannot legitimately resolve below
+the patched line:
 
 - **Both lockfiles are distributed security boundaries.** The root workspace
   `Cargo.lock` and the excluded Python wheel `crates/eggserve-python/Cargo.lock`
@@ -134,12 +178,19 @@ future lock regeneration cannot legitimately resolve below the patched line:
   `scripts/check-supply-chain.sh`. A floor must land in both closures; the
   Python manifest carries its own `rustls` constraint for exactly this reason.
 - **rustls-family floors are security-sensitive.** RUSTSEC-2026-0285 requires
-  `rustls >= 0.23.45`; every direct `rustls` constraint in the workspace
-  (`eggnet-tls`, `eggserve-server`, `eggserve-core`, `eggserve-bin` dev-deps)
-  and the excluded Python manifest therefore declares a `0.23.45` caret floor.
-  Do not roll a rustls floor back: if a regression appears in a patched
+  `rustls >= 0.23.45`. The `0.23.45` caret floor is declared once in the root
+  `[workspace.dependencies]` table and inherited by every direct `rustls`
+  constraint in the workspace (`eggnet-tls`, `eggserve-h3`, `eggserve-core`,
+  and the `eggserve-server`/`eggserve-bin` dev-dependencies); the excluded
+  Python manifest declares the same floor literally because it cannot use the
+  workspace table. `tokio-rustls` inherits its `0.26` version from the same
+  table. Do not roll a rustls floor back: if a regression appears in a patched
   release, move forward to a later patched release or disable the affected
   optional feature while investigating.
+- **A static guard must protect the floor.** The supply-chain/topology gates
+  must fail if any constraining manifest — including the excluded Python
+  crate, the one place the workspace table cannot help — declares `rustls`
+  below `0.23.45` or drops it while declaring the `tls`/`http3` features.
 - **Sibling repositories still declare bare rustls floors (Plan 222
   follow-up).** Eggress (`rustls = "0.23"`) and eggfetch-core
   (`rustls = "0.23"` optional) currently resolve 0.23.45 in their lockfiles

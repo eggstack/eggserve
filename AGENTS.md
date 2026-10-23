@@ -78,9 +78,11 @@ push/tag/merge ever publishes.
 
 - Rust edition 2021, resolver `"2"`, MSRV 1.89. No `rustfmt.toml`/`clippy.toml`; CI enforces `cargo fmt --check` + clippy `-D warnings`.
 - No pre-build/codegen: `cargo build` / `cargo test` suffice.
-- Direct `rustls` constraints carry a `0.23.45` caret floor (RUSTSEC-2026-0285)
-  in every constraining manifest including the excluded Python crate — never
-  roll it back. `deny.toml` bans wildcards and `native-tls`/`openssl-sys`
+- The `rustls` `0.23.45` caret floor (RUSTSEC-2026-0285) is declared once in
+  the root `[workspace.dependencies]` table and inherited by every workspace
+  member that constrains `rustls`; the excluded Python crate keeps an explicit
+  `0.23.45` spec because it cannot use the workspace table — never roll the
+  floor back. `deny.toml` bans wildcards and `native-tls`/`openssl-sys`
   (`aws-lc-rs` is intentionally allowed: dev-only `rcgen` unification,
   production `cargo tree -e no-dev` is ring-only).
 - Stripped CLI: `cargo build --profile dist --locked -p eggserve-bin [--features tls]`.

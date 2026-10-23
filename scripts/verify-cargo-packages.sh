@@ -68,6 +68,22 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
   git -C "$layered_index" commit -q -m 'initialize local registry for layered package validation'
   export CARGO_REGISTRIES_LOCAL_INDEX="file://$layered_index"
 
+  # Copy the real workspace dependency table into the layered root.
+  #
+  # Plan 315: the member manifests inherit shared dependency versions from the
+  # root `[workspace.dependencies]` table. The layered root is synthetic, so
+  # without the table the members cannot resolve `workspace = true` and
+  # `cargo generate-lockfile` fails before any build. The table is copied
+  # verbatim so the layered build resolves exactly what the real workspace
+  # resolves — including the `rustls` security floor.
+  extract_workspace_dependencies() {
+    awk '
+      /^\[workspace\.dependencies/ { in_block = 1; print; next }
+      /^\[/ { if (in_block) exit }
+      in_block { print }
+    ' Cargo.toml
+  }
+
   write_layered_root() {
     local package="$1"
     local package_version
@@ -77,7 +93,11 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
     cp Cargo.toml README.md LICENSE "$layered_stage/"
     cp -R "crates/$package/." "$layered_stage/crates/$package/"
     cp -R architecture docs examples "$layered_stage/"
-    printf '[workspace]\nmembers = ["crates/%s"]\nresolver = "2"\n\n[workspace.package]\nversion = "%s"\nedition = "2021"\nlicense = "MIT"\nrepository = "https://github.com/eggstack/eggserve"\nhomepage = "https://github.com/eggstack/eggserve"\nkeywords = ["http", "static-file-server", "security", "hardened", "http-server"]\ncategories = ["web-programming::http-server"]\nrust-version = "1.89"\n\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[profile.dist]\ninherits = "release"\nopt-level = "z"\nlto = "fat"\ncodegen-units = 1\nstrip = "symbols"\n' "$package" "$package_version" > "$layered_stage/Cargo.toml"
+    {
+      printf '[workspace]\nmembers = ["crates/%s"]\nresolver = "2"\n\n[workspace.package]\nversion = "%s"\nedition = "2021"\nlicense = "MIT"\nrepository = "https://github.com/eggstack/eggserve"\nhomepage = "https://github.com/eggstack/eggserve"\nkeywords = ["http", "static-file-server", "security", "hardened", "http-server"]\ncategories = ["web-programming::http-server"]\nrust-version = "1.89"\n\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n' "$package" "$package_version"
+      extract_workspace_dependencies
+      printf '\n[profile.dist]\ninherits = "release"\nopt-level = "z"\nlto = "fat"\ncodegen-units = 1\nstrip = "symbols"\n'
+    } > "$layered_stage/Cargo.toml"
     printf '[registries.local]\nindex = "file://%s"\n' "$layered_index" > "$layered_stage/.cargo/config.toml"
   }
 

@@ -213,10 +213,50 @@ No new crate. No source file changes.
   intentionally different (for example `tokio-rustls` with `["ring"]`
   where a crate needs it and without where it does not).
 - `default-features = false` must be preserved wherever it is set today.
-  Cargo's workspace inheritance does **not** carry `default-features`;
-  a crate that needs `default-features = false` must state it explicitly.
   This is the single most likely way to introduce a silent resolution
   change, and the lockfile comparison is the guard.
+
+- **Recorded material deviation (resolved).** This plan originally stated that
+  "Cargo's workspace inheritance does **not** carry `default-features`; a crate
+  that needs `default-features = false` must state it explicitly." That is
+  backwards, and following it literally would have changed the resolved
+  feature set of every member.
+
+  Cargo **does** inherit `default-features` from the workspace table. The
+  failure mode is the opposite one: when a table entry leaves
+  `default-features` unspecified (that is, defaults **on**) and a member asks
+  for `default-features = false`, the member-level request is **ignored** and
+  Cargo emits
+
+  ```
+  warning: `default-features` is ignored for <dep>, since `default-features`
+  was not specified for `workspace.dependencies.<dep>`; overriding workspace
+  `default-features` to false requires Rust 1.99+ and the 2024 edition
+  ```
+
+  Overriding to `false` from the table requires Rust 1.99 and edition 2024;
+  this repository is edition 2021 with MSRV 1.89, so that override would not
+  have been honored on the MSRV lane at all.
+
+  The resolution: the table states `default-features` explicitly wherever the
+  members do not agree on the default set — `rustls` and `tokio-rustls` both
+  carry `default-features = false` in the table — and the members that need
+  the default feature set restate `default-features = true`, which Cargo
+  honors. A member restating `default-features = false` against a table entry
+  that already says `false` is then a consistency statement rather than an
+  override, and is honored on every supported toolchain.
+
+  The plan's §3.4 inventory also needed correcting: `rustls` is constrained by
+  **five** workspace members (`eggnet-tls`, `eggserve-h3`, `eggserve-core`, and
+  the `eggserve-server` and `eggserve-bin` **dev**-dependencies) plus the
+  excluded crate; the plan's table described `eggserve-server`'s declaration
+  as a normal dependency and omitted `eggserve-h3` from
+  `docs/dependency-policy.md`'s own floor list.
+
+  Because the lockfile records versions and not features, the lockfile
+  comparison alone does **not** prove this milestone. The real guard is the
+  resolved feature tree, which was diffed before and after and is empty.
+
 
 ### Protocol and compatibility
 

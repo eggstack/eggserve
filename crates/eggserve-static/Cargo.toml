@@ -20,13 +20,13 @@ python-bindings-internal = []
 [dependencies]
 eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.3" }
 eggserve-server = { path = "../eggserve-server", version = "0.5.0" }
-httpdate = "1"
+httpdate = { workspace = true }
 phf = { version = "0.11", features = ["macros"] }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs", "net"] }
+rustix = { workspace = true, features = ["fs", "net"] }
 
 [dev-dependencies]
-libc = "0.2"
-proptest = "1"
-tempfile = "3"
+libc = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
