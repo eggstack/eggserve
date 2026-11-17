@@ -11,7 +11,7 @@ eggserve ships with the following safe defaults. These are not configurable with
 
 | Default | Behavior |
 |---------|----------|
-| **bind to loopback** | Server binds to `127.0.0.1` unless `--public` is passed |
+| **bind to loopback** | Server binds to `127.0.0.1` by default; an explicit `0.0.0.0`/`::` bind is rejected unless `--public` acknowledges it |
 | **GET and HEAD only (static service)** | The built-in static service rejects other methods with 405 |
 | **request bodies rejected (static service)** | Body-bearing requests are rejected before method dispatch; custom services declare their own policy |
 | **no symlink following** | Symlinks are denied unless `--follow-symlinks` is passed |
@@ -54,7 +54,11 @@ The following options weaken security defaults. Each requires an explicit CLI fl
 
 ### `--public`
 
-Binds to all network interfaces (`0.0.0.0`) instead of loopback. Use only when the server must be accessible from other machines. The operator is responsible for network-level access control.
+Acknowledges an explicit wildcard bind (`0.0.0.0` or `::`). It does not change
+or select the bind address: a wildcard bind is rejected without it, and with it
+the configured address is used unchanged. `--public` alone still binds
+loopback. Use only when the server must be accessible from other machines. The
+operator is responsible for network-level access control.
 
 ### `--follow-symlinks`
 

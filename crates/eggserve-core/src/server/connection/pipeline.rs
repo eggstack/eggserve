@@ -31,6 +31,7 @@ use super::request::{
 use super::response::{
     apply_http1_disposition, body_error_disposition, body_error_to_response, contain_service_panic,
 };
+use eggserve_server::connection::PeerTransport;
 
 fn finish_response(
     guard: InFlightGuard,
@@ -61,6 +62,7 @@ fn apply_forwarded_policy(
     head: &crate::primitives::request_head::RequestHead,
     config: &RuntimeConfig,
     context: &ConnectionContext,
+    transport: PeerTransport,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
 ) -> crate::primitives::connection_info::ConnectionInfo {
@@ -69,10 +71,9 @@ fn apply_forwarded_policy(
     if config.trusted_proxy.forwarded.is_disabled() {
         return base;
     }
-    let trusted_peer = match context.remote_addr {
-        Some(peer) => config.trusted_proxy.is_trusted_peer(&peer),
-        None => config.trusted_proxy.trust_unix,
-    };
+    // Plan 321: trust follows the accepting transport, not address absence.
+    // The direct pipeline calls the same mapping.
+    let trusted_peer = transport.trusts_forwarded(context.remote_addr, &config.trusted_proxy);
     match derive_forwarded_effective(
         head.headers(),
         &config.trusted_proxy.forwarded,
@@ -732,6 +733,7 @@ pub(crate) fn make_canonical_hyper_service<S>(
     body_read_timeout: std::time::Duration,
     max_body_bytes: u64,
     context: ConnectionContext,
+    transport: PeerTransport,
     conn_id: u64,
     ops: crate::ops::OpsContext,
 ) -> impl ReadyCanonicalHyperService
@@ -810,7 +812,7 @@ where
                     &config,
                     conn_id,
                     head.version() == crate::primitives::version::HttpVersion::Http2,
-                    LifecycleDisposition::close_and_cancel_body(),
+                    LifecycleDisposition::for_ambiguous_framing(),
                 ));
             }
 
@@ -825,6 +827,7 @@ where
                 &head,
                 &config,
                 &context,
+                transport,
                 conn_id,
                 &ops,
             );
@@ -874,6 +877,10 @@ where
                     .connection_id(conn_id),
                 );
                 let is_head = head.method().is_head();
+                // Plan 324: ambiguous framing is never a reusable
+                // connection. Hyper 1.11 rejects duplicate Content-Length and
+                // normalizes a lone CL+TE before this branch, so this is
+                // defense-in-depth for a future/alternate parser.
                 return Ok::<_, Infallible>(finish_response(
                     guard,
                     super::response::service_error_to_response(
@@ -884,7 +891,7 @@ where
                     &config,
                     conn_id,
                     is_h2,
-                    LifecycleDisposition::KEEP_ALIVE,
+                    LifecycleDisposition::close_and_cancel_body(),
                 ));
             }
 

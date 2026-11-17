@@ -91,12 +91,20 @@ When `cargo audit` or GitHub advisory databases report a vulnerability:
 1. Assess whether the affected dependency is actually reachable in eggserve's code paths.
 2. If exploitable, treat as a vulnerability per the triage process above.
 3. If not exploitable (unreachable code path, wrong feature gate, etc.), document the finding and rationale for accepting the risk.
-4. Update `deny.toml` or `audit.toml` only with documented justification.
+4. Update `deny.toml` or `.cargo/audit.toml` only with documented justification.
+   `deny.toml` is the cargo-deny policy; `.cargo/audit.toml` is the cargo-audit
+   policy. Keep both advisory-ignore lists empty: repair with a patched
+   version, not an exception.
 
 Every distributed Rust dependency closure is checked in routine CI and release
 preflight. The root workspace and the excluded Python wheel crate have
 separate lockfiles; `scripts/check-supply-chain.sh` audits both and applies the
-shared `deny.toml` policy to both manifests. A scheduled daily workflow
+shared `deny.toml` policy to both manifests. Before the network audits,
+`scripts/check-advisory-floors.py` runs an offline guard against the advisory
+floors already resolved in this repository (`quinn-proto`, `quinn-udp`,
+`rustix`, `tokio`) and fails closed when a lockfile regresses below a patched
+release; it is a version check, not a replacement for `cargo audit`. A
+scheduled daily workflow
 (`.github/workflows/advisory-scan.yml`) re-runs the same gates without
 requiring a push or pull request. A release build also uses the
 exact Rust 1.98.1 compiler rather than a floating stable patch version.

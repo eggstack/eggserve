@@ -136,6 +136,7 @@ These behaviors are unavailable by design, not pending work:
 | Arbitrary `ssl.SSLContext`, SNI multi-cert selection, or client certificates | Rustls facade constraints |
 | Async handler coroutines | Synchronous handler contract |
 | Unbounded streaming Python response bodies | Bounded response policy (facade is buffered; `eggserve.lowlevel.Response.stream` offers bounded 16-chunk streaming) |
+| Unbounded streamed producer threads | At most `max_python_callbacks` concurrent `Response.stream` producers; excess requests receive a sanitized 503; a blocking `__next__` cannot be interrupted |
 | `CGIHTTPRequestHandler` / `--cgi` | Removed legacy surface (deprecated Python 3.13, removed 3.15; Plan 167 no-go) |
 | FastCGI gateway | Never an `http.server` feature; no in-tree adapter (Plan 167 no-go) |
 

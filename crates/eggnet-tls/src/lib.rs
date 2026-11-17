@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::Read;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -24,6 +24,12 @@ use rustls_pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyD
 pub const MAX_TLS_IDENTITIES: usize = 64;
 /// Maximum DNS length for an SNI identity (DNS limit, without `*.` prefix).
 pub const MAX_SNI_LEN: usize = 253;
+/// Maximum identity certificate or key PEM size accepted before parsing.
+///
+/// Plan 324: matches [`MAX_TRUST_PEM_BYTES`] so an oversized or adversarial
+/// local identity file cannot consume parser time/memory before the chain and
+/// key-count checks run.
+pub const MAX_IDENTITY_PEM_BYTES: usize = 1024 * 1024;
 /// Maximum trust anchors for client authentication.
 pub const MAX_TRUST_ROOTS: usize = 256;
 /// Maximum CRLs for client authentication.
@@ -195,6 +201,16 @@ pub fn parse_identity_pem(
     key_pem: &[u8],
 ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), TlsError> {
     use std::io::Cursor;
+    if cert_pem.len() > MAX_IDENTITY_PEM_BYTES {
+        return Err(TlsError::CertReadError(format!(
+            "certificate PEM too large (max {MAX_IDENTITY_PEM_BYTES} bytes)"
+        )));
+    }
+    if key_pem.len() > MAX_IDENTITY_PEM_BYTES {
+        return Err(TlsError::KeyReadError(format!(
+            "key PEM too large (max {MAX_IDENTITY_PEM_BYTES} bytes)"
+        )));
+    }
     let certs = CertificateDer::pem_reader_iter(Cursor::new(cert_pem))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| TlsError::CertReadError(e.to_string()))?;
@@ -284,41 +300,45 @@ fn build_single_cert_config(
 }
 
 /// Load one certificate chain and exactly one private key from PEM files.
+///
+/// Both files are read through [`MAX_IDENTITY_PEM_BYTES`] before parsing, so a
+/// very large or adversarial identity cannot consume parser time/memory; the
+/// in-memory parser then applies the chain/key-count checks (Plan 324).
 pub fn load_identity(
     cert_path: &Path,
     key_path: &Path,
 ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), TlsError> {
-    let cert_file = File::open(cert_path)
-        .map_err(|_| TlsError::CertFileNotFound(cert_path.display().to_string()))?;
-    let cert_reader = BufReader::new(cert_file);
-    let certs = CertificateDer::pem_reader_iter(cert_reader)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| TlsError::CertReadError(e.to_string()))?;
-    if certs.is_empty() {
-        return Err(TlsError::NoCertificatesFound);
-    }
-    if certs.len() > MAX_IDENTITY_CHAIN {
-        return Err(TlsError::InvalidKey(format!(
-            "certificate chain too long (max {MAX_IDENTITY_CHAIN})"
+    let cert_pem = read_identity_pem_file(
+        cert_path,
+        TlsError::CertFileNotFound,
+        TlsError::CertReadError,
+    )?;
+    let key_pem =
+        read_identity_pem_file(key_path, TlsError::KeyFileNotFound, TlsError::KeyReadError)?;
+    parse_identity_pem(&cert_pem, &key_pem)
+}
+
+/// Read at most [`MAX_IDENTITY_PEM_BYTES`] bytes from one identity file.
+///
+/// `take(MAX + 1)` is authoritative: a file that grows after `open` is still
+/// rejected, and the buffer never exceeds the ceiling. The `not_found` and
+/// `read_error` constructors keep the existing certificate/key error variants.
+fn read_identity_pem_file(
+    path: &Path,
+    not_found: fn(String) -> TlsError,
+    read_error: fn(String) -> TlsError,
+) -> Result<Vec<u8>, TlsError> {
+    let file = File::open(path).map_err(|_| not_found(path.display().to_string()))?;
+    let mut buf = Vec::new();
+    file.take((MAX_IDENTITY_PEM_BYTES as u64) + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| read_error(e.to_string()))?;
+    if buf.len() > MAX_IDENTITY_PEM_BYTES {
+        return Err(read_error(format!(
+            "identity PEM too large (max {MAX_IDENTITY_PEM_BYTES} bytes)"
         )));
     }
-
-    let key_file = File::open(key_path)
-        .map_err(|_| TlsError::KeyFileNotFound(key_path.display().to_string()))?;
-    let key_reader = BufReader::new(key_file);
-    let mut private_key = None;
-    let mut key_count = 0;
-    for item in PrivateKeyDer::pem_reader_iter(key_reader) {
-        let key = item.map_err(|e| TlsError::KeyReadError(e.to_string()))?;
-        key_count += 1;
-        private_key = Some(key);
-    }
-    if key_count > 1 {
-        return Err(TlsError::MultiplePrivateKeysFound);
-    }
-    let key = private_key.ok_or(TlsError::NoPrivateKeyFound)?;
-    validate_key_pair(&certs, &key)?;
-    Ok((certs, key))
+    Ok(buf)
 }
 
 /// Validate key/cert pairing early via the ring provider (never defer an

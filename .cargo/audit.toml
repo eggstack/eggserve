@@ -1,0 +1,16 @@
+# cargo-audit project configuration (Plan 323).
+#
+# cargo-audit 0.22.2 reads `./.cargo/audit.toml` in the current directory (or
+# `$CARGO_HOME/audit.toml`); it does not read a repository-root `audit.toml`.
+# This file owns the audit policy and `deny.toml` owns the cargo-deny policy:
+# one effective source per tool.
+#
+# Keep `ignore` empty. Remediate with a patched version, or extend the offline
+# floor guard in `scripts/check-advisory-floors.py`; never silence an advisory.
+
+[advisories]
+ignore = []
+
+[yanked]
+# Report yanked crates (cargo audit warns unless `--deny yanked` is passed).
+enabled = true

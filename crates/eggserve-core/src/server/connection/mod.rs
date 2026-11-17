@@ -107,6 +107,7 @@ use self::driver::{classify_cleartext, serve_h2_with_token};
 use self::lifecycle::ConnectionRequests;
 #[cfg(feature = "http2")]
 use self::pipeline::make_canonical_hyper_service;
+pub use eggserve_server::connection::PeerTransport;
 
 /// Serve a single connection with a custom [`Service`] implementation.
 ///
@@ -148,7 +149,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     // is bridged to the canonical token inline so no detached forwarder
     // outlives this future.
     let conn_shutdown = ConnectionShutdown::new();
-    let direct = eggserve_server::connection::serve_http1_connection_with_id(
+    let direct = eggserve_server::connection::serve_http1_connection_with_id_and_transport(
         io.into_inner(),
         service,
         Arc::new(config.direct_h1_config()),
@@ -156,6 +157,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
         Arc::new(runtime_state.direct.clone()),
         &conn_shutdown,
         conn_id,
+        PeerTransport::Socket,
     );
     tokio::pin!(direct);
     let recv = shutdown_rx.recv();
@@ -299,6 +301,7 @@ where
         shutdown,
         conn_id,
         WireProtocol::Auto,
+        PeerTransport::Opaque,
     )
     .await
 }
@@ -345,6 +348,7 @@ pub(crate) async fn serve_http_connection_with_id_and_protocol<I, S>(
     shutdown: &ConnectionShutdown,
     conn_id: u64,
     protocol: WireProtocol,
+    transport: PeerTransport,
 ) -> ConnectionOutcome
 where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -372,7 +376,7 @@ where
     // execution. Core never constructs or drives a Hyper H1 connection.
     #[cfg(any(feature = "tls", feature = "http2"))]
     if matches!(protocol, WireProtocol::Http1) {
-        return eggserve_server::connection::serve_http1_connection_with_id(
+        return eggserve_server::connection::serve_http1_connection_with_id_and_transport(
             io,
             service,
             Arc::new(config.direct_h1_config()),
@@ -380,6 +384,7 @@ where
             Arc::new(runtime_state.direct.clone()),
             shutdown,
             conn_id,
+            transport,
         )
         .await;
     }
@@ -390,7 +395,7 @@ where
         // (TLS ALPN) returns above; only `Auto` reaches here.
         let _ = protocol;
         debug_assert!(matches!(protocol, WireProtocol::Auto));
-        return eggserve_server::connection::serve_http1_connection_with_id(
+        return eggserve_server::connection::serve_http1_connection_with_id_and_transport(
             io,
             service,
             Arc::new(config.direct_h1_config()),
@@ -398,6 +403,7 @@ where
             Arc::new(runtime_state.direct.clone()),
             shutdown,
             conn_id,
+            transport,
         )
         .await;
     }
@@ -425,6 +431,7 @@ where
                 config.body_read_timeout,
                 config.max_request_body_bytes,
                 context,
+                transport,
                 conn_id,
                 ops,
             );
@@ -447,7 +454,7 @@ where
         match classify_cleartext(io, &config, shutdown, &activity, conn_id).await {
             Err(outcome) => outcome,
             Ok((prefixed, WireProtocol::Http1)) => {
-                eggserve_server::connection::serve_http1_connection_with_id(
+                eggserve_server::connection::serve_http1_connection_with_id_and_transport(
                     prefixed,
                     service,
                     Arc::new(config.direct_h1_config()),
@@ -455,6 +462,7 @@ where
                     Arc::new(runtime_state.direct.clone()),
                     shutdown,
                     conn_id,
+                    transport,
                 )
                 .await
             }
@@ -478,6 +486,7 @@ where
                     config.body_read_timeout,
                     config.max_request_body_bytes,
                     context,
+                    transport,
                     conn_id,
                     ops,
                 );

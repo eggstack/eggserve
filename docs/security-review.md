@@ -24,7 +24,7 @@ Every security default is enforced at the library level in `eggserve-core`. See 
 
 | Default | Enforcement |
 |---------|-------------|
-| Loopback bind | `127.0.0.1` unless `--public` |
+| Loopback bind | `127.0.0.1` by default; a wildcard bind requires `--public` acknowledgment and `--public` does not change the address |
 | GET/HEAD only | 405 for other methods |
 | Static body rejection | 413/400 for body signals |
 | No symlinks | Descriptor-relative `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)` on Unix; component-wise `symlink_metadata` on non-Unix |

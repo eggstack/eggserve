@@ -733,7 +733,12 @@ mod tests {
         let child = guard.resolve_child(&root, "subdir", &policy);
         match child {
             ResolvedResource::Directory(dir) => {
-                assert_eq!(dir.canonical_path, tmp.path().join("subdir"));
+                // Plan 323: compare canonical forms. On macOS the temp dir is
+                // `/var/...` while the descriptor-resolved path is
+                // `/private/var/...`; the product is correct and the raw
+                // non-canonical temp path was the brittle part of this test.
+                let expected = fs::canonicalize(tmp.path()).unwrap().join("subdir");
+                assert_eq!(dir.canonical_path, expected);
             }
             other => panic!("expected child directory, got {other:?}"),
         }

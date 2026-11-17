@@ -160,7 +160,7 @@ pub(crate) fn unix_listener_path(listener: &tokio::net::UnixListener) -> Option<
 
 /// An adopted systemd-style inherited listener (Unix only).
 ///
-/// Produced by [`adopt_systemd_listener`] / [`adopt_systemd_listener_by_name`]
+/// Produced by [`adopt_systemd_listener`] / [`systemd_index_for_name`]
 /// after validating descriptor type, domain, and listening state. Ownership
 /// transfers to the caller on success; validation failure never closes the
 /// descriptor.
@@ -372,29 +372,32 @@ pub(crate) fn adopt_validated_fd(
     }
 }
 
-/// Adopt a systemd descriptor by `LISTEN_FDNAMES` entry.
+/// Resolve a `LISTEN_FDNAMES` entry to its descriptor index without adopting.
 ///
-/// `LISTEN_FDNAMES` is a colon-separated list parallel to the fd array.
-/// The name must match exactly; when the variable is absent there is no
-/// implicit mapping and adoption fails rather than guessing fd 3.
+/// `LISTEN_FDNAMES` is a colon-separated list parallel to the fd array. The
+/// name must match exactly; when the variable is absent there is no implicit
+/// mapping and resolution fails rather than guessing fd 3.
+///
+/// Plan 324: the builder checks the resolved index for a duplicate adoption
+/// *before* borrowing or taking the descriptor, so a repeated name (or two
+/// names aliasing one index) fails closed.
 #[cfg(unix)]
-pub(crate) fn adopt_systemd_listener_by_name(
+pub(crate) fn systemd_index_for_name(
     name: &str,
-) -> Result<SystemdListener, crate::server::errors::ServerError> {
+) -> Result<usize, crate::server::errors::ServerError> {
     use crate::server::errors::ServerError;
 
     let names = std::env::var("LISTEN_FDNAMES").map_err(|_| {
         ServerError::Config("LISTEN_FDNAMES is not set; cannot map systemd listener name".into())
     })?;
-    let index = names
+    names
         .split(':')
         .position(|entry| entry == name)
         .ok_or_else(|| {
             ServerError::Config(format!(
                 "systemd listener name {name:?} not found in LISTEN_FDNAMES"
             ))
-        })?;
-    adopt_systemd_listener(index)
+        })
 }
 
 #[cfg(test)]

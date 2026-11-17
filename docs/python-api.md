@@ -140,8 +140,10 @@ server.wait()
   `system`/`suppress`, `stripped_response_headers`, `error_policy`
   `minimal`/`empty`), and the Plan 202 trusted-proxy subset
   (`trusted_proxies` IP/CIDR list with no implicit loopback trust,
-  `trust_unix_local`, `proxy_protocol` preamble mode, `forwarded_standard` /
-  `forwarded_legacy` header switches; all default to nothing trusted).
+  `trust_unix_local` for runtime-owned Unix listeners, `proxy_protocol`
+  preamble mode, `forwarded_standard` / `forwarded_legacy` header switches;
+  all default to nothing trusted, and `trust_unix_local` never applies to
+  caller-owned peerless streams).
   Custom Rust clocks stay Rust-only. Projection to the
   native constructor flows through the single `_native_kwargs()` helper;
   only Python-domain enum/`None` checks live in Python and Rust remains
@@ -156,6 +158,15 @@ server.wait()
   1xx/204/205/304 never advance the iterator, non-bytes items and iterator
   exceptions truncate with sanitized type-only diagnostics, and
   `Transfer-Encoding` cannot be set by services. Async producers are rejected.
+  Each producer thread holds one stream-producer admission permit for its
+  lifetime: capacity reuses `max_python_callbacks` (default 8) but is an
+  independent budget, and exhaustion fails the request with a sanitized 503
+  before the response starts (no thread, no truncated stream). Disconnects,
+  timeouts, and body suppression are observed before the next pull and in the
+  empty-chunk branch, so a `b""`-yielding iterator stops. A Python
+  `__next__` that blocks indefinitely cannot be interrupted: the thread may
+  outlive the request and server shutdown, holding its permit until it
+  returns.
 - GIL/networking split: Rust owns I/O; at most `max_python_callbacks`
   handlers run concurrently; in-flight admission is held before the callback
   permit. Timeouts close the HTTP request but cannot kill Python code.

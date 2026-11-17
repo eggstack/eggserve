@@ -1,6 +1,6 @@
 # Python Facade Roadmap
 
-Status: proposed
+Status: active (311 and 322 closed)
 
 Long-term references:
 
@@ -154,12 +154,14 @@ canonical values into Python objects and nothing more.
 ```text
 core compatibility runtime + static authority (closed)
     |
-    `--> Milestone 311 (listing renderer consolidation)
+    +--> Milestone 311 (listing renderer consolidation)
+    `--> Milestone 322 (streamed-response producer bounds)
 ```
 
 Milestone 311 has no hard dependency on other open milestones; it depends
 on the closed `eggserve-static` authority and on the closed core runtime
-projection.
+projection. Milestone 322 is an independent post-audit corrective over the
+same closed bridge; it does not reopen the static-listing authority.
 
 ## 7. Milestones
 
@@ -185,6 +187,37 @@ through the Python facade.
 Exit conditions: byte-identical listing output across surfaces; a Python
 test proves a listing that would exceed the byte ceiling is refused rather
 than emitted; no duplicate renderer or escaper remains.
+
+### Milestone 322 — Streamed-response producer lifecycle and admission bounds
+
+Class: invariant
+
+Objective: make every streamed-response producer observe response and
+connection teardown, and bound concurrent producer threads with an explicit
+admission budget, so a handler that returns a blocking or endless iterator
+cannot accumulate detached threads per request.
+
+Dependencies: Plan 166 low-level sync substrate (hard, closed); Plan 254
+async-streaming parity as the interface precedent (interface, closed).
+Independent of Milestone 311: this milestone touches the sync body bridge,
+not the listing renderer.
+
+Deliverable boundary: a closed-receiver check before each pull and on empty
+yields; a producer admission permit held for the thread's lifetime; a
+sanitized 503 on budget exhaustion before response start; documentation of
+the blocking-`__next__` limitation. No attempt to kill Python code, no
+change to the 16-chunk bridge or backpressure, no async-producer change.
+
+User or operator value: a client can no longer accumulate an unbounded
+number of producer threads by repeatedly requesting a route whose iterator
+never terminates; a disconnecting client releases its producer at the next
+observation point.
+
+Exit conditions: a non-terminating `b""` iterator stops advancing after the
+client disconnects; concurrent producers never exceed the budget and
+exhaustion is a 503, not a hang; normal streaming, trailers, HEAD/body
+suppression, and truncation behavior are unchanged; the residual blocking
+limitation is documented.
 
 ## 8. Cross-cutting requirements
 
@@ -252,3 +285,4 @@ behavior.
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | 311 | closed | `plans/implementation/python-facade/311-directory-listing-renderer-consolidation.md` | `plans/closure/python-facade/311-directory-listing-renderer-consolidation.md` | One listing renderer: the bridge delegates to `eggserve-static`, so both surfaces emit byte-identical HTML and enforce the same 1 MiB response-byte ceiling. Gate rule `check_plan311_listing_renderer_authority`. Reported follow-up: six pre-existing clippy lints in the excluded Python crate, which belong to Milestone 313's scope. |
+| 322 | closed | `plans/implementation/python-facade/322-streamed-response-producer-lifecycle-bounds.md` | `plans/closure/python-facade/322-streamed-response-producer-lifecycle-bounds.md` | `Response.stream` spawns a detached producer thread per response. The empty-yield branch never checks the closed receiver, and the callback permit ends before the producer runs, so a blocking/endless iterator can accumulate threads after disconnect/timeout. The plan checks closure before each pull, bounds producers with an admission permit, and documents the non-interruptible `__next__` limitation. |

@@ -29,7 +29,7 @@ This blocks until Ctrl+C. From a source checkout, use
 Public exposure is an opt-in network change:
 
 ```sh
-eggserve --directory ./examples/site --public --port 8080
+eggserve --directory ./examples/site --public --addr 0.0.0.0:8080
 ```
 
 This does not provide edge TLS, reverse-proxy behavior, or other perimeter

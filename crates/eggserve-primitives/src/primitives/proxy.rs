@@ -383,9 +383,10 @@ impl ForwardedConfig {
 pub struct TrustedProxyConfig {
     /// Exact IPs/CIDRs trusted as immediate peers. Empty means none trusted.
     pub peers: Vec<IpPrefix>,
-    /// Whether Unix-domain listeners are explicitly trusted for
-    /// header-derived forwarding. Never implicit. PROXY preambles are not
-    /// read from Unix streams.
+    /// Whether runtime-owned Unix-domain listeners are explicitly trusted
+    /// for header-derived forwarding. Never implicit. It does not apply to
+    /// caller-owned peerless streams, which are always untrusted (Plan 321),
+    /// and PROXY preambles are not read from Unix streams.
     pub trust_unix: bool,
     /// Optional PROXY protocol preamble handling.
     pub proxy_protocol: ProxyProtocolConfig,

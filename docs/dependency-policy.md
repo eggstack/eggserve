@@ -200,6 +200,20 @@ the patched line:
   must fail if any constraining manifest — including the excluded Python
   crate, the one place the workspace table cannot help — declares `rustls`
   below `0.23.46` or drops it while declaring the `tls`/`http3` features.
+- **Advisory-named floors are guarded offline (Plan 320).** Four further
+  floors close the 2026-11 advisory set: RUSTSEC-2026-0523 and -0524 require
+  `quinn-proto >= 0.11.19`, RUSTSEC-2026-0538 requires
+  `quinn-udp >= 0.5.16`, RUSTSEC-2026-0486 requires `rustix >= 1.1.6`, and
+  RUSTSEC-2026-0386 requires `tokio >= 1.53.3`. The QUIC crates are
+  H3-only, so their absence from a closure passes; `rustix` and `tokio` are
+  required in both distributed lockfiles. `scripts/check-advisory-floors.py`
+  enforces the table against the root, Python, and fuzz lockfiles, runs in
+  `scripts/check-supply-chain.sh` before the network audits and in
+  `scripts/verify.sh fast`, and has a `--self-test` mutation matrix
+  (below/at/above floor, absent QUIC crates, missing required crate, malformed
+  lockfile). The guard is a version check, not an advisory database: it does
+  not replace `cargo audit`, and it fails closed instead of ignoring an
+  advisory.
 - **Sibling repositories still declare bare rustls floors (Plan 222
   follow-up).** Eggress (`rustls = "0.23"`) and eggfetch-core
   (`rustls = "0.23"` optional) currently resolve 0.23.45 in their lockfiles
@@ -267,4 +281,11 @@ without requiring a push or pull request so newly published RustSec advisories
 are detected promptly; it performs no builds, tests, or releases and holds no
 credentials.
 
-The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.
+The two tools have exactly one effective policy source each. `cargo audit`
+reads `.cargo/audit.toml` (cargo-audit 0.22 resolves the project config from
+`./.cargo/audit.toml` or `$CARGO_HOME/audit.toml`; a repository-root
+`audit.toml` is not read), which carries the empty advisory-ignore list and
+yanked-crate reporting. `cargo deny` reads `deny.toml`, which carries bans,
+licenses, sources, and its own empty advisory-ignore list. Do not reintroduce a
+root `audit.toml` with cargo-deny schema: it looks authoritative and does
+nothing.

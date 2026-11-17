@@ -1418,6 +1418,15 @@ mod tests {
         assert!(args.bind.ip().is_unspecified());
     }
 
+    /// Plan 323: `--public` is an acknowledgment, not a bind mode. Passing it
+    /// alone must leave the safe loopback default untouched.
+    #[test]
+    fn public_flag_alone_keeps_loopback_bind() {
+        let args = parse(&["--public"]).unwrap();
+        assert!(args.bind.ip().is_loopback());
+        assert_eq!(args.bind.port(), 8000);
+    }
+
     #[test]
     fn public_bind_without_public_flag_fails() {
         let result = parse(&["--addr", "0.0.0.0:8000"]);

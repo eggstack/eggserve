@@ -59,12 +59,14 @@ pub mod context;
 pub(crate) mod deferred_body;
 pub(crate) mod driver;
 pub(crate) mod lifecycle;
+pub(crate) mod peer_transport;
 pub(crate) mod pipeline;
 pub(crate) mod request;
 pub(crate) mod response;
 pub(crate) mod transport;
 
 pub use context::{ConnectionContext, ConnectionOutcome, ConnectionShutdown};
+pub use peer_transport::PeerTransport;
 
 /// Experimental H3 adapter support (Plan 220).
 ///
@@ -188,6 +190,46 @@ where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: Service,
 {
+    // Plan 321: a caller-owned stream has no runtime-known peer, so it is
+    // never trusted by `trust_unix`. The accepting runtime uses the explicit
+    // transport-kind entry point below instead.
+    serve_http1_connection_with_id_and_transport(
+        io,
+        service,
+        config,
+        context,
+        runtime_state,
+        shutdown,
+        conn_id,
+        PeerTransport::Opaque,
+    )
+    .await
+}
+
+/// Serve one HTTP/1 connection with an explicit connection ID and transport
+/// kind.
+///
+/// Internal acceptance plumbing for the compatibility runtime (Plan 321):
+/// runtime-owned TCP/Unix listeners pass their actual transport kind so
+/// forwarded-header trust stays tied to the transport, while every public
+/// caller-owned entry point passes [`PeerTransport::Opaque`]. Embedders do not
+/// select this value.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub async fn serve_http1_connection_with_id_and_transport<I, S>(
+    io: I,
+    service: S,
+    config: Arc<RuntimeConfig>,
+    context: ConnectionContext,
+    runtime_state: Arc<RuntimeState>,
+    shutdown: &ConnectionShutdown,
+    conn_id: u64,
+    transport: PeerTransport,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
     // Reject hand-constructed invalid configs before Hyper/semaphore use.
     // Caller-owned drivers bypass `ServerBuilder`, so this is the ownership
     // boundary. `hyper_builder` still clamps `max_buf_size` as last-resort
@@ -215,6 +257,7 @@ where
         runtime_state,
         shutdown,
         conn_id,
+        transport,
     )
     .await
 }
@@ -245,6 +288,7 @@ where
         runtime_state,
         shutdown,
         conn_id,
+        PeerTransport::Opaque,
     )
     .await
 }
@@ -258,6 +302,7 @@ pub(crate) async fn serve_http1_connection_with_effective_policy<I, S>(
     runtime_state: Arc<RuntimeState>,
     shutdown: &ConnectionShutdown,
     conn_id: u64,
+    transport: PeerTransport,
 ) -> ConnectionOutcome
 where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -288,6 +333,7 @@ where
             == crate::config::PolicyOwner::EggServe)
             .then_some(config.max_request_body_bytes),
         context,
+        transport,
         conn_id,
         ops,
     );

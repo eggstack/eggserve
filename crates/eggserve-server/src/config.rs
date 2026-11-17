@@ -651,7 +651,14 @@ impl RuntimeConfigBuilder {
         self
     }
 
-    /// Trust Unix-domain listeners for header-derived forwarding.
+    /// Trust runtime-owned Unix-domain listeners for header-derived
+    /// forwarding.
+    ///
+    /// Applies only to listeners the runtime accepted (including
+    /// systemd-adopted Unix listeners). Caller-owned peerless streams driven
+    /// through the public connection APIs are always opaque and never inherit
+    /// this trust, regardless of which `ConnectionContext` constructor they
+    /// use (Plan 321).
     pub fn trust_unix_local(mut self, trust: bool) -> Self {
         self.trusted_proxy_mut().trust_unix = trust;
         self
