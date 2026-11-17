@@ -74,7 +74,7 @@ Any output indicates an action not pinned to a SHA digest.
 
 Release tooling is kept deterministic separately from action pinning:
 `scripts/install-cargo-tools.sh` installs and verifies the pinned
-`cargo-audit 0.22.2` and `cargo-deny 0.19.0` versions. The manually dispatched release workflow builds, qualifies, and optionally
+`cargo-audit 0.23.0` and `cargo-deny 0.21.0` versions. The manually dispatched release workflow builds, qualifies, and optionally
 publishes cross-platform wheel artifacts. PyPI publication uses OIDC Trusted
 Publishing via the `pypa/gh-action-pypi-publish` action (pinned to commit SHA)
 through protected GitHub Environments. crates.io publication remains a local

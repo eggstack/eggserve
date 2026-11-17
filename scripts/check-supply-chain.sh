@@ -33,4 +33,4 @@ echo "== Python wheel dependency advisory audit =="
 (cd "$REPO_ROOT" && cargo audit --file crates/eggserve-python/Cargo.lock)
 
 echo "== Python wheel dependency policy check =="
-(cd "$PYTHON_CRATE" && cargo deny check --config ../../deny.toml)
+(cd "$PYTHON_CRATE" && cargo deny --config ../../deny.toml check)

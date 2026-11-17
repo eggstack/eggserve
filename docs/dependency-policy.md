@@ -234,6 +234,36 @@ the patched line:
   `openssl`, `native-tls` matches) rather than with a deny rule that cannot
   distinguish dev unification from production linkage.
 
+## Resolved lockfile baseline (Plan 325, 2026-11-17)
+
+Plan 325 refreshed the root workspace, excluded Python-wheel, and fuzz
+lockfiles with plain `cargo update`; no dependency requirement in a manifest
+changed. The shared packages present in all three closures now resolve to the
+same versions:
+
+| Shared package | Resolved version |
+|---|---:|
+| `http` | `1.5.0` |
+| `http-body` | `1.1.0` |
+| `http-body-util` | `0.1.5` |
+| `hyper` | `1.12.0` |
+| `hyper-util` | `0.1.21` |
+| `futures-util` | `0.3.34` |
+| `libc` | `0.2.191` |
+| `socket2` | `0.6.5` |
+| `thiserror` | `2.0.21` |
+| `tokio` | `1.54.1` |
+
+The root and Python closures also resolve `rustls-pki-types 1.16.0`,
+`rustls-webpki 0.103.17`, and `tokio-rustls 0.26.6`; the Python lockfile
+resolves `pyo3 0.29.3` within its existing `0.29.2` requirement. The root
+closure resolves `quinn 0.11.12` while `h3 0.0.8` and `h3-quinn 0.0.10`
+remain unchanged; the H3 tier remains experimental. The declared `rustls
+0.23.46` floor and the Plan 320 QUIC/`rustix`/`tokio` floors are preserved.
+Resolver-added optional lock entries do not enter production graphs. The
+complete per-lockfile version delta and validation evidence are recorded in
+`plans/closure/cli-ops-observability/325-compatible-dependency-refresh-and-tool-pins.md`.
+
 ## Release validation tool versions
 
 CI and release validation install these cargo subcommands from the checked-in
@@ -243,8 +273,8 @@ different version.
 
 | Tool | Version | Install command |
 |------|---------|-----------------|
-| `cargo-audit` | `0.22.2` | `cargo install cargo-audit --version 0.22.2 --locked --force` |
-| `cargo-deny` | `0.19.0` | `cargo install cargo-deny --version 0.19.0 --locked --force` |
+| `cargo-audit` | `0.23.0` | `cargo install cargo-audit --version 0.23.0 --locked --force` |
+| `cargo-deny` | `0.21.0` | `cargo install cargo-deny --version 0.21.0 --locked --force` |
 
 Run the shared installer locally with:
 
@@ -282,7 +312,7 @@ are detected promptly; it performs no builds, tests, or releases and holds no
 credentials.
 
 The two tools have exactly one effective policy source each. `cargo audit`
-reads `.cargo/audit.toml` (cargo-audit 0.22 resolves the project config from
+reads `.cargo/audit.toml` (cargo-audit 0.23 resolves the project config from
 `./.cargo/audit.toml` or `$CARGO_HOME/audit.toml`; a repository-root
 `audit.toml` is not read), which carries the empty advisory-ignore list and
 yanked-crate reporting. `cargo deny` reads `deny.toml`, which carries bans,

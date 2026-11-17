@@ -1,10 +1,17 @@
 # Changelog
 
-## Unreleased — post-audit security corrective (Plans 320–324)
+## Unreleased — post-audit maintenance (Plans 320–325)
 
 No version has been published from this work; the Rust line stays on `0.5.x`
 and the wheel on `0.2.5` until a maintainer chooses a release.
 
+- **Compatible dependency refresh (Plan 325).** The root, Python-wheel, and
+  fuzz lockfiles now resolve the newest semver-compatible dependency set
+  available at implementation time, with shared packages aligned. The pinned
+  audit tools are `cargo-audit 0.23.0` and `cargo-deny 0.21.0`; the Python
+  policy invocation follows cargo-deny's global `--config` option. No manifest
+  requirement, public API, capability, behavior, or support tier changed, and
+  no release or version bump is included.
 - **Advisory floors (Plan 320).** The lockfiles resolve `quinn-proto 0.11.19`
   (RUSTSEC-2026-0523, -0524), `quinn-udp 0.5.16` (RUSTSEC-2026-0538),
   `rustix 1.1.6` (RUSTSEC-2026-0486), and `tokio 1.53.3`
