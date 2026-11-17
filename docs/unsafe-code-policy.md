@@ -10,7 +10,7 @@ boundaries below and carry a narrow module-level exception.
 | Boundary | Purpose | Review requirements |
 |---|---|---|
 | `crates/eggserve-static/src/fs/windows.rs` | Windows handle-relative confinement and directory enumeration | Every FFI call has a local `SAFETY` comment; pointer validity, buffer bounds, and exactly-once handle ownership are maintained. The module is Windows-gated. |
-| `crates/eggserve-core/src/server/listener.rs` | systemd socket-activation descriptor validation and adoption | A descriptor is borrowed for socket/listening/family validation before exactly-once ownership transfer. The path is Unix-gated where required. |
+| `crates/eggserve-core/src/server/listener.rs` | systemd socket-activation descriptor validation and adoption | A descriptor is borrowed for socket/listening/family validation before exactly-once ownership transfer. `ServerBuilder` rejects a second adoption of the same index or name before the borrow (Plan 324), so a duplicate never reaches `FromRawFd` and cannot double-close. The path is Unix-gated where required. |
 | `crates/eggserve-static/src/fs/mod.rs` tests | Unix FIFO fixtures used to prove non-regular files never block resolution | Test-only libc calls create a temporary fixture and do not participate in serving. |
 | Windows qualification tests | Platform FFI fixtures and raw-handle lifecycle tests | Tests are Windows-gated, use temporary resources, and remain outside the production API. |
 

@@ -193,13 +193,17 @@ See README.md for Windows-specific profiles (windows-reverse-proxy, windows-dire
 
 ## Binding to all interfaces
 
-To make eggserve accessible from other machines (without a reverse proxy), use `--public`:
+To make eggserve accessible from other machines (without a reverse proxy), bind
+an explicit wildcard address and acknowledge the exposure with `--public`:
 
 ```sh
-eggserve --public --port 8000 --directory public
+eggserve --directory public --public --addr 0.0.0.0:8000
 ```
 
-This binds to `0.0.0.0`. The `--public` flag is required to acknowledge public exposure intent. When binding publicly, consider using a reverse proxy for TLS termination and access control.
+`--public` acknowledges the wildcard bind; it does not change the bind address.
+The example above binds `0.0.0.0:8000`, while `--public` alone keeps the
+loopback default. When binding publicly, consider using a reverse proxy for TLS
+termination and access control.
 
 ## Combining patterns
 

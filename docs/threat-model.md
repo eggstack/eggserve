@@ -2,9 +2,8 @@
 
 Static state contains confinement capabilities only, while transport owns the
 one file-stream pool and final response headers. A custom Rust or Python service
-cannot cause static-root escape.
-construction merely by starting. Partial request-body consumption closes the
-HTTP/1 connection to prevent pipelined reuse.
+cannot cause static-root construction merely by starting. Partial request-body
+consumption closes the HTTP/1 connection to prevent pipelined reuse.
 
 ## Assets
 
@@ -59,7 +58,7 @@ An attacker who sends requests to a reverse proxy (Caddy, nginx, HAProxy, cloud 
 
 ### Forwarding-spoof attacker against trusted-proxy boundaries
 
-An attacker who connects directly to EggServe and sends spoofed `Forwarded` / `X-Forwarded-*` headers or bytes beginning with a PROXY v1/v2 signature. Forwarding metadata is untrusted by default and only adopted under an explicit Plan 202 trusted-proxy policy (exact IP/CIDR peers with no implicit loopback trust, optional Unix local-trust flag, bounded PROXY preamble before TLS/HTTP only from trusted peers, single-hop header policy with conflict fail-closed and hard size/element bounds). Direct spoofing remains untrusted; untrusted or malformed PROXY input closes before TLS/HTTP and never reaches a service as trusted facts; ambiguous chains fail closed with truthful absence (`unknown`/obfuscated) rather than invented identity.
+An attacker who connects directly to EggServe and sends spoofed `Forwarded` / `X-Forwarded-*` headers or bytes beginning with a PROXY v1/v2 signature. Forwarding metadata is untrusted by default and only adopted under an explicit Plan 202 trusted-proxy policy (exact IP/CIDR peers with no implicit loopback trust, optional Unix local-trust flag that applies only to runtime-owned Unix listeners and never to caller-owned peerless streams, bounded PROXY preamble before TLS/HTTP only from trusted peers, single-hop header policy with conflict fail-closed and hard size/element bounds). Direct spoofing remains untrusted; untrusted or malformed PROXY input closes before TLS/HTTP and never reaches a service as trusted facts; ambiguous chains fail closed with truthful absence (`unknown`/obfuscated) rather than invented identity.
 
 ### Filesystem namespace attacker able to mutate content within or adjacent to the root
 
@@ -85,7 +84,7 @@ An attacker who crafts request paths or header values containing newline charact
 
 ### Malicious or stalled Python callback
 
-A Python callback registered through the `Server` primitive that is slow, unresponsive, or consumes excessive resources. This is treated as a resource and lifecycle concern, not as a sandboxed adversary. Rust enforces connection and I/O policy around callbacks: timeout limits, connection caps, and file-stream quotas are not affected by callback behavior. Callback timeout does not cancel Python execution — the request task stops waiting at the configured deadline and returns 504, but the Python callback continues executing in the background. The callback semaphore permit is held until the Python function returns, meaning timed-out callbacks still count against the concurrency limit until they complete. Forced shutdown closes the Rust runtime and listener but cannot safely terminate Python code.
+A Python callback registered through the `Server` primitive that is slow, unresponsive, or consumes excessive resources. This is treated as a resource and lifecycle concern, not as a sandboxed adversary. Rust enforces connection and I/O policy around callbacks: timeout limits, connection caps, and file-stream quotas are not affected by callback behavior. Callback timeout does not cancel Python execution — the request task stops waiting at the configured deadline and returns 504, but the Python callback continues executing in the background. The callback semaphore permit is held until the Python function returns, meaning timed-out callbacks still count against the concurrency limit until they complete. The same limitation applies to `Response.stream` producer threads (Plan 322): each holds one producer-admission permit (capacity reuses `max_python_callbacks`, independent of callback permits) for its lifetime; teardown is observed before the next pull and on empty yields, but a Python `__next__` that blocks indefinitely cannot be interrupted and keeps its permit until it returns, though no new producer is admitted. Forced shutdown closes the Rust runtime and listener but cannot safely terminate Python code.
 
 ## Out-of-scope attacker capabilities
 

@@ -267,7 +267,7 @@ jobs:
         shell: bash
         run: |
           uname -a
-          docker run --rm --platform linux/arm64 python:3.11-alpine sh -c 'cat /etc/alpine-release; python --version; uname -m'
+          docker run --rm --platform linux/arm64 python:3.11-alpine@sha256:7fbad8e4652eae0186429a6f26cf5b23e27e8c6fd7ac4d0cfd7a6988cdeea1e1 sh -c 'cat /etc/alpine-release; python --version; uname -m'
       - name: Download AArch64 musl artifact only
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -280,7 +280,7 @@ jobs:
           docker run --rm --platform linux/arm64 \
             -v "$GITHUB_WORKSPACE/aarch64-musl-wheel:/wheels:ro" \
             -v "$GITHUB_WORKSPACE/scripts:/scripts:ro" \
-            python:3.11-alpine \
+            python:3.11-alpine@sha256:7fbad8e4652eae0186429a6f26cf5b23e27e8c6fd7ac4d0cfd7a6988cdeea1e1 \
             sh -c '
               cat /etc/alpine-release
               python --version
@@ -534,7 +534,7 @@ jobs:
           fi
           docker run --rm \
             -v "$(pwd)/scripts:/scripts:ro" \
-            python:3.11-alpine \
+            python:3.11-alpine@sha256:7fbad8e4652eae0186429a6f26cf5b23e27e8c6fd7ac4d0cfd7a6988cdeea1e1 \
             sh -c "
               pip install --no-cache-dir --only-binary=:all: --index-url ${INDEX_URL} 'eggserve==${VERSION}'
               python -c \"import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')\"
@@ -556,9 +556,9 @@ jobs:
             INDEX_URL="https://test.pypi.org/simple/"
           fi
           if [ "${{ matrix.mode }}" = "qemu-glibc-armv7" ]; then
-            IMAGE="arm32v7/python:3.11-bookworm"
+            IMAGE="arm32v7/python:3.11-bookworm@sha256:f5ac5bd76de95eeadfd7fc35d5385e6fa14fa3ed6ce070ecacbfb935eec47c66"
           else
-            IMAGE="arm32v7/python:3.11-alpine"
+            IMAGE="arm32v7/python:3.11-alpine@sha256:c7b37e6338824a66959195b7657a7bd0c6e5020d51b49f295b27fd9af95dd227"
           fi
           docker run --rm --platform linux/arm/v7 \
             -v "$(pwd)/scripts:/scripts:ro" \

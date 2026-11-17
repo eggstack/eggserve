@@ -1,5 +1,57 @@
 # Changelog
 
+## Unreleased — post-audit maintenance (Plans 320–325)
+
+No version has been published from this work; the Rust line stays on `0.5.x`
+and the wheel on `0.2.5` until a maintainer chooses a release.
+
+- **Compatible dependency refresh (Plan 325).** The root, Python-wheel, and
+  fuzz lockfiles now resolve the newest semver-compatible dependency set
+  available at implementation time, with shared packages aligned. The pinned
+  audit tools are `cargo-audit 0.23.0` and `cargo-deny 0.21.0`; the Python
+  policy invocation follows cargo-deny's global `--config` option. No manifest
+  requirement, public API, capability, behavior, or support tier changed, and
+  no release or version bump is included.
+- **Advisory floors (Plan 320).** The lockfiles resolve `quinn-proto 0.11.19`
+  (RUSTSEC-2026-0523, -0524), `quinn-udp 0.5.16` (RUSTSEC-2026-0538),
+  `rustix 1.1.6` (RUSTSEC-2026-0486), and `tokio 1.53.3`
+  (RUSTSEC-2026-0386). No dependency was added or removed and the H3
+  protocol crates did not move. `scripts/check-advisory-floors.py` is a new
+  offline guard (with `--self-test`) wired into `scripts/check-supply-chain.sh`
+  and `scripts/verify.sh fast`. H3 remains experimental.
+- **Forwarded-metadata trust (Plan 321).** `trusted_proxy.trust_unix` now
+  applies only to runtime-owned Unix-domain listeners. A caller-owned peerless
+  stream — including one driven with `ConnectionContext::for_unix()` through a
+  public connection API — never inherits that trust, because the runtime did
+  not accept its peer. TCP/TLS/QUIC peer policy, PROXY preambles, raw peers,
+  canonical `Host`, and the request target are unchanged. This is a security
+  correction for embedders that relied on the broader behavior; see the
+  migration guide.
+- **Bounded Python stream producers (Plan 322).** `Response.stream` producer
+  threads observe receiver closure before every pull and in the empty-chunk
+  branch, and each holds one admission permit for its lifetime. Capacity
+  reuses `max_python_callbacks` (default 8) but is independent of the callback
+  budget; exhaustion is a sanitized 503 before response start. A Python
+  `__next__` that blocks indefinitely still cannot be interrupted.
+- **Operator and repository hygiene (Plan 323).** `--public` documentation now
+  matches the fail-safe CLI (it acknowledges a wildcard bind and does not
+  change the address). `cargo audit` policy moved to `.cargo/audit.toml` (the
+  dead root `audit.toml` is gone) and `deny.toml` remains the cargo-deny
+  policy. `eggserve-core` no longer enables the unused `tokio/signal` feature in its
+  production graph; the six core examples keep a dev-only signal feature.
+  `.gitignore` gains credential patterns with a fixture negation. Release
+  container images are digest-pinned and `docs/action-pinning.md` matches the
+  actual action inventory. The corrupted `docs/threat-model.md` opening
+  paragraph is restored. The macOS-only static canonicalization test now
+  passes. The release `MANIFEST` is documented as integrity data, not signed
+  provenance.
+- **Runtime/TLS hardening (Plan 324).** `ServerBuilder` adopts each systemd
+  descriptor at most once (a duplicate index or name fails before the fd is
+  borrowed). Ambiguous request framing closes the connection in both
+  pipelines. Identity certificate/key PEM input is bounded to 1 MiB before
+  parsing, for in-memory and file-path loads. No TLS identity/trust/auth
+  semantics changed.
+
 ## 0.5.1 — `eggserve-static` patch (published 2026-10-23)
 
 The `eggserve-static` crate is republished on its own line. The rest of the

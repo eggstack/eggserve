@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Keep these versions in one place. CI and release validation call this script
 # instead of relying on tools preinstalled on a hosted runner.
-readonly CARGO_AUDIT_VERSION="0.22.2"
-readonly CARGO_DENY_VERSION="0.19.0"
+readonly CARGO_AUDIT_VERSION="0.23.0"
+readonly CARGO_DENY_VERSION="0.21.0"
 
 cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked --force
 cargo install cargo-deny --version "$CARGO_DENY_VERSION" --locked --force

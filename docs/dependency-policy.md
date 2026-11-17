@@ -200,6 +200,20 @@ the patched line:
   must fail if any constraining manifest — including the excluded Python
   crate, the one place the workspace table cannot help — declares `rustls`
   below `0.23.46` or drops it while declaring the `tls`/`http3` features.
+- **Advisory-named floors are guarded offline (Plan 320).** Four further
+  floors close the 2026-11 advisory set: RUSTSEC-2026-0523 and -0524 require
+  `quinn-proto >= 0.11.19`, RUSTSEC-2026-0538 requires
+  `quinn-udp >= 0.5.16`, RUSTSEC-2026-0486 requires `rustix >= 1.1.6`, and
+  RUSTSEC-2026-0386 requires `tokio >= 1.53.3`. The QUIC crates are
+  H3-only, so their absence from a closure passes; `rustix` and `tokio` are
+  required in both distributed lockfiles. `scripts/check-advisory-floors.py`
+  enforces the table against the root, Python, and fuzz lockfiles, runs in
+  `scripts/check-supply-chain.sh` before the network audits and in
+  `scripts/verify.sh fast`, and has a `--self-test` mutation matrix
+  (below/at/above floor, absent QUIC crates, missing required crate, malformed
+  lockfile). The guard is a version check, not an advisory database: it does
+  not replace `cargo audit`, and it fails closed instead of ignoring an
+  advisory.
 - **Sibling repositories still declare bare rustls floors (Plan 222
   follow-up).** Eggress (`rustls = "0.23"`) and eggfetch-core
   (`rustls = "0.23"` optional) currently resolve 0.23.45 in their lockfiles
@@ -220,6 +234,36 @@ the patched line:
   `openssl`, `native-tls` matches) rather than with a deny rule that cannot
   distinguish dev unification from production linkage.
 
+## Resolved lockfile baseline (Plan 325, 2026-11-17)
+
+Plan 325 refreshed the root workspace, excluded Python-wheel, and fuzz
+lockfiles with plain `cargo update`; no dependency requirement in a manifest
+changed. The shared packages present in all three closures now resolve to the
+same versions:
+
+| Shared package | Resolved version |
+|---|---:|
+| `http` | `1.5.0` |
+| `http-body` | `1.1.0` |
+| `http-body-util` | `0.1.5` |
+| `hyper` | `1.12.0` |
+| `hyper-util` | `0.1.21` |
+| `futures-util` | `0.3.34` |
+| `libc` | `0.2.191` |
+| `socket2` | `0.6.5` |
+| `thiserror` | `2.0.21` |
+| `tokio` | `1.54.1` |
+
+The root and Python closures also resolve `rustls-pki-types 1.16.0`,
+`rustls-webpki 0.103.17`, and `tokio-rustls 0.26.6`; the Python lockfile
+resolves `pyo3 0.29.3` within its existing `0.29.2` requirement. The root
+closure resolves `quinn 0.11.12` while `h3 0.0.8` and `h3-quinn 0.0.10`
+remain unchanged; the H3 tier remains experimental. The declared `rustls
+0.23.46` floor and the Plan 320 QUIC/`rustix`/`tokio` floors are preserved.
+Resolver-added optional lock entries do not enter production graphs. The
+complete per-lockfile version delta and validation evidence are recorded in
+`plans/closure/cli-ops-observability/325-compatible-dependency-refresh-and-tool-pins.md`.
+
 ## Release validation tool versions
 
 CI and release validation install these cargo subcommands from the checked-in
@@ -229,8 +273,8 @@ different version.
 
 | Tool | Version | Install command |
 |------|---------|-----------------|
-| `cargo-audit` | `0.22.2` | `cargo install cargo-audit --version 0.22.2 --locked --force` |
-| `cargo-deny` | `0.19.0` | `cargo install cargo-deny --version 0.19.0 --locked --force` |
+| `cargo-audit` | `0.23.0` | `cargo install cargo-audit --version 0.23.0 --locked --force` |
+| `cargo-deny` | `0.21.0` | `cargo install cargo-deny --version 0.21.0 --locked --force` |
 
 Run the shared installer locally with:
 
@@ -267,4 +311,11 @@ without requiring a push or pull request so newly published RustSec advisories
 are detected promptly; it performs no builds, tests, or releases and holds no
 credentials.
 
-The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.
+The two tools have exactly one effective policy source each. `cargo audit`
+reads `.cargo/audit.toml` (cargo-audit 0.23 resolves the project config from
+`./.cargo/audit.toml` or `$CARGO_HOME/audit.toml`; a repository-root
+`audit.toml` is not read), which carries the empty advisory-ignore list and
+yanked-crate reporting. `cargo deny` reads `deny.toml`, which carries bans,
+licenses, sources, and its own empty advisory-ignore list. Do not reintroduce a
+root `audit.toml` with cargo-deny schema: it looks authoritative and does
+nothing.

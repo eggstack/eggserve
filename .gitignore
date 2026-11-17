@@ -16,3 +16,16 @@ crates/eggserve-python/packaging-tests/__pycache__/
 # Release infrastructure (generated)
 release/rc-status.json
 release/sbom/
+
+# Credential material (Plan 323). Defensive only: no secret is committed today.
+# Tracked test fixtures are explicitly re-included so an intentional fixture is
+# never hidden by the blanket key rule.
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.key
+!crates/eggserve-python/tests/fixtures/*.key

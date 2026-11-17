@@ -1,6 +1,6 @@
 # Direct H1 Runtime Roadmap
 
-Status: active
+Status: active (306–309 closed; 321 and 324 closed)
 
 Long-term references:
 
@@ -89,6 +89,11 @@ corrective program over the compatibility/direct overlap
              +--> compatibility config projection parity (308)
              |
              `--> accept-error classification parity (309)
+
+post-audit hardening (independent of 306–309; closed H1 authority through 291)
+    |
+    +--> 321 peerless-transport trust boundary for forwarded metadata
+    `--> 324 runtime and TLS hardening follow-ups
 ```
 
 Milestone 294 was the hard evidence dependency for 295 and 296; 297 closed that campaign after retained 295/296 work. Milestone 299 is independent of further performance work: its hard dependencies are the existing canonical trailer contract (Plan 198), the closed direct H1 authority/ownership work through 291, and the raw-wire F3 reproduction retained by 294/297.
@@ -96,6 +101,8 @@ Milestone 294 was the hard evidence dependency for 295 and 296; 297 closed that 
 Milestone 304 closes the publication that Milestone 9 performed; Milestone 305 has a hard dependency on 304 and an operational dependency on the maintainer's registry credentials. Milestones 306–309 have no hard dependency on each other beyond the shared consolidation pattern, but each depends on the closed H1 authority work through 291, and Milestone 307 has an interface dependency on Milestone 306's gate pattern.
 
 Parser work (288) and metadata work (289) ran in parallel from one baseline; combined qualification (290) gated publication (291): interface dependency between 288/289, hard dependency of 290 on both, operational dependency of 291 on 290's semver decision + registry state.
+
+Milestones 321 and 324 are post-audit correctives with no hard dependency on each other or on open work; both depend on the closed H1 authority and, for 324, the closed listener-ownership and TLS-identity substrates. Milestone 321 is a trust-boundary correction and must not be folded into a publication milestone.
 
 ## 7. Milestones
 
@@ -353,6 +360,60 @@ descriptor exhaustion and no longer retries a fatal accept error forever.
 Exit conditions: both loops classify an injected error identically and the
 backoff saturates at 500 ms.
 
+### Milestone 16 — Peerless-transport trust boundary for forwarded metadata
+
+Class: invariant
+
+Objective: make forwarded-header trust depend on the actual transport kind
+rather than on the absence of a remote address, so `trust_unix` applies
+only to runtime-owned Unix-domain listeners and never to caller-owned
+peerless streams.
+
+Dependencies: Plan 202 trusted-proxy policy (hard, closed); the direct and
+compatibility pipelines (hard, closed).
+
+Deliverable boundary: an internal transport-kind value threaded to the
+single trust decision in both pipelines; no new public `ConnectionContext`
+field unless a semver decision is recorded; Unix/TCP/PROXY behavior
+preserved; a trust-matrix test suite covering a real Unix listener and the
+public caller-owned driver.
+
+User or operator value: an embedder can enable `trust_unix` for its local
+Unix listener without accidentally trusting `Forwarded` metadata supplied
+on an outer, caller-owned transport.
+
+Exit conditions: a caller-owned peerless stream with `trust_unix` does not
+adopt forwarded metadata, regardless of which context constructor or
+public driver is used; a Unix listener still does; both pipelines share one
+mapping; TCP/PROXY tests are unchanged.
+
+### Milestone 17 — Runtime and TLS hardening follow-ups
+
+Class: invariant
+
+Objective: close three Low-severity fail-closed gaps: one-time systemd
+descriptor adoption, connection close on ambiguous framing rejection, and
+a pre-parse size bound on identity PEM input.
+
+Dependencies: Plan 201 listener ownership (hard, closed); Plan 203 TLS
+identity substrate (hard, closed); the direct and compatibility framing
+pipelines (hard, closed).
+
+Deliverable boundary: builder-local adopted-descriptor tracking with a
+pre-adoption duplicate check; a fail-closed framing disposition in both
+pipelines; a bounded `eggnet-tls` identity PEM read with no new public
+error variant. No TLS identity/trust/auth semantics change.
+
+User or operator value: a mistaken double adoption cannot double-close a
+systemd descriptor, an ambiguous framing rejection cannot leave a reusable
+connection, and an oversized local PEM cannot consume unbounded parser
+resources before the existing chain/key checks fire.
+
+Exit conditions: duplicate index/name adoption fails before fd ownership;
+framing rejection closes both pipelines; identity PEM input is bounded
+before parsing with normal identities unaffected; TLS identity and trust
+tests are unchanged.
+
 ## 8. Cross-cutting requirements
 
 Config: `RuntimeConfig` validated once; `Duration::ZERO` opts out of only the total lifetime. Security: TE+CL framing validation, bounded parser ceilings, sanitized errors, permits released once. Concurrency: JoinSet drain, level-triggered idempotent shutdown, `max_in_flight_requests` pre-response bound. Observability: explicit `OpsContext`, no library `println!`. Compat: exhaustive `RuntimeConfig` literals classified at each publication decision.
@@ -394,3 +455,5 @@ The capability milestones 1–3 remain closed and the 294–297 polish campaign 
 | 13 | closed | `plans/implementation/direct-h1-runtime/307-connection-overlap-classification-accuracy.md` | `plans/closure/direct-h1-runtime/307-connection-overlap-classification-accuracy.md` | Ledger corrected, measured, and drift-bounded (`check_plan253_drift`); Alt-Svc advertisement single-sourced; six dead helpers removed. Reported follow-ups: the `alt-svc` ownership question when H3 is off, and the now write-only `LifecycleDisposition` fields |
 | 14 | closed | `plans/implementation/direct-h1-runtime/308-compatibility-config-projection-parity.md` | `plans/closure/direct-h1-runtime/308-compatibility-config-projection-parity.md` | Four ownership values carried with unchanged defaults; 37/38 shared builder setters delegate; gate rule `check_plan308_builder_delegation`. Reported follow-ups: `response_metadata_ownership` is not reachable through the compatibility path, and `server/http3.rs` keeps a second hardcoded projection |
 | 15 | closed | `plans/implementation/direct-h1-runtime/309-accept-error-classification-parity.md` | `plans/closure/direct-h1-runtime/309-accept-error-classification-parity.md` | One accept-error classification authority (`eggserve_server::accept_error`) serves both accept loops; the direct loop now uses the shared ramp and terminates on a fatal accept error; no dependency delta; gate rule `check_plan309_accept_error_authority`. Reported follow-ups: a live-loop fatal-termination test and an exhaustion timing test are not expressible without an injected `accept(2)` failure |
+| 16 | closed | `plans/implementation/direct-h1-runtime/321-trusted-proxy-peerless-transport-boundary.md` | `plans/closure/direct-h1-runtime/321-trusted-proxy-peerless-transport-boundary.md` | `trust_unix` currently trusts every connection with `remote_addr: None`, including arbitrary caller-owned streams served by the public driver. The plan threads an internal transport kind to the single trust decision, preserves Unix/TCP/PROXY behavior, and adds a trust-matrix suite. Prefer no public `ConnectionContext` field; a public change is a stop condition. |
+| 17 | closed | `plans/implementation/direct-h1-runtime/324-runtime-tls-hardening-followups.md` | `plans/closure/direct-h1-runtime/324-runtime-tls-hardening-followups.md` | Three Low fail-closed gaps: systemd descriptor double adoption (`from_systemd_index`/`from_systemd_name`), keep-alive on ambiguous framing rejection (unreachable under Hyper 1.11, corrected as defense in depth), and an unbounded identity PEM read in `eggnet-tls`. No TLS identity/trust/auth semantics change; no new `TlsError` variant. |

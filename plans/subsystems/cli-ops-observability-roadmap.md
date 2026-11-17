@@ -1,6 +1,6 @@
 # CLI, Ops, and Observability Roadmap
 
-Status: proposed
+Status: active (312–319, 320, 323, and 325 closed)
 
 Long-term references:
 
@@ -153,10 +153,20 @@ member.
 platform coverage + lint policy + dependency specs (independent)
     |
     `--> routine CI evidence completeness (future)
+
+post-audit security correctives (independent)
+    |
+    +--> 320 QUIC advisory remediation + resolved-version guard
+    +--> 323 operator and repository hygiene sweep
+    `--> 325 compatible dependency refresh + supply-chain tool pins
 ```
 
 These milestones have no hard dependency on other open milestones; they
-depend only on closed code state.
+depend only on closed code state. Milestone 320 needs network access to the
+advisory database/registry; Milestone 323 needs registry access only for
+the optional image-digest package. Milestone 325 needs crates.io and the
+advisory database, plus a standalone checkout for the excluded Python crate;
+its tool-pin work package is independently closable.
 
 ## 7. Milestones
 
@@ -273,6 +283,92 @@ Exit conditions: the layered package dry-run passes; the published version
 resolves from the registry and a registry-only consumer installs against it;
 no current-line statement names a superseded version.
 
+### Milestone 320 — QUIC advisory remediation and resolved-version guard
+
+Class: invariant
+
+Objective: restore a green advisory gate by resolving every advisory-named
+patched release in the QUIC, `rustix`, and `tokio` closures, and protect
+the resolved floors with an offline guard.
+
+Dependencies: none beyond the closed code state. Operational: network
+access to the advisory database and registry to perform and verify the
+updates.
+
+Deliverable boundary: precise lockfile updates for `quinn-proto`,
+`quinn-udp`, `rustix`, and `tokio`; a resolved-version guard with a
+self-test; documentation of the floors. No `h3`/`h3-quinn` upgrade, no H3
+tier change, no behavior change, no publication.
+
+User or operator value: H3-enabled deployments no longer resolve
+advisory-vulnerable QUIC releases, and the routine/daily supply-chain gates
+stop failing on a lockfile the repository distributes.
+
+Exit conditions: both distributed lockfiles meet the advisory floors where
+the crate is present; `cargo audit` and `cargo deny` pass for both
+closures; the guard fails closed on a seeded regression; the default graph
+remains QUIC-free; H3 tests pass without a tier claim.
+
+### Milestone 323 — Post-audit operator and repository hygiene sweep
+
+Class: polish
+
+Objective: correct the operator documentation and repository-hygiene items
+the security audit found: `--public` semantics, audit-tool configuration,
+the unused core `tokio/signal` feature, credential-file ignore patterns,
+release container-image pins, action-pinning inventory, a corrupted
+threat-model paragraph, the macOS test canonicalization, and the release
+manifest provenance wording.
+
+Dependencies: none. Operational: registry access to resolve image digests;
+if unavailable, the digest package is recorded blocked rather than guessed.
+
+Deliverable boundary: docs/tests/`.gitignore`/workflow pins only. No
+`--public` behavior change, no new attestation infrastructure, no
+confinement behavior change.
+
+User or operator value: the public-bind documentation no longer promises
+behavior the CLI does not implement; the dependency and CI surfaces match
+their policy claims; release qualification inputs are reproducible.
+
+Exit conditions: the plan's acceptance criteria hold, `cargo test -p
+eggserve-bin` and the macOS static test pass, the core feature graph has no
+`signal`, and `deny.toml` is unchanged.
+
+### Milestone 325 — Compatible dependency refresh and supply-chain tool pins
+
+Class: infrastructure
+
+Objective: move the root, Python, and fuzz lockfiles to the newest
+semver-compatible dependency set in one bounded pass, align shared packages
+across the closures, and raise the pinned advisory tools to their current
+stable releases with the gate scripts adapted — without taking breaking
+upgrades or changing the product surface.
+
+Dependencies: none beyond the closed code state. The 2026-11-17 read-only
+audit and trial at `f137877` established the available set and that it
+passes MSRV 1.89 and the workspace tests. Operational: crates.io and the
+RustSec advisory database; a standalone checkout for the excluded Python
+crate.
+
+Deliverable boundary: lockfile-only dependency changes (no manifest
+requirement changes), a shared-crate alignment check, and the tool pins in
+`scripts/install-cargo-tools.sh` plus the corresponding
+`scripts/check-supply-chain.sh` invocation. No source/API/behavior change,
+no publication, no breaking upgrades (`pyo3 0.30`, `phf 0.14`, `rcgen 0.14`,
+`tokio-tungstenite 0.30`).
+
+User or operator value: one consistent HTTP/TLS stack across the published
+crates, the wheel, and the fuzz workspace; compatible bug fixes land; the
+advisory gate keeps running on current tooling; future advisory response
+reconciles one resolution instead of three.
+
+Exit conditions: all three closures are on the latest compatible set and
+agree on shared packages; audits, denies, and the floor guard pass with no
+ignores; MSRV 1.89, the feature-neutrality checks, the full test lanes, and
+the installed-wheel suite pass; the tool pins are current and
+`check-supply-chain.sh` passes end-to-end (or the tool package is recorded
+blocked).
 
 ## 8. Cross-cutting requirements
 
@@ -349,3 +445,6 @@ changing any resolved version.
 | 315 | closed | `plans/implementation/cli-ops-observability/315-dependency-specification-consolidation.md` | `plans/closure/cli-ops-observability/315-dependency-specification-consolidation.md` | A root `[workspace.dependencies]` table owns every shared dependency version and the `rustls` `0.23.45` floor; the excluded Python crate keeps explicit specs. All three lockfiles are byte-identical and the resolved package and feature sets are unchanged. The plan's `default-features` guidance was factually backwards and is recorded as a deviation. |
 | 318 | closed | `plans/implementation/cli-ops-observability/318-rustls-floor-and-testpypi-staging.md` | `plans/closure/cli-ops-observability/318-rustls-floor-and-testpypi-staging.md` | The manifest `rustls` floor is raised from `0.23.45` to `0.23.46` in the workspace table and in the excluded Python crate. The resolution does not move — all three lockfiles and the resolved feature sets are unchanged — but a consumer pinned to `=0.23.45` can no longer unify to the vulnerable release alongside these crates. The guard `docs/dependency-policy.md` already required but that never existed now does: gate rule `check_plan318_rustls_floor`. The TestPyPI trusted publisher's GitHub-side environment exists and its workflow job is wired; the PyPI-side account registration remains a maintainer step. |
 | 319 | closed | `plans/implementation/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md` | `plans/closure/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md` | `eggserve-static` is bumped to `0.5.1` and published with the NT directory-buffer fixes the published `0.5.0` still carried; the dependent crates' caret requirements already accept it and are unchanged. `docs/release-contract.md` and five `architecture/` deep dives no longer name the superseded `0.4.0` line's versions. The six factually-wrong doc comments an audit found in Plan 313's 539-item remediation are corrected. |
+| 320 | closed | `plans/implementation/cli-ops-observability/320-h3-quic-advisory-remediation.md` | `plans/closure/cli-ops-observability/320-h3-quic-advisory-remediation.md` | Root advisory gate is red at the baseline: `quinn-proto 0.11.18`, `quinn-udp 0.5.15`, `rustix 1.1.4`, and `tokio 1.52.3`/`1.53.1` carry RUSTSEC-2026-0523/-0524/-0538 (vulnerabilities; H3-only) and -0486/-0386 (unsound; no in-tree affected API calls). The plan bumps the patched releases, proves resolution neutrality, adds an offline resolved-version guard, and keeps H3 experimental. Operational dependency: network access to the advisory database/registry. |
+| 323 | closed | `plans/implementation/cli-ops-observability/323-post-audit-operator-and-repository-hygiene-sweep.md` | `plans/closure/cli-ops-observability/323-post-audit-operator-and-repository-hygiene-sweep.md` | Low/Informational audit sweep: `--public` docs vs actual CLI, inert `audit.toml`, unused core `tokio/signal`, missing credential ignore patterns, mutable release image tags, stale action-pinning inventory, corrupted threat-model opening, macOS static-test canonicalization, and release-manifest provenance wording. No `--public` behavior change; image digests may be recorded blocked if registry access is unavailable. |
+| 325 | closed | `plans/implementation/cli-ops-observability/325-compatible-dependency-refresh-and-tool-pins.md` | `plans/closure/cli-ops-observability/325-compatible-dependency-refresh-and-tool-pins.md` | Closed: all three latest-compatible lockfiles are refreshed, shared package identities align, and post-update dry runs offer zero further updates. Both audit tools are current and the end-to-end supply-chain script passes. Floors, MSRV 1.89, and first-party feature activations remain intact; upstream transitive tree differences and the macOS wrapper skip limitation are recorded in the closure. No source/API/behavior change, publication, or version bump. |

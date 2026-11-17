@@ -21,7 +21,7 @@ use eggserve_primitives::request_body::RequestBody;
 // it. The bridge names the leaf directly. `StaticPolicy` stays
 // primitives-owned.
 
-use super::errors::{RawBodyError, raw_body_error_to_pyerr};
+use super::errors::{raw_body_error_to_pyerr, RawBodyError};
 
 pub(super) const PYTHON_STREAM_CHANNEL_BOUND: usize = 16;
 /// Per-send split for Python stream chunks: a single huge `bytes` object
@@ -68,10 +68,17 @@ impl futures_util::Stream for PythonReceiverStream {
 /// receiver; the next send fails and this thread exits, releasing all
 /// `PyObject` references promptly.
 ///
-/// NOTE (B57): the producer `JoinHandle` is intentionally detached
-/// (untracked by `ServerHandle::wait()`); an infinite `__next__` parks this
-/// thread past `wait()` until the receiver is dropped. Keep response
-/// iterables finite.
+/// Plan 322: the caller acquires one producer-admission permit before
+/// spawning and moves it here; the thread holds it for its whole lifetime and
+/// drops it on every exit path (EOF, error, channel closure, panic). The
+/// detached `JoinHandle` is still untracked by `ServerHandle::wait()`: a
+/// Python `__next__` that blocks indefinitely cannot be interrupted, so it
+/// may outlive shutdown while holding its permit. No new producer is admitted,
+/// and the budget bounds how many such threads can exist.
+///
+/// Plan 322: the receiver is checked before every pull and in the empty-chunk
+/// branch. A `b""`-yielding producer therefore observes teardown instead of
+/// re-attaching to the GIL forever.
 ///
 /// Non-bytes items and iterator exceptions become stream errors: the wire
 /// sees a truncated/closed connection and diagnostics carry only the
@@ -79,8 +86,12 @@ impl futures_util::Stream for PythonReceiverStream {
 pub(super) fn spawn_python_stream_producer(
     iterable: Py<PyAny>,
     sender: mpsc::Sender<Result<Bytes, ResponseStreamError>>,
+    permit: tokio::sync::OwnedSemaphorePermit,
 ) {
     std::thread::spawn(move || {
+        // Held for the producer's lifetime; released exactly once when this
+        // closure returns, including on panic. Never send it anywhere else.
+        let _producer_permit = permit;
         let iterator = Python::attach(|py| {
             let bound = iterable.bind(py);
             PyIterator::from_object(bound)
@@ -113,6 +124,12 @@ pub(super) fn spawn_python_stream_producer(
         // `b''`-yielding producer cannot hot-spin CPU/GIL.
         let mut empty_runs: u32 = 0;
         loop {
+            // Plan 322: teardown is observed before the next `__next__`, so a
+            // disconnected/timed-out/suppressed response does not advance the
+            // iterator even once more.
+            if sender.is_closed() {
+                break;
+            }
             // Pull one item under the GIL and copy bytes to Rust.
             enum Pulled {
                 Chunk(Vec<u8>),
@@ -138,18 +155,14 @@ pub(super) fn spawn_python_stream_producer(
                             } else {
                                 Pulled::Chunk(data)
                             }
-                        } else if let Ok(bytearray) =
-                            item.cast::<pyo3::types::PyByteArray>()
-                        {
+                        } else if let Ok(bytearray) = item.cast::<pyo3::types::PyByteArray>() {
                             let data = bytearray.to_vec();
                             if data.is_empty() {
                                 Pulled::Empty
                             } else {
                                 Pulled::Chunk(data)
                             }
-                        } else if let Ok(buffer) =
-                            pyo3::buffer::PyBuffer::<u8>::get(&item)
-                        {
+                        } else if let Ok(buffer) = pyo3::buffer::PyBuffer::<u8>::get(&item) {
                             // A failed buffer export must fail the stream, not
                             // silently drop the chunk short (fail-closed).
                             match buffer.to_vec(py) {
@@ -183,8 +196,17 @@ pub(super) fn spawn_python_stream_producer(
             match pulled {
                 Pulled::Finished => break,
                 Pulled::Empty => {
+                    // Plan 322: the empty-yield branch must not bypass
+                    // teardown. Without this check a `b""`-forever iterator
+                    // never reaches a send, never observes a closed receiver,
+                    // and keeps re-attaching to the GIL.
+                    if sender.is_closed() {
+                        break;
+                    }
                     empty_runs += 1;
                     if empty_runs > 32 {
+                        // CPU/GIL mitigation, not a teardown check: yield the
+                        // thread after a bounded run of empty yields.
                         std::thread::yield_now();
                         empty_runs = 0;
                     }
@@ -451,18 +473,16 @@ impl PyRequestBody {
                 .inner
                 .lock()
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-            guard.take().ok_or_else(|| {
-                crate::RequestBodyConsumedError::new_err("body already consumed")
-            })?
+            guard
+                .take()
+                .ok_or_else(|| crate::RequestBodyConsumedError::new_err("body already consumed"))?
         };
         let handle = self.handle.clone();
-        let result =
-            py.detach(|| handle.block_on(async { body.next_chunk().await }));
+        let result = py.detach(|| handle.block_on(async { body.next_chunk().await }));
         match result {
             Ok(Some(chunk)) => {
                 let received = body.bytes_received();
-                self.final_bytes_received
-                    .store(received, Ordering::Release);
+                self.final_bytes_received.store(received, Ordering::Release);
                 let bytes = PyBytes::new(py, &chunk);
                 // Not terminal: return body for future reads/trailers.
                 if let Ok(mut guard) = self.inner.lock() {
@@ -472,8 +492,7 @@ impl PyRequestBody {
             }
             Ok(None) => {
                 let received = body.bytes_received();
-                self.final_bytes_received
-                    .store(received, Ordering::Release);
+                self.final_bytes_received.store(received, Ordering::Release);
                 self.final_complete.store(true, Ordering::Release);
                 // Terminal: keep body for `trailers()` (which needs `&mut`).
                 if let Ok(mut guard) = self.inner.lock() {
@@ -483,8 +502,7 @@ impl PyRequestBody {
             }
             Err(e) => {
                 let received = body.bytes_received();
-                self.final_bytes_received
-                    .store(received, Ordering::Release);
+                self.final_bytes_received.store(received, Ordering::Release);
                 // Preserve the failed body for `trailers()` probing (which
                 // will surface `InvalidTrailers`/terminal state); drop on
                 // lock failure.
@@ -515,9 +533,9 @@ impl PyRequestBody {
                 .inner
                 .lock()
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-            guard.take().ok_or_else(|| {
-                crate::RequestBodyConsumedError::new_err("body already consumed")
-            })?
+            guard
+                .take()
+                .ok_or_else(|| crate::RequestBodyConsumedError::new_err("body already consumed"))?
         };
         let handle = self.handle.clone();
         let result = py.detach(|| handle.block_on(async { body.trailers().await }));
@@ -580,9 +598,7 @@ impl PyBodyChunkIterator {
     fn __next__<'py>(&mut self, py: Python<'py>) -> PyResult<Py<PyAny>> {
         let result = py.detach(|| self.receiver.blocking_recv());
         match result {
-            Some(Ok(data)) => {
-                Ok(PyBytes::new(py, &data).into_any().unbind())
-            }
+            Some(Ok(data)) => Ok(PyBytes::new(py, &data).into_any().unbind()),
             Some(Err(e)) => Err(raw_body_error_to_pyerr(e)),
             None => Err(pyo3::exceptions::PyStopIteration::new_err(())),
         }

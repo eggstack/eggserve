@@ -32,13 +32,22 @@ use eggserve_primitives::request_head::RequestHead;
 // primitives-owned.
 use eggserve_server::service::{Service, ServiceError};
 
-use super::body_bridge::{PyRequestBody, PythonReceiverStream, PYTHON_STREAM_CHANNEL_BOUND, spawn_python_stream_producer};
+use super::body_bridge::{
+    spawn_python_stream_producer, PyRequestBody, PythonReceiverStream, PYTHON_STREAM_CHANNEL_BOUND,
+};
 use super::request_bridge::PyRequest;
 use super::response_bridge::{PyResponse, PyResponseBody};
 
 pub(super) struct PythonCallbackService {
     pub(super) handler: Arc<std::sync::Mutex<Option<Py<PyAny>>>>,
     pub(super) callback_semaphore: Arc<Semaphore>,
+    /// Plan 322: bounded producer threads for `Response.stream`.
+    ///
+    /// Capacity reuses `max_python_callbacks` (no new public knob), but the
+    /// budget is independent of `callback_semaphore`: a long download holds a
+    /// producer permit, not a callback slot, so it cannot starve handler
+    /// execution. Acquisition is fail-fast (503), not queued.
+    pub(super) stream_producer_semaphore: Arc<Semaphore>,
     pub(super) body_policy: RequestBodyPolicy,
 }
 
@@ -46,6 +55,7 @@ impl PythonCallbackService {
     fn call_python_callback(
         handler: &Arc<std::sync::Mutex<Option<Py<PyAny>>>>,
         py_request: PyRequest,
+        stream_producers: &Arc<Semaphore>,
     ) -> Result<CanonicalResponse, ServiceError> {
         Python::attach(|py| {
             let handler_gil = handler
@@ -92,7 +102,7 @@ impl PythonCallbackService {
                 ));
             }
 
-            convert_python_response_to_canonical(py, &result, is_head)
+            convert_python_response_to_canonical(py, &result, is_head, stream_producers)
         })
     }
 
@@ -200,9 +210,7 @@ impl PythonCallbackService {
             effective_address: connection
                 .effective_client_addr()
                 .map(|addr| (addr.ip().to_string(), addr.port())),
-            effective_scheme: Some(
-                connection.effective_scheme_value().as_str().to_owned(),
-            ),
+            effective_scheme: Some(connection.effective_scheme_value().as_str().to_owned()),
             effective_authority: connection
                 .effective_authority_value()
                 .map(|authority| authority.as_str().to_owned()),
@@ -233,6 +241,7 @@ pub(super) fn convert_python_response_to_canonical<'py>(
     _py: Python<'py>,
     obj: &Bound<'py, PyAny>,
     is_head: bool,
+    stream_producers: &Arc<Semaphore>,
 ) -> Result<CanonicalResponse, ServiceError> {
     let status: u16 = obj
         .getattr("status")
@@ -290,8 +299,7 @@ pub(super) fn convert_python_response_to_canonical<'py>(
             // OWS (not Unicode whitespace) and reject empty, `+`-prefixed,
             // or non-digit values. `u64::from_str` would accept `"+5"`.
             let trimmed = value.trim_matches([' ', '\t']);
-            let valid = !trimmed.is_empty()
-                && trimmed.bytes().all(|b| b.is_ascii_digit());
+            let valid = !trimmed.is_empty() && trimmed.bytes().all(|b| b.is_ascii_digit());
             if !valid {
                 return Err(ServiceError::internal(
                     "Python handler response length validation failed",
@@ -318,7 +326,8 @@ pub(super) fn convert_python_response_to_canonical<'py>(
         ));
     }
     let representation_length = declared_lengths.into_iter().next();
-    let body = extract_python_response_body(obj, code, is_head, representation_length)?;
+    let body =
+        extract_python_response_body(obj, code, is_head, representation_length, stream_producers)?;
 
     // Framing-authoritative check: `body_length()` (Unknown for unknown
     // streams), never `len()` (which returns 0 for unknown streams and would
@@ -357,11 +366,33 @@ pub(super) fn convert_python_response_to_canonical<'py>(
         .map_err(|_| ServiceError::internal("Python handler response normalization failed"))
 }
 
+/// Acquire one stream-producer permit, or fail the request before response
+/// start (Plan 322).
+///
+/// `max_python_callbacks` supplies the capacity. Exhaustion is a sanitized
+/// 503: no thread is spawned and no truncated stream is rendered. The event
+/// carries no request content.
+fn acquire_stream_producer_permit(
+    stream_producers: &Arc<Semaphore>,
+) -> Result<tokio::sync::OwnedSemaphorePermit, ServiceError> {
+    Arc::clone(stream_producers)
+        .try_acquire_owned()
+        .map_err(|_| {
+            eggserve_server::ops::Logger::global().emit(eggserve_server::ops::Event::new(
+                eggserve_server::ops::Severity::Warn,
+                eggserve_server::ops::EventKind::ServiceAdmissionRejected,
+                "python stream producer budget exhausted",
+            ));
+            ServiceError::rejected(503, "python stream producer budget exhausted")
+        })
+}
+
 pub(super) fn extract_python_response_body<'py>(
     obj: &Bound<'py, PyAny>,
     status: CanonicalStatusCode,
     is_head: bool,
     representation_length: Option<u64>,
+    stream_producers: &Arc<Semaphore>,
 ) -> Result<ResponseBody, ServiceError> {
     if let Ok(py_resp) = obj.extract::<pyo3::Bound<'py, PyResponse>>() {
         let response = py_resp.borrow();
@@ -457,10 +488,9 @@ pub(super) fn extract_python_response_body<'py>(
                         if let Some(length) = content_length.or(representation_length) {
                             Ok(ResponseBody::EmptyWithLength(length))
                         } else {
-                            let empty =
-                                ResponseStream::new(futures_util::stream::empty::<
-                                    Result<Bytes, ResponseStreamError>,
-                                >());
+                            let empty = ResponseStream::new(futures_util::stream::empty::<
+                                Result<Bytes, ResponseStreamError>,
+                            >());
                             Ok(ResponseBody::Stream(empty))
                         }
                     } else if is_head {
@@ -475,21 +505,20 @@ pub(super) fn extract_python_response_body<'py>(
                             Ok(ResponseBody::EmptyWithLength(length))
                         } else {
                             // Unknown HEAD length: omit Content-Length.
-                            let empty =
-                                ResponseStream::new(futures_util::stream::empty::<
-                                    Result<Bytes, ResponseStreamError>,
-                                >());
+                            let empty = ResponseStream::new(futures_util::stream::empty::<
+                                Result<Bytes, ResponseStreamError>,
+                            >());
                             Ok(ResponseBody::Stream(empty))
                         }
                     } else {
                         Ok(ResponseBody::Empty)
                     }
                 } else {
-                    let (sender, receiver) =
-                        mpsc::channel::<Result<Bytes, ResponseStreamError>>(
-                            PYTHON_STREAM_CHANNEL_BOUND,
-                        );
-                    spawn_python_stream_producer(iterable, sender);
+                    let permit = acquire_stream_producer_permit(stream_producers)?;
+                    let (sender, receiver) = mpsc::channel::<Result<Bytes, ResponseStreamError>>(
+                        PYTHON_STREAM_CHANNEL_BOUND,
+                    );
+                    spawn_python_stream_producer(iterable, sender, permit);
                     let adapter = PythonReceiverStream {
                         rx: std::sync::Mutex::new(receiver),
                     };
@@ -515,10 +544,9 @@ pub(super) fn extract_python_response_body<'py>(
                         if let Some(length) = content_length.or(representation_length) {
                             Ok(ResponseBody::EmptyWithLength(length))
                         } else {
-                            let empty =
-                                ResponseStream::new(futures_util::stream::empty::<
-                                    Result<Bytes, ResponseStreamError>,
-                                >());
+                            let empty = ResponseStream::new(futures_util::stream::empty::<
+                                Result<Bytes, ResponseStreamError>,
+                            >());
                             Ok(ResponseBody::Stream(empty))
                         }
                     } else {
@@ -544,11 +572,11 @@ pub(super) fn extract_python_response_body<'py>(
                                 "Python handler response trailer validation failed",
                             )
                         })?;
-                    let (sender, receiver) =
-                        mpsc::channel::<Result<Bytes, ResponseStreamError>>(
-                            PYTHON_STREAM_CHANNEL_BOUND,
-                        );
-                    spawn_python_stream_producer(iterable, sender);
+                    let permit = acquire_stream_producer_permit(stream_producers)?;
+                    let (sender, receiver) = mpsc::channel::<Result<Bytes, ResponseStreamError>>(
+                        PYTHON_STREAM_CHANNEL_BOUND,
+                    );
+                    spawn_python_stream_producer(iterable, sender, permit);
                     let adapter = PythonReceiverStream {
                         rx: std::sync::Mutex::new(receiver),
                     };
@@ -648,6 +676,7 @@ impl Service for PythonCallbackService {
     > {
         let handler = self.handler.clone();
         let callback_semaphore = self.callback_semaphore.clone();
+        let stream_producers = self.stream_producer_semaphore.clone();
         let body_policy = self.body_policy;
 
         Box::pin(async move {
@@ -686,10 +715,10 @@ impl Service for PythonCallbackService {
 
             let outcome = tokio::task::spawn_blocking(move || {
                 let _callback_permit = callback_permit;
-                Self::call_python_callback(&handler, py_request)
+                Self::call_python_callback(&handler, py_request, &stream_producers)
             })
             .await
-                .map_err(|e| ServiceError::internal(format!("callback task failed: {e}")))?;
+            .map_err(|e| ServiceError::internal(format!("callback task failed: {e}")))?;
 
             // Plan 204 tunnel handoff: if the handler accepted a tunnel, the
             // stored handshake (with transport upgrade + duplex handler)

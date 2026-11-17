@@ -52,6 +52,14 @@ path is also used as the private-key path, allowing a combined PEM file. A
 key-only configuration remains invalid. The CLI remains single-identity;
 multi-identity/SNI and mTLS are Rust `TlsServerConfig` APIs (below), not CLI flags.
 
+Identity inputs are size-bounded before parsing (Plan 324): certificate and key
+PEM blobs — in-memory or file-loaded — are limited to
+`MAX_IDENTITY_PEM_BYTES` (1 MiB). `parse_identity_pem` rejects an oversized
+blob with `CertReadError`/`KeyReadError`, and `load_identity` reads through
+`take(MAX + 1)` so a file that grows after `open` is still rejected without
+relying on metadata. The single-key rule and the 8-certificate chain cap still
+apply after parsing; trust roots and CRLs already use the same 1 MiB bound.
+
 ## Rust production identity (Plan 203)
 
 `eggnet_tls::TlsServerConfigBuilder` (re-exported as

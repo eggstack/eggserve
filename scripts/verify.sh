@@ -106,6 +106,10 @@ cmd_fast() {
   run python3 "$REPO_ROOT/scripts/verify-conformance-matrix.py"
   run python3 "$REPO_ROOT/scripts/check-crate-topology.py"
   run python3 "$REPO_ROOT/scripts/check-python-release-metadata.py"
+  # Plan 320: offline guard against a known-vulnerable resolved version. It
+  # reads the three lockfiles and needs no advisory database, so it is cheap
+  # enough for every routine run.
+  run python3 "$REPO_ROOT/scripts/check-advisory-floors.py"
   run cargo +1.89 check -p eggserve-server --all-targets --no-default-features --features http-interop
   run cargo +1.89 check -p eggserve-server --all-targets --no-default-features --features tower
   run cargo +1.89 check -p eggserve-core --all-targets --no-default-features --features http-interop
