@@ -221,7 +221,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 
 ### Safe Defaults (enforced at library level)
 
-- Loopback bind (`127.0.0.1`) unless `--public` is passed
+- Loopback bind (`127.0.0.1`) by default; any non-loopback bind requires `--public`
 - Symlinks denied unless `--follow-symlinks` is passed
 - Dotfiles denied unless `--allow-dotfiles` is passed
 - Directory listing disabled unless `--directory-listing` is passed

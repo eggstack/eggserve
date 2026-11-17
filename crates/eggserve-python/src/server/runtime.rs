@@ -183,10 +183,15 @@ impl PyServer {
             })?
             .next()
             .ok_or_else(|| pyo3::exceptions::PyOSError::new_err("bind address did not resolve"))?;
-        if !public && bind_addr.ip().is_unspecified() {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "binding to 0.0.0.0 or :: requires public=True",
-            ));
+        // Same gate as the CLI: without public=True, only loopback binds
+        // are admitted. Unspecified and non-loopback unicast both count as
+        // network exposure. `public=True` is acknowledgment only; it does
+        // not rewrite the bind address.
+        if !public && !bind_addr.ip().is_loopback() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "binding to {} requires public=True to acknowledge public exposure intent",
+                bind_addr.ip()
+            )));
         }
         // Python-only admission: callback concurrency has no canonical
         // runtime counterpart (downstream app admission is separate).

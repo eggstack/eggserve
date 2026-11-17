@@ -177,6 +177,23 @@ class TestConfigValidation(unittest.TestCase):
             ServeConfig(bind="::", public=False)
         self.assertIn("public=True", str(ctx.exception))
 
+    def test_non_loopback_unicast_without_public_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            ServeConfig(bind="192.168.1.10", public=False)
+        self.assertIn("public=True", str(ctx.exception))
+        self.assertIn("192.168.1.10", str(ctx.exception))
+
+    def test_non_loopback_unicast_with_public_true_allowed(self):
+        config = ServeConfig(bind="192.168.1.10", public=True)
+        self.assertTrue(config.public)
+        self.assertEqual(config.bind, "192.168.1.10")
+
+    def test_loopback_bind_does_not_require_public(self):
+        config = ServeConfig(bind="127.0.0.1", public=False)
+        self.assertFalse(config.public)
+        config = ServeConfig(bind="::1", public=False)
+        self.assertFalse(config.public)
+
     def test_valid_public_bind_with_public_true_allowed(self):
         config = ServeConfig(bind="0.0.0.0", public=True)
         self.assertEqual(config.bind, "0.0.0.0")

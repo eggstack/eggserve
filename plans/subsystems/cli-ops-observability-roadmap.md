@@ -249,6 +249,28 @@ Exit conditions: all three lockfiles and the resolved feature sets are
 unchanged; the floor is declared once and inherited; the gate rule fails
 closed on a regressed floor in either the table or the excluded crate.
 
+### Milestone 320 — Public-bind acknowledgment hardening
+
+Class: invariant
+
+Objective: align the CLI and Python public-bind gates with the threat-model
+asset that without an explicit public acknowledgment the process must not
+bind a public (non-loopback) interface.
+
+Dependencies: none beyond the closed code state.
+
+Deliverable boundary: CLI `Args` parsing, Python `ServeConfig` and native
+runtime constructor, `HTTPServer` address normalization, and the user/docs
+surfaces that describe `--public`. No filesystem, TLS, or protocol change.
+
+User or operator value: a LAN or routable unicast bind cannot slip through
+without `--public`/`public=True`, and documentation no longer claims the
+flag alone expands the default host to `0.0.0.0`.
+
+Exit conditions: non-loopback binds without acknowledgment fail; loopback
+and acknowledged non-loopback binds succeed; docs match the acknowledgment
+semantics verified by Plan 303 (`--public --port` still loopback).
+
 ### Milestone 319 — `eggserve-static` 0.5.1 patch release and current-line sweep
 
 Class: polish
@@ -349,3 +371,4 @@ changing any resolved version.
 | 315 | closed | `plans/implementation/cli-ops-observability/315-dependency-specification-consolidation.md` | `plans/closure/cli-ops-observability/315-dependency-specification-consolidation.md` | A root `[workspace.dependencies]` table owns every shared dependency version and the `rustls` `0.23.45` floor; the excluded Python crate keeps explicit specs. All three lockfiles are byte-identical and the resolved package and feature sets are unchanged. The plan's `default-features` guidance was factually backwards and is recorded as a deviation. |
 | 318 | closed | `plans/implementation/cli-ops-observability/318-rustls-floor-and-testpypi-staging.md` | `plans/closure/cli-ops-observability/318-rustls-floor-and-testpypi-staging.md` | The manifest `rustls` floor is raised from `0.23.45` to `0.23.46` in the workspace table and in the excluded Python crate. The resolution does not move — all three lockfiles and the resolved feature sets are unchanged — but a consumer pinned to `=0.23.45` can no longer unify to the vulnerable release alongside these crates. The guard `docs/dependency-policy.md` already required but that never existed now does: gate rule `check_plan318_rustls_floor`. The TestPyPI trusted publisher's GitHub-side environment exists and its workflow job is wired; the PyPI-side account registration remains a maintainer step. |
 | 319 | closed | `plans/implementation/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md` | `plans/closure/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md` | `eggserve-static` is bumped to `0.5.1` and published with the NT directory-buffer fixes the published `0.5.0` still carried; the dependent crates' caret requirements already accept it and are unchanged. `docs/release-contract.md` and five `architecture/` deep dives no longer name the superseded `0.4.0` line's versions. The six factually-wrong doc comments an audit found in Plan 313's 539-item remediation are corrected. |
+| 320 | closed | `plans/implementation/cli-ops-observability/320-public-bind-acknowledgment-hardening.md` | `plans/closure/cli-ops-observability/320-public-bind-acknowledgment-hardening.md` | CLI/Python gate requires `--public`/`public=True` for any non-loopback bind; docs corrected; `HTTPServer` constructor address remains intent. |

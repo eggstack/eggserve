@@ -20,15 +20,16 @@ eggserve [OPTIONS] [PORT] [DIRECTORY]
 | `--port PORT` | Port to listen on (blocks positional port override) | `8000` |
 | `PORT` | Positional port argument; a valid numeric token fills the unoccupied port slot | `8000` |
 | `DIRECTORY` | First positional token not consumed as PORT; once PORT is occupied, it is used verbatim, including numeric names | `.` (current directory) |
-| `--public` | Bind to all interfaces (required for `0.0.0.0` or `::` binds) | off |
+| `--public` | Acknowledge public exposure intent (required for any non-loopback bind) | off |
 | `--http3` | Enable experimental native HTTP/3/QUIC beside TCP; requires `--tls-cert` (and optionally `--tls-key`), binds same-port UDP, and advertises `Alt-Svc` | off |
 | `--tls-cert PATH` | PEM certificate chain; enables TLS (requires `tls` build) | none |
 | `--tls-key PATH` | PEM private key; defaults to `--tls-cert` when omitted; requires `--tls-cert` (requires `tls` build) | `--tls-cert` |
 
 `--bind` accepts IPv4/IPv6 literals and hostnames. Hostname resolution happens
 once during argument validation; the resolved address is then used for the
-listener. A hostname that resolves to a wildcard address still requires
-`--public`.
+listener. Any resolved non-loopback address (wildcard or unicast) requires
+`--public`. The flag is acknowledgment only: it does not expand a loopback
+default host to `0.0.0.0`.
 
 Note: `--bind HOST` (without a port) leaves the positional port slot
 available. A subsequent numeric positional argument will be parsed as the
@@ -50,7 +51,8 @@ sets both host and port and cannot be combined with `--bind`. Default is
 
 `--header-timeout` must not exceed `--connection-total-timeout`.
 
-Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
+Binding to any non-loopback address (including `0.0.0.0`, `::`, or a LAN/unicast
+address) without `--public` is rejected with an error.
 
 ### Security policies
 

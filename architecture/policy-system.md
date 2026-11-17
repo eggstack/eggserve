@@ -175,7 +175,7 @@ Users must explicitly opt-in to less restrictive behavior via CLI flags or Pytho
 | `--directory-listing` | `DirectoryListingPolicy::Enabled` | Enable directory listing |
 | `--follow-symlinks` | `SymlinkPolicy::Follow` | Follow symlinks |
 | `--allow-dotfiles` | `DotfilePolicy::Serve` | Serve dotfiles |
-| `--public` | Bind to `0.0.0.0` | Accept non-loopback connections |
+| `--public` | Acknowledge non-loopback bind | Required for any non-loopback `--bind`/`--addr` (does not expand the host alone) |
 
 ## Python API Mapping
 

@@ -193,13 +193,16 @@ See README.md for Windows-specific profiles (windows-reverse-proxy, windows-dire
 
 ## Binding to all interfaces
 
-To make eggserve accessible from other machines (without a reverse proxy), use `--public`:
+To make eggserve accessible from other machines (without a reverse proxy), pass
+an explicit non-loopback address and acknowledge it with `--public`:
 
 ```sh
-eggserve --public --port 8000 --directory public
+eggserve --public --addr 0.0.0.0:8000 --directory public
 ```
 
-This binds to `0.0.0.0`. The `--public` flag is required to acknowledge public exposure intent. When binding publicly, consider using a reverse proxy for TLS termination and access control.
+`--public` is required for any non-loopback bind (wildcard or unicast). It does
+not expand a loopback default by itself. When binding publicly, consider using a
+reverse proxy for TLS termination and access control.
 
 ## Combining patterns
 

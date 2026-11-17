@@ -54,7 +54,13 @@ The following options weaken security defaults. Each requires an explicit CLI fl
 
 ### `--public`
 
-Binds to all network interfaces (`0.0.0.0`) instead of loopback. Use only when the server must be accessible from other machines. The operator is responsible for network-level access control.
+Acknowledges intent to bind a non-loopback address. Without this flag, the CLI
+rejects any resolved address that is not loopback (wildcards such as `0.0.0.0`
+/`::`, and unicast LAN or routable addresses). The flag does not rewrite the
+bind host by itself: pass an explicit non-loopback `--bind`/`--addr` (for
+example `--addr 0.0.0.0:8000 --public`). Use only when the server must be
+reachable from other machines. The operator is responsible for network-level
+access control.
 
 ### `--follow-symlinks`
 

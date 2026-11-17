@@ -741,7 +741,12 @@ impl Args {
 
         let bind_ip = resolve_bind_ip(&bind_host, bind_port)?;
 
-        if !public && bind_ip.is_unspecified() {
+        // Threat-model asset: without `--public`, do not bind a public
+        // interface. Unspecified addresses are the usual case, but any
+        // non-loopback unicast (LAN or routable) is also network exposure
+        // and needs the same acknowledgment. `--public` alone does not
+        // expand the default host; it only authorizes a non-loopback bind.
+        if !public && !bind_ip.is_loopback() {
             return Err(format!(
                 "binding to {bind_ip} requires --public to acknowledge public exposure intent"
             ));
@@ -887,7 +892,7 @@ pub fn print_usage() {
     println!("  --port <PORT>             Bind port (default: 8000)");
     println!("  --addr <HOST:PORT>        Full socket address (cannot combine with --bind)");
     println!(
-        "  --public                  Acknowledge public exposure intent (required for 0.0.0.0 or ::)"
+        "  --public                  Acknowledge public exposure intent (required for any non-loopback bind)"
     );
     println!("  --directory-listing       Enable directory listing (disabled by default)");
     println!("  --follow-symlinks         Follow symlinks (denied by default)");
@@ -1423,6 +1428,30 @@ mod tests {
         let result = parse(&["--addr", "0.0.0.0:8000"]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("--public"));
+    }
+
+    #[test]
+    fn non_loopback_unicast_without_public_flag_fails() {
+        let result = parse(&["--addr", "192.168.1.10:8000"]);
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.contains("--public"), "{error}");
+        assert!(error.contains("192.168.1.10"), "{error}");
+    }
+
+    #[test]
+    fn non_loopback_unicast_with_public_flag_allowed() {
+        let args = parse(&["--addr", "192.168.1.10:8000", "--public"]).unwrap();
+        assert_eq!(args.bind, "192.168.1.10:8000".parse().unwrap());
+        assert!(!args.bind.ip().is_loopback());
+    }
+
+    #[test]
+    fn loopback_bind_does_not_require_public_flag() {
+        let args = parse(&["--addr", "127.0.0.1:8000"]).unwrap();
+        assert!(args.bind.ip().is_loopback());
+        let args = parse(&["--bind", "::1", "--port", "8000"]).unwrap();
+        assert!(args.bind.ip().is_loopback());
     }
 
     #[test]
