@@ -10,6 +10,56 @@ import tomllib
 import zipfile
 from pathlib import Path
 
+# Plan 327: the free-threading classifier is the advertised support tier. The
+# gate accepts exactly one classifier, at the tier this constant declares, and
+# requires it exactly when the cp314t family is a required matrix family. A
+# tier change flips pyproject, the docs, and this constant in one change.
+FREE_THREADING_CLASSIFIER_PREFIX = (
+    "Programming Language :: Python :: Free Threading :: "
+)
+FREE_THREADING_TIERS = {
+    1: "Unstable",
+    2: "Beta",
+    3: "Stable",
+    4: "Resilient",
+}
+EXPECTED_FREE_THREADING_TIER = 2
+
+
+def free_threading_classifier_errors(
+    classifiers: list[str],
+    ft_declared: bool,
+    expected_tier: int = EXPECTED_FREE_THREADING_TIER,
+) -> list[str]:
+    """Return classifier-contract violations for the declared ABI families."""
+    errors: list[str] = []
+    found = [
+        classifier
+        for classifier in classifiers
+        if classifier.startswith(FREE_THREADING_CLASSIFIER_PREFIX)
+    ]
+    expected = (
+        f"{FREE_THREADING_CLASSIFIER_PREFIX}{expected_tier} - "
+        f"{FREE_THREADING_TIERS[expected_tier]}"
+    )
+    if len(found) > 1:
+        errors.append(
+            "pyproject declares more than one free-threading classifier: "
+            f"{sorted(found)}; declare exactly one"
+        )
+    if ft_declared and expected not in found:
+        errors.append(
+            "the free-threading classifier must be exactly "
+            f"{expected!r} when the cp314t family is required "
+            f"(got {sorted(found) if found else 'none'})"
+        )
+    if not ft_declared and found:
+        errors.append(
+            "the free-threading classifier must not be declared when the "
+            f"cp314t family is absent (got {sorted(found)})"
+        )
+    return errors
+
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
@@ -231,15 +281,9 @@ def main() -> int:
             f"declared targets (got {sorted(ft_platforms)})"
         )
     ft_declared = "cp314t" in families
-    ft_classifier = (
-        "Programming Language :: Python :: Free Threading :: 2 - Beta"
+    errors.extend(
+        free_threading_classifier_errors(classifiers, ft_declared)
     )
-    if ft_declared != (ft_classifier in classifiers):
-        errors.append(
-            "the free-threading Beta classifier must exist exactly when the "
-            f"cp314t family is declared (declared={ft_declared}, "
-            f"classifier={ft_classifier in classifiers})"
-        )
 
     release_yml = repo_root / ".github" / "workflows" / "release.yml"
     if release_yml.is_file():
@@ -317,5 +361,77 @@ def main() -> int:
     return 0
 
 
+def self_test() -> int:
+    """Exercise the classifier contract in both tier configurations."""
+    beta = "Programming Language :: Python :: Free Threading :: 2 - Beta"
+    stable = "Programming Language :: Python :: Free Threading :: 3 - Stable"
+    unstable = (
+        "Programming Language :: Python :: Free Threading :: 1 - Unstable"
+    )
+    results = []
+
+    def check(name: str, condition: bool, detail: str = "") -> None:
+        results.append((name, bool(condition), detail))
+
+    check(
+        "beta-expected-beta-present",
+        free_threading_classifier_errors([beta], True, 2) == [],
+    )
+    check(
+        "stable-expected-stable-present",
+        free_threading_classifier_errors([stable], True, 3) == [],
+    )
+    check(
+        "beta-expected-stable-present",
+        len(free_threading_classifier_errors([stable], True, 2)) == 1,
+    )
+    check(
+        "stable-expected-beta-present",
+        len(free_threading_classifier_errors([beta], True, 3)) == 1,
+    )
+    check(
+        "declared-family-missing-classifier",
+        len(free_threading_classifier_errors([], True, 2)) == 1,
+    )
+    check(
+        "wrong-tier-unstable",
+        len(free_threading_classifier_errors([unstable], True, 2)) == 1,
+    )
+    check(
+        "two-tiers-rejected",
+        len(free_threading_classifier_errors([beta, stable], True, 2)) == 1,
+    )
+    check(
+        "no-family-no-classifier",
+        free_threading_classifier_errors([], False, 2) == [],
+    )
+    check(
+        "no-family-with-classifier",
+        len(free_threading_classifier_errors([beta], False, 2)) == 1,
+    )
+    unrelated = free_threading_classifier_errors(
+        ["Programming Language :: Python :: 3.14"], True, 2
+    )
+    check(
+        "unrelated-classifiers-ignored",
+        len(unrelated) == 1 and beta in unrelated[0],
+        repr(unrelated),
+    )
+
+    failures = [name for name, ok, _ in results if not ok]
+    for name, ok, detail in results:
+        suffix = "" if ok else ": " + detail
+        print(f"{'ok  ' if ok else 'FAIL'}{name}{suffix}")
+    print(
+        f"self-test: {len(results)} checks, {len(failures)} failure(s)"
+    )
+    if failures:
+        print("failed: " + ", ".join(failures), file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
+    if "--self-test" in sys.argv[1:]:
+        raise SystemExit(self_test())
     raise SystemExit(main())
