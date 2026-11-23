@@ -25,9 +25,14 @@ pool and closes incomplete streamed requests.
 
 The Python wheel compatibility declaration is GIL-enabled CPython 3.11–3.15
 with abi3 stable ABI (`>=3.11`, one `cp311-abi3` wheel per platform, proven
-by a build-once/test-many ABI proof) on Linux, macOS, and Windows. The wheel
-contains the matching platform-native extension and its extension-backed CLI
-entry point; PyPy and free-threaded CPython are not supported.
+by a build-once/test-many ABI proof) on Linux, macOS, and Windows. A second,
+additive family ships `cp314-cp314t` wheels for free-threaded CPython 3.14t
+on Linux x86_64 (glibc), macOS arm64, and Windows x86_64 as **Beta**
+(Plan 326); it is built and smoked with a free-threaded interpreter and keeps
+the extension's GIL-free declaration explicit. The wheels contain the
+matching platform-native extension and its extension-backed CLI entry point.
+PyPy, free-threaded CPython 3.13t/3.15t, `abi3t`, ARMv7, Windows arm64, and
+musl free-threaded builds are not supported.
 
 ## Release Artifacts
 
@@ -152,7 +157,10 @@ Key properties:
 - Default body policy is `reject` (backward-compatible with Milestone 3).
 - `read()` and `iter_chunks()` are mutually exclusive; mixing raises `RequestBodyConsumedError`.
 - All byte limits and timeouts are enforced by the Rust runtime, not Python.
-- Python methods release the GIL during Rust-owned I/O waits.
+- Python methods detach from the interpreter during Rust-owned I/O waits.
+  On a GIL-enabled build that releases the GIL so other Python threads can
+  run; on a free-threaded build there is no GIL, and the detachment is a
+  thread-state operation instead.
 - Static service remains bodyless (`RequestBodyPolicy::Reject`).
 - Callback timeout does not cancel arbitrary Python code; timed-out callbacks still count against concurrency until they return.
 

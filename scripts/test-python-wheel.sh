@@ -116,21 +116,32 @@ info "Running installed-wheel typing smoke"
 info "Verifying import boundary"
 "$VENV_PYTHON" <<'PYEOF'
 from pathlib import Path
-import sys
+import sysconfig
 import eggserve
 import eggserve._native
 
 ef = Path(eggserve.__file__).resolve()
 nf = Path(eggserve._native.__file__).resolve()
-maj = sys.version_info.major
-minr = sys.version_info.minor
-site_packages = Path(sys.prefix) / 'lib' / f'python{maj}.{minr}' / 'site-packages'
+# Plan 326: derive site-packages from sysconfig, not "python<major>.<minor>".
+# A free-threaded interpreter uses lib/python3.14t/site-packages.
+site_packages = Path(sysconfig.get_paths()["purelib"]).resolve()
 
 assert site_packages in ef.parents, f'eggserve.__file__ not in site-packages: {ef}'
 assert site_packages in nf.parents, f'eggserve._native.__file__ not in site-packages: {nf}'
 print(f'  eggserve: {ef}')
 print(f'  _native:  {nf}')
 PYEOF
+
+# Plan 326: a free-threaded interpreter must stay GIL-free after the
+# installed wheel is imported. This lives in the shared harness so CI and
+# local runs execute the identical assertion; -W error::RuntimeWarning turns
+# PyO3's "GIL re-enabled" warning into a failure instead of a silent fallback.
+if [[ "$("$VENV_PYTHON" -c 'import sysconfig; print(1 if sysconfig.get_config_var("Py_GIL_DISABLED") else 0)')" == "1" ]]; then
+    info "Verifying free-threaded import keeps the GIL disabled"
+    "$VENV_PYTHON" -X gil=0 -W error::RuntimeWarning -c \
+        "import sys, eggserve._native; assert sys._is_gil_enabled() is False"
+    success "GIL stays disabled on the installed free-threaded wheel"
+fi
 
 # Smoke checks
 info "Running smoke checks"

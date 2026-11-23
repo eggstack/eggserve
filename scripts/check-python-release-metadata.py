@@ -116,9 +116,10 @@ def main() -> int:
             )
 
     # --- B3: Python compatibility contract ---
-    # Plan 264: normal GIL-enabled CPython support is 3.11-3.15 through one
-    # cp311-abi3 artifact per platform. Free-threaded CPython is owned by
-    # Plan 267 and must not be advertised here.
+    # Plan 264 + Plan 326: GIL-enabled CPython support is 3.11-3.15 through
+    # one cp311-abi3 artifact per platform. The free-threaded family is
+    # cp314-cp314t on three targets only (Beta); no other free-threaded
+    # implementation or platform may be advertised here.
     requires_python = pyproject.get("project", {}).get("requires-python", "")
     if "3.11" not in requires_python:
         errors.append(f"requires-python does not include 3.11: {requires_python!r}")
@@ -158,22 +159,110 @@ def main() -> int:
     if maturin_bindings != "pyo3":
         errors.append(f"maturin bindings != pyo3: {maturin_bindings!r}")
 
-    # --- B3b: ABI baseline agreement (Plan 264 Track D) ---
-    # The executable packaging configuration must agree on cp311-abi3:
-    # pyproject classifiers (checked above), the PyO3 abi3-py311 feature
-    # (checked below), and the release workflow interpreter baseline.
+    # --- B3b: Declared ABI families (Plan 264 Track D; Plan 326) ---
+    # The packaging configuration, the release matrix, and the release
+    # workflow must agree on exactly two families: the GIL cp311-abi3 family
+    # on every platform and the Beta cp314-cp314t family on three targets.
+    # The workflow takes both its build interpreter and its setup-python
+    # version from the matrix; a hard-coded interpreter is a defect.
+    build_requires = pyproject.get("build-system", {}).get("requires", [])
+    if not any(
+        isinstance(req, str) and req.strip().startswith("maturin>=1.14.1")
+        for req in build_requires
+    ):
+        errors.append(
+            "build-system maturin floor must be >=1.14.1 "
+            f"(got {build_requires!r})"
+        )
+
+    matrix_path = repo_root / "release" / "wheel-matrix.toml"
+    families: dict[str, set[str]] = {}
+    ft_platforms: set[str] = set()
+    matrix: dict = {}
+    try:
+        with open(matrix_path, "rb") as f:
+            matrix = tomllib.load(f)
+    except (FileNotFoundError, tomllib.TOMLDecodeError) as exc:
+        errors.append(f"wheel matrix unreadable for ABI-family checks: {exc}")
+    expected_tags = {
+        "cp311": ("cp311", "abi3"),
+        "cp314t": ("cp314", "cp314t"),
+    }
+    for target in matrix.get("target", []):
+        if target.get("tier") != "required":
+            continue
+        family = target.get("abi_family")
+        if not isinstance(family, str):
+            errors.append(
+                f"required target {target.get('id')!r} has no abi_family"
+            )
+            continue
+        families.setdefault(family, set()).add(
+            target.get("platform_tag", "")
+        )
+        if family == "cp314t":
+            ft_platforms.add(target.get("platform_tag", ""))
+        expected = expected_tags.get(family)
+        if expected is None:
+            errors.append(f"required target declares unknown family {family!r}")
+            continue
+        if (target.get("python_tag"), target.get("abi_tag")) != expected:
+            errors.append(
+                f"{target.get('id')}: tag triple "
+                f"{target.get('python_tag')}-{target.get('abi_tag')} "
+                f"!= {expected[0]}-{expected[1]}"
+            )
+        if not target.get("interpreter") or not target.get("setup_python"):
+            errors.append(
+                f"{target.get('id')}: missing interpreter/setup_python "
+                "matrix metadata"
+            )
+    if set(families) != set(expected_tags):
+        errors.append(
+            "required ABI families must be exactly cp311 + cp314t "
+            f"(got {sorted(families)})"
+        )
+    declared_ft_platforms = {
+        "manylinux_2_17_x86_64", "macosx_11_0_arm64", "win_amd64",
+    }
+    if ft_platforms != declared_ft_platforms:
+        errors.append(
+            "free-threaded family platforms must be exactly the three "
+            f"declared targets (got {sorted(ft_platforms)})"
+        )
+    ft_declared = "cp314t" in families
+    ft_classifier = (
+        "Programming Language :: Python :: Free Threading :: 2 - Beta"
+    )
+    if ft_declared != (ft_classifier in classifiers):
+        errors.append(
+            "the free-threading Beta classifier must exist exactly when the "
+            f"cp314t family is declared (declared={ft_declared}, "
+            f"classifier={ft_classifier in classifiers})"
+        )
+
     release_yml = repo_root / ".github" / "workflows" / "release.yml"
     if release_yml.is_file():
         workflow_text = release_yml.read_text()
-        if "--interpreter python3.11" not in workflow_text:
+        if "--interpreter ${{ matrix.interpreter }}" not in workflow_text:
             errors.append(
-                "release workflow does not build against the python3.11 ABI "
-                "baseline (--interpreter python3.11 missing)"
+                "release workflow must take --interpreter from "
+                "matrix.interpreter"
+            )
+        if re.search(r"--interpreter\s+python3\.\d+", workflow_text):
+            errors.append(
+                "release workflow hard-codes a python3.x interpreter; the "
+                "wheel matrix is its only authority"
+            )
+        if "python-version: ${{ matrix.setup_python }}" not in workflow_text:
+            errors.append(
+                "release workflow must take actions/setup-python "
+                "python-version from matrix.setup_python"
             )
         if "cp312-cp312" in workflow_text or "cp315-cp315" in workflow_text:
             errors.append(
                 "release workflow appears to build per-minor cpNN wheels; "
-                "Plan 264 requires one cp311-abi3 artifact per platform"
+                "the GIL family requires one cp311-abi3 artifact per platform"
             )
 
     # --- B4: Wheel architecture contract (if wheel exists in dist/) ---
@@ -209,8 +298,14 @@ def main() -> int:
                                 break
                     if name.endswith(".dist-info/WHEEL"):
                         wheel_text = zf.read(name).decode()
-                        if "abi3" not in wheel_text and "cp311" not in wheel_text:
-                            errors.append(f"{whl.name} WHEEL metadata missing abi3 tag")
+                        if not any(
+                            token in wheel_text
+                            for token in ("abi3", "cp311", "cp314t", "cp314")
+                        ):
+                            errors.append(
+                                f"{whl.name} WHEEL metadata missing a declared "
+                                "ABI tag"
+                            )
 
     if errors:
         print("Release preflight FAILED:", file=sys.stderr)
