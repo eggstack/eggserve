@@ -23,7 +23,7 @@ FREE_THREADING_TIERS = {
     3: "Stable",
     4: "Resilient",
 }
-EXPECTED_FREE_THREADING_TIER = 2
+EXPECTED_FREE_THREADING_TIER = 3
 
 
 def free_threading_classifier_errors(

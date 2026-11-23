@@ -31,13 +31,12 @@ free-threaded family is qualified on all three targets by a green
 with `publish_target: none`, and the contention substitute for TSan passes
 three 120-second runs with zero failures.
 
-The promotion gate is met on evidence. The tier decision is **retain Beta**
-for this change set: the plan requires the owner to confirm that a
-no-publish aggregate satisfies the gate's release leg, that confirmation was
-requested, and no answer is recorded. The promotion itself is a bounded,
-enumerated edit (section 7) that changes only packaging metadata and
-documentation. No product behavior, public API, dependency, platform, or
-publication change was made.
+The promotion gate is met and confirmed: the owner confirmed during execution
+that a no-publish aggregate satisfies the gate's release leg. The tier
+decision is therefore **promote to Stable**
+(`Programming Language :: Python :: Free Threading :: 3 - Stable`), applied as
+a metadata-and-documentation change only (section 7). No product behavior,
+public API, dependency, platform, or publication change was made.
 
 ## 2. Requirement-to-evidence matrix
 
@@ -53,7 +52,7 @@ publication change was made.
 | D | Stdlib-only soak script with `--self-test` and three records | `scripts/soak-python-free-threaded.py`; 16/16 self-test checks; `plans/closure/python-facade/327-soak-{1,2,3}.json` | pass |
 | D | Document the TSan decision | section 5 | pass |
 | E | Evaluate all four promotion criteria | section 6 | pass |
-| E | Decide the tier and update metadata/docs/gate only for a promotion | section 7 (Beta retained; promotion prepared) | decided |
+| E | Decide the tier and update metadata/docs/gate only for a promotion | section 7 (promoted to Stable after owner confirmation) | pass |
 | F | Closure record, registry, roadmap, next number | this record; registry rows 326/327; roadmap; next number `328` | pass |
 
 ## 3. Named condition 1 — CI
@@ -161,39 +160,34 @@ disabled before and after, and no worker thread survives a phase.
 | No unresolved medium-or-higher finding in the Plan 326 closure | met | both mediums resolved; remaining findings are low (Plan 326 closure section 10) |
 
 The plan additionally requires the owner to confirm that a
-`publish_target: none` aggregate satisfies the gate's release leg. That
-confirmation was requested during execution and is **not recorded**, so the
-gate is met on evidence but not confirmed for a promotion.
+`publish_target: none` aggregate satisfies the gate's release leg. The owner
+confirmed during execution (questionnaire response, 2026-11-23) that the
+no-publish aggregate counts, so all four criteria are met and confirmed.
 
 ## 7. Tier decision
 
-**Retain Beta** (`Programming Language :: Python :: Free Threading :: 2 - Beta`).
-No classifier, documentation, or gate constant changed in this plan. The
-family stays Beta on Linux x86_64 (glibc), macOS arm64, and Windows x86_64
-only, exactly as Plan 326 shipped it.
+**Promote to Stable** (`Programming Language :: Python :: Free Threading ::
+3 - Stable`) on Linux x86_64 (glibc), macOS arm64, and Windows x86_64 only.
+The owner confirmed that the no-publish aggregate satisfies the gate's release
+leg; all four criteria in section 6 are met.
 
-Why: the plan makes the tier change conditional on explicit owner
-confirmation of the aggregate-as-release reading, and that confirmation is
-not recorded. Retaining Beta never claims more than the recorded evidence and
-is the plan's own fallback.
+Applied in this change set:
 
-If the owner confirms the reading, the promotion is exactly:
+1. `crates/eggserve-python/pyproject.toml`: the tier-3 classifier replaces
+   the tier-2 one.
+2. `scripts/check-python-release-metadata.py`:
+   `EXPECTED_FREE_THREADING_TIER = 3`; the gate requires exactly one
+   free-threading classifier at the declared tier, and its `--self-test`
+   covers both configurations (10/10 checks).
+3. Tier statements updated: `docs/toolchain-support.md` (support table,
+   promotion paragraph, PyO3 note, wheel-matrix note, verification table),
+   `docs/python-api.md`, `docs/python-http-server-compatibility.md`,
+   `docs/python-packaging.md`, `docs/release-contract.md`,
+   `docs/release-process.md`, `docs/library-capability-matrix.md`,
+   `SECURITY.md`, `CHANGELOG.md`, and the `eggserve-dev` skill bullet.
 
-1. `crates/eggserve-python/pyproject.toml`: replace the tier-2 classifier
-   with `Programming Language :: Python :: Free Threading :: 3 - Stable`.
-2. `scripts/check-python-release-metadata.py`: set
-   `EXPECTED_FREE_THREADING_TIER = 3`; its `--self-test` already covers the
-   Stable configuration.
-3. Tier statements: `docs/toolchain-support.md` (support table, promotion
-   paragraph, tag note, verification table), `docs/python-api.md`,
-   `docs/python-http-server-compatibility.md`, `docs/python-packaging.md`,
-   `docs/release-contract.md`, `docs/release-process.md`,
-   `docs/library-capability-matrix.md`, `SECURITY.md`, `CHANGELOG.md`, and the
-   `eggserve-dev` skill bullet.
-4. Re-run `python3 scripts/check-python-release-metadata.py` and its
-   `--self-test`.
-
-That is a two-file functional change plus prose; it touches no runtime code.
+No runtime, API, dependency, wheel-tag, or platform change; the wheel set and
+its tags are identical to the qualified aggregate.
 
 ## 8. Invariant review
 
@@ -229,7 +223,6 @@ That is a two-file functional change plus prose; it touches no runtime code.
 
 | Severity | Finding | Status | Note |
 |---|---|---|---|
-| decision | Owner confirmation of the aggregate-as-release reading is not recorded | open | Blocks the Stable flip only; the gate evidence is complete |
 | low | `.github/workflows/platform-qualification.yml` still targets `macos-14` | open | Manual workflow, outside this plan; refresh before its next dispatch |
 | low | `./scripts/verify.sh fast` aborts on the pre-existing macOS `ConnectionReset` test (Plan 325 closure) | open | Unchanged; CI runs the same lanes directly |
 | low | The excluded Python crate has pre-existing rustfmt drift | open | Not a CI gate |

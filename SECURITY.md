@@ -55,7 +55,7 @@ minimal reproduction when safe to share.
 
 The release wheel targets the CPython 3.11 stable ABI (abi3) and supports
 GIL-enabled CPython 3.11–3.15 through one `cp311-abi3` wheel per platform
-(build-once/test-many ABI proof). An additive **Beta** family supports
+(build-once/test-many ABI proof). An additive **Stable** family supports
 free-threaded CPython 3.14t (`cp314-cp314t`) on Linux x86_64 (glibc), macOS
 arm64, and Windows x86_64 only; PyPy, free-threaded CPython 3.13t/3.15t,
 `abi3t`, ARMv7, Windows arm64, and musl free-threaded builds are unsupported.

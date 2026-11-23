@@ -271,7 +271,8 @@ and both named evidence conditions are complete: the `python-free-threaded` CI
 job is green and a `publish_target: none` release aggregate contains the exact
 13 platform/family pairs, including the three `cp314t` wheels, with the GIL
 family unchanged. No medium-or-higher finding attributable to Plan 326
-remains. The Beta-to-Stable decision is Plan 327's work package E and is
+remains. Plan 327 met the promotion gate and the owner confirmed the
+aggregate-as-release reading, so the family is now Stable; the decision is
 recorded in `plans/closure/python-facade/327-free-threaded-314t-qualification-and-tier-decision.md`.
 
 ## 12. Registry updates

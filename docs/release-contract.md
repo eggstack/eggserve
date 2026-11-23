@@ -27,7 +27,7 @@ The Python wheel compatibility declaration is GIL-enabled CPython 3.11–3.15
 with abi3 stable ABI (`>=3.11`, one `cp311-abi3` wheel per platform, proven
 by a build-once/test-many ABI proof) on Linux, macOS, and Windows. A second,
 additive family ships `cp314-cp314t` wheels for free-threaded CPython 3.14t
-on Linux x86_64 (glibc), macOS arm64, and Windows x86_64 as **Beta**
+on Linux x86_64 (glibc), macOS arm64, and Windows x86_64 as **Stable**
 (Plan 326); it is built and smoked with a free-threaded interpreter and keeps
 the extension's GIL-free declaration explicit. The wheels contain the
 matching platform-native extension and its extension-backed CLI entry point.

@@ -171,7 +171,7 @@ server.wait()
   `max_python_callbacks` handlers run concurrently; in-flight admission is
   held before the callback permit. Timeouts close the HTTP request but cannot
   kill Python code.
-- Free-threaded CPython 3.14t (Beta; Linux x86_64 glibc, macOS arm64, Windows
+- Free-threaded CPython 3.14t (Stable; Linux x86_64 glibc, macOS arm64, Windows
   x86_64 only): up to `max_python_callbacks` handlers and the independent
   stream-producer permits execute Python code in parallel. The bridge's Rust
   state stays behind mutexes and atomics, but handler and iterable thread

@@ -5,7 +5,7 @@
 No version has been published from this work; the Rust line stays on `0.5.x`
 and the wheel on `0.2.5` until a maintainer chooses a release.
 
-- **Free-threaded CPython 3.14t (Plan 326, Beta).** The extension now states
+- **Free-threaded CPython 3.14t (Plan 326, Stable; promoted by Plan 327).** The extension now states
   `#[pymodule(gil_used = false)]` explicitly and ships an additive
   `cp314-cp314t` wheel family on Linux x86_64 (glibc), macOS arm64, and
   Windows x86_64 only. The wheel matrix, release-set validator, release

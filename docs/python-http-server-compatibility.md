@@ -62,7 +62,7 @@ When the native fast path is active, `HTTPServer`/`HTTPSServer` are effectively
 limited to one connection and `ThreadingHTTPServer(N)`/
 `ThreadingHTTPSServer(N)` to `N` through native admission control.
 
-On free-threaded CPython 3.14t (Beta; Linux x86_64 glibc, macOS arm64, and
+On free-threaded CPython 3.14t (Stable; Linux x86_64 glibc, macOS arm64, and
 Windows x86_64 only), that bound is true parallelism rather than
 execution serialized by the GIL: up to `max_workers` handlers and the
 bounded `Response.stream` producers may run Python at once. Handlers that

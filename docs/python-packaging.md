@@ -67,7 +67,7 @@ See [docs/python-api.md](python-api.md) for the full API reference.
 - Rust toolchain (stable)
 - CPython 3.11–3.15 with abi3 stable ABI (GIL-enabled; `>=3.11`); PyPy and
   free-threaded CPython 3.13t/3.15t are not supported
-- Free-threaded CPython 3.14t is **Beta** on Linux x86_64 (glibc), macOS
+- Free-threaded CPython 3.14t is **Stable** on Linux x86_64 (glibc), macOS
   arm64, and Windows x86_64 only (`cp314-cp314t`; Plan 326)
 - maturin: `pip install "maturin>=1.14.1,<2.0"`
 
@@ -121,7 +121,7 @@ CPython 3.11–3.15. One wheel per platform serves all supported CPython minor
 versions; the release proves the same wheel bytes on every minor
 (build-once/test-many ABI proof). The free-threaded family adds one
 `cp314-cp314t` wheel for CPython 3.14t on Linux x86_64 (glibc), macOS arm64,
-and Windows x86_64 (**Beta**; Plan 326). It is a separate ABI and is not
+and Windows x86_64 (**Stable**; Plan 326, promoted by Plan 327). It is a separate ABI and is not
 covered by the abi3 proof: each target is built and smoked with its own
 3.14t interpreter. ARM/Windows-ARM64 artifacts execute natively or under
 matching QEMU userspaces (see `docs/release-process.md`).

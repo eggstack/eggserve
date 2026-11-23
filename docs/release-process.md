@@ -139,7 +139,7 @@ The workflow runs a preflight job before any platform builds:
   equivalence between the workspace and the excluded Maturin crate.
 - Validates `abi3-py311`, `requires-python >=3.11` with advertised 3.11–3.15
   classifiers, the declared `cp311` + `cp314t` families, the free-threading
-  Beta classifier, and matrix-owned interpreters for both families.
+  Stable classifier, and matrix-owned interpreters for both families.
 - Validates the wheel-target authority (`scripts/wheel-matrix.py validate`,
   `self-test`, and `scripts/check-release-wheel-set.py --self-test`) and
   emits the build matrix from `release/wheel-matrix.toml`, so the workflow
@@ -323,7 +323,7 @@ an in-progress publication.
   outside scope. HTTP/1.1 with single byte ranges only.
 - **Python wheels**: GIL-enabled CPython 3.11–3.15 with abi3 stable ABI
   (`>=3.11`, one `cp311-abi3` wheel per platform) plus free-threaded CPython
-  3.14t at **Beta** (`cp314-cp314t` on Linux x86_64 glibc, macOS arm64, and
+  3.14t at **Stable** (`cp314-cp314t` on Linux x86_64 glibc, macOS arm64, and
   Windows x86_64 only; Plan 326). 3.13t/3.15t, `abi3t`, PyPy, ARMv7, Windows
   arm64, and musl free-threaded builds are unsupported.
 
