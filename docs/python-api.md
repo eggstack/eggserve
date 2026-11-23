@@ -167,9 +167,21 @@ server.wait()
   `__next__` that blocks indefinitely cannot be interrupted: the thread may
   outlive the request and server shutdown, holding its permit until it
   returns.
-- GIL/networking split: Rust owns I/O; at most `max_python_callbacks`
-  handlers run concurrently; in-flight admission is held before the callback
-  permit. Timeouts close the HTTP request but cannot kill Python code.
+- Interpreter/networking split: Rust owns I/O; at most
+  `max_python_callbacks` handlers run concurrently; in-flight admission is
+  held before the callback permit. Timeouts close the HTTP request but cannot
+  kill Python code.
+- Free-threaded CPython 3.14t (Stable; Linux x86_64 glibc, macOS arm64, Windows
+  x86_64 only): up to `max_python_callbacks` handlers and the independent
+  stream-producer permits execute Python code in parallel. The bridge's Rust
+  state stays behind mutexes and atomics, but handler and iterable thread
+  safety is the caller's responsibility; `max_python_callbacks=1` is the
+  serialized mode. `RequestBody`, `BodyChunkIterator`, response bodies, and
+  `Tunnel` stay one-shot/single-consumer: concurrent reuse raises the existing
+  typed errors (`RequestBodyConsumedError`, `Already borrowed`, `already
+  consumed`), and a concurrent `Tunnel.recv` raises
+  `RuntimeError("concurrent Tunnel.recv is not supported")`. None of this
+  depends on the GIL.
 
 The six-class `eggserve.server` façade is the primary stdlib-shaped surface;
 `eggserve.lowlevel` is the public runtime/service substrate for downstream
@@ -191,8 +203,10 @@ static server/library, not a maintained ASGI server). Handlers are
 - Same native runtime as the sync facade (no second accept loop, H1-only;
   H2/H3 remain Rust-only experimental). `eggserve.server` stays synchronous.
 - Manual asyncio bridge (no new PyO3 async dependency, abi3 compatible):
-  Rust releases the GIL during all network/body waits; Python never blocks
-  the loop on Rust (blocking native calls go via `asyncio.to_thread`).
+  Rust detaches from the interpreter during all network/body waits on both
+  families (the GIL is released on GIL builds; a free-threaded build has no
+  GIL to release); Python never blocks the loop on Rust (blocking native
+  calls go via `asyncio.to_thread`).
 - Byte-fidelity metadata: `header_items_bytes`, `raw_target_bytes`,
   `path_bytes`/`query_bytes`, the first-wins `headers` dictionary view plus
   the ordered duplicate-preserving `header_items` sequence, text `*_addr`

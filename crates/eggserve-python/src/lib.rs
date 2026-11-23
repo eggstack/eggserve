@@ -1667,7 +1667,14 @@ fn run_cli_fn(py: Python<'_>, argv: Vec<String>) -> i32 {
     py.detach(|| eggserve_bin::run_cli(argv))
 }
 
-#[pymodule]
+/// Native extension module (`eggserve._native`).
+///
+/// The free-threading declaration is explicit. PyO3 >= 0.28 emits
+/// `Py_MOD_GIL_NOT_USED` for a `#[pymodule]` without `gil_used`, and Plan 326
+/// qualifies that promise for CPython 3.14t on Linux x86_64 (glibc), macOS
+/// arm64, and Windows x86_64 only. On a GIL-enabled interpreter the attribute
+/// is a no-op; it never re-enables a disabled GIL.
+#[pymodule(gil_used = false)]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     registration::register(m)
 }

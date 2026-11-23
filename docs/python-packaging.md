@@ -65,8 +65,11 @@ See [docs/python-api.md](python-api.md) for the full API reference.
 ### Prerequisites
 
 - Rust toolchain (stable)
-- CPython 3.11–3.15 with abi3 stable ABI (GIL-enabled; `>=3.11`); PyPy and free-threaded builds are not supported
-- maturin: `pip install maturin`
+- CPython 3.11–3.15 with abi3 stable ABI (GIL-enabled; `>=3.11`); PyPy and
+  free-threaded CPython 3.13t/3.15t are not supported
+- Free-threaded CPython 3.14t is **Stable** on Linux x86_64 (glibc), macOS
+  arm64, and Windows x86_64 only (`cp314-cp314t`; Plan 326)
+- maturin: `pip install "maturin>=1.14.1,<2.0"`
 
 ### Build a wheel
 
@@ -78,6 +81,13 @@ maturin build --profile dist --interpreter python3.11 -o dist
 ```
 
 This produces a platform-specific wheel in `target/wheels/`.
+
+Free-threaded 3.14t wheels use the same command with a free-threaded
+interpreter; never pass a GIL interpreter:
+
+```sh
+maturin build --profile dist --interpreter python3.14t -o dist
+```
 
 ### Build for development
 
@@ -106,11 +116,15 @@ cover all 10 required targets:
 | Windows x86_64 | `win_amd64` |
 | Windows arm64 | `win_arm64` |
 
-Each wheel is an abi3 wheel (`cp311-abi3`), compatible with GIL-enabled
+Each GIL wheel is an abi3 wheel (`cp311-abi3`), compatible with GIL-enabled
 CPython 3.11–3.15. One wheel per platform serves all supported CPython minor
 versions; the release proves the same wheel bytes on every minor
-(build-once/test-many ABI proof) and executes ARM/Windows-ARM64 artifacts
-natively or under matching QEMU userspaces (see `docs/release-process.md`).
+(build-once/test-many ABI proof). The free-threaded family adds one
+`cp314-cp314t` wheel for CPython 3.14t on Linux x86_64 (glibc), macOS arm64,
+and Windows x86_64 (**Stable**; Plan 326, promoted by Plan 327). It is a separate ABI and is not
+covered by the abi3 proof: each target is built and smoked with its own
+3.14t interpreter. ARM/Windows-ARM64 artifacts execute natively or under
+matching QEMU userspaces (see `docs/release-process.md`).
 manylinux i686, musllinux i686, and Windows x86 (`win32`) are declared
 candidates only — not supported until build, binary-install, and smoke
 evidence exist with no dependency-policy exception.

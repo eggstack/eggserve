@@ -145,6 +145,7 @@ impl PyTunnelCapability {
             lifecycle: Some(lifecycle.clone()),
             handle: self.handle.clone(),
             closed: Arc::new(AtomicBool::new(false)),
+            recv_in_flight: AtomicBool::new(false),
         };
 
         // Downstream handler owns `TunnelIo`, no raw transport. The request
@@ -249,6 +250,10 @@ pub struct PyTunnel {
     pub(super) lifecycle: Option<eggserve_primitives::request_lifecycle::RequestLifecycle>,
     pub(super) handle: Option<tokio::runtime::Handle>,
     pub(super) closed: Arc<AtomicBool>,
+    /// Serializes the one blocking `recv` wait (Plan 326). A second
+    /// concurrent `recv` fails explicitly instead of observing an
+    /// already-taken receiver and reporting a misleading closed tunnel.
+    recv_in_flight: AtomicBool,
 }
 
 impl std::fmt::Debug for PyTunnel {
@@ -273,43 +278,59 @@ impl PyTunnel {
     /// failures raise `ConnectionError` with sanitized text (no payload).
     /// Intended for use via `asyncio.to_thread` in async handlers so the
     /// event loop stays responsive; direct calls block the caller.
+    ///
+    /// Single-consumer: a concurrent second `recv` on the same tunnel raises
+    /// `RuntimeError("concurrent Tunnel.recv is not supported")` instead of
+    /// reporting a misleading closed tunnel. The in-flight guard is reset on
+    /// every exit path (data, EOF, error, and poisoned lock).
     fn recv<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyBytes>>> {
         let handle = self.handle.clone().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("no runtime handle for tunnel recv")
         })?;
-        // Take the receiver out for one blocking wait, then put back unless
-        // terminal. `std` Mutex guard cannot be held across `block_on`.
-        // NOTE (B83): `recv` is single-consumer only (`Send`, not `Sync`
-        // sharing) — concurrent `recv` during the blocking wait sees `None`
-        // and reports `tunnel already closed` spuriously. Callers must not
-        // share concurrent `recv` across threads.
-        let mut rx = {
-            let mut guard = self
-                .to_python_rx
-                .lock()
-                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("tunnel lock poisoned"))?;
-            guard.take().ok_or_else(|| {
-                pyo3::exceptions::PyRuntimeError::new_err("tunnel already closed")
-            })?
-        };
-        let result = py.detach(|| handle.block_on(rx.recv()));
-        match result {
-            Some(Ok(chunk)) => {
-                // Not terminal: return receiver for future recvs.
-                if let Ok(mut guard) = self.to_python_rx.lock() {
-                    *guard = Some(rx);
-                }
-                Ok(Some(PyBytes::new(py, &chunk)))
-            }
-            Some(Err(msg)) => {
-                self.closed.store(true, Ordering::Release);
-                Err(pyo3::exceptions::PyConnectionError::new_err(msg))
-            }
-            None => {
-                self.closed.store(true, Ordering::Release);
-                Ok(None)
-            }
+        // Plan 326: claim the single blocking wait before touching the
+        // receiver, so a racing caller gets an explicit contention error
+        // instead of the terminal-looking "tunnel already closed".
+        if self
+            .recv_in_flight
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "concurrent Tunnel.recv is not supported",
+            ));
         }
+        let result = (|| -> PyResult<Option<Bound<'py, PyBytes>>> {
+            // Take the receiver out for one blocking wait, then put back unless
+            // terminal. `std` Mutex guard cannot be held across `block_on`.
+            let mut rx = {
+                let mut guard = self.to_python_rx.lock().map_err(|_| {
+                    pyo3::exceptions::PyRuntimeError::new_err("tunnel lock poisoned")
+                })?;
+                guard.take().ok_or_else(|| {
+                    pyo3::exceptions::PyRuntimeError::new_err("tunnel already closed")
+                })?
+            };
+            let outcome = py.detach(|| handle.block_on(rx.recv()));
+            match outcome {
+                Some(Ok(chunk)) => {
+                    // Not terminal: return receiver for future recvs.
+                    if let Ok(mut guard) = self.to_python_rx.lock() {
+                        *guard = Some(rx);
+                    }
+                    Ok(Some(PyBytes::new(py, &chunk)))
+                }
+                Some(Err(msg)) => {
+                    self.closed.store(true, Ordering::Release);
+                    Err(pyo3::exceptions::PyConnectionError::new_err(msg))
+                }
+                None => {
+                    self.closed.store(true, Ordering::Release);
+                    Ok(None)
+                }
+            }
+        })();
+        self.recv_in_flight.store(false, Ordering::Release);
+        result
     }
 
     /// Blocking send (GIL released during backpressure wait).

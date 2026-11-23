@@ -62,6 +62,15 @@ When the native fast path is active, `HTTPServer`/`HTTPSServer` are effectively
 limited to one connection and `ThreadingHTTPServer(N)`/
 `ThreadingHTTPSServer(N)` to `N` through native admission control.
 
+On free-threaded CPython 3.14t (Stable; Linux x86_64 glibc, macOS arm64, and
+Windows x86_64 only), that bound is true parallelism rather than
+execution serialized by the GIL: up to `max_workers` handlers and the
+bounded `Response.stream` producers may run Python at once. Handlers that
+share mutable state must synchronize it themselves; `max_workers=1` restores
+serialization. One-shot bodies, iterators, responses, and tunnels remain
+single-consumer and raise the typed contention errors (see
+`docs/python-api.md`). GIL-enabled behavior is unchanged.
+
 ## Source-familiar behavior
 
 The facade supports the compatibility behaviors that are useful for porting a

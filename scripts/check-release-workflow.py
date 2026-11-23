@@ -112,6 +112,35 @@ def check_workflow(text: str) -> list[str]:
             "in the maturin args"
         )
 
+    # --- Plan 326: ABI-family build metadata ---
+    # The wheel matrix is the only interpreter authority. A free-threaded
+    # wheel gets an explicit import/GIL assertion, and setup-python follows
+    # the matrix instead of a hard-coded minor.
+    if "--interpreter ${{ matrix.interpreter }}" not in text:
+        errors.append(
+            "workflow must pass `--interpreter ${{ matrix.interpreter }}` "
+            "(the wheel matrix owns the ABI family)"
+        )
+    if re.search(r"--interpreter\s+python3\.\d+", text):
+        errors.append(
+            "workflow must not hard-code a python3.x interpreter; the wheel "
+            "matrix is its only authority"
+        )
+    if "python-version: ${{ matrix.setup_python }}" not in text:
+        errors.append(
+            "build job must take actions/setup-python `python-version` from "
+            "matrix.setup_python"
+        )
+    if re.search(r"matrix\.abi_family\s*==\s*'cp314t'", text) is None:
+        errors.append(
+            "workflow must gate the free-threaded import assertion on "
+            "matrix.abi_family == 'cp314t'"
+        )
+    elif "sys._is_gil_enabled() is False" not in text:
+        errors.append(
+            "free-threaded lane must assert sys._is_gil_enabled() is False"
+        )
+
     # --- Track D: explicit QEMU setup + sh (not bash) in minimal images ---
     # Build job QEMU setup (for matrix.qemu_platform).
     if "docker/setup-qemu-action" not in text:
@@ -250,6 +279,30 @@ def cmd_self_test() -> int:
         False,
         "exclude the evidence manifest",
     )
+    check(
+        "hard-coded interpreter fails",
+        real.replace(
+            "--interpreter ${{ matrix.interpreter }}",
+            "--interpreter python3.11",
+        ),
+        False,
+        "hard-code",
+    )
+    check(
+        "static setup-python fails",
+        real.replace(
+            "python-version: ${{ matrix.setup_python }}",
+            'python-version: "3.11"',
+        ),
+        False,
+        "setup_python",
+    )
+    check(
+        "missing free-threaded gate fails",
+        real.replace("matrix.abi_family == 'cp314t'", "true"),
+        False,
+        "free-threaded import assertion",
+    )
     return 1 if failures else 0
 
 
@@ -279,6 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  3.15 prerelease resolution present")
     print('  MACOSX_DEPLOYMENT_TARGET "11.0" pinned')
     print("  evidence MANIFEST excluded from twine upload set")
+    print("  matrix-owned interpreter/setup-python + free-threaded GIL gate")
     return 0
 
 

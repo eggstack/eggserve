@@ -20,11 +20,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_MATRIX = REPO_ROOT / "release" / "wheel-matrix.toml"
 
 
-def load_required_targets(matrix_path: Path) -> tuple[set[str], set[str]]:
-    """Load required + declared platform tags from the wheel-matrix authority.
+def load_required_targets(
+    matrix_path: Path,
+) -> tuple[set[tuple[str, str]], set[tuple[str, str]], dict[str, tuple[str, str]]]:
+    """Load required + declared (platform_tag, abi_family) pairs.
 
-    Returns (required, declared). Raises SystemExit with a clear message when
-    the manifest is missing or invalid so the release fails closed.
+    Returns (required, declared, families) where families maps an ABI family
+    to its declared (python_tag, abi_tag) triple. Plan 326 adds the family
+    dimension: one platform may carry both cp311-abi3 and cp314-cp314t, so
+    uniqueness and completeness are keyed on the pair. Raises SystemExit with
+    a clear message when the manifest is missing or invalid so the release
+    fails closed.
     """
     try:
         with open(matrix_path, "rb") as f:
@@ -39,29 +45,35 @@ def load_required_targets(matrix_path: Path) -> tuple[set[str], set[str]]:
         print("FAIL: wheel matrix authority_version must be 1", file=sys.stderr)
         raise SystemExit(1)
     targets = data.get("target", [])
-    required: set[str] = set()
-    declared: set[str] = set()
-    seen_tags: dict[str, str] = {}
+    required: set[tuple[str, str]] = set()
+    declared: set[tuple[str, str]] = set()
+    families: dict[str, tuple[str, str]] = {}
+    seen_pairs: dict[tuple[str, str], str] = {}
     for t in targets:
         tag = t.get("platform_tag")
+        family = t.get("abi_family")
         tid = t.get("id", "?")
-        if not tag:
+        if not tag or not family:
             continue
-        declared.add(tag)
-        if tag in seen_tags:
+        pair = (tag, family)
+        declared.add(pair)
+        if pair in seen_pairs:
             print(
-                f"FAIL: wheel matrix duplicate platform tag {tag!r} "
-                f"({seen_tags[tag]!r} and {tid!r})",
+                f"FAIL: wheel matrix duplicate (platform, family) pair {pair!r} "
+                f"({seen_pairs[pair]!r} and {tid!r})",
                 file=sys.stderr,
             )
             raise SystemExit(1)
-        seen_tags[tag] = tid
+        seen_pairs[pair] = tid
+        families.setdefault(
+            family, (t.get("python_tag", ""), t.get("abi_tag", ""))
+        )
         if t.get("tier") == "required":
-            required.add(tag)
+            required.add(pair)
     if not required:
         print("FAIL: wheel matrix declares no required targets", file=sys.stderr)
         raise SystemExit(1)
-    return required, declared
+    return required, declared, families
 
 
 def verify_record(archive: zipfile.ZipFile) -> list[str]:
@@ -155,6 +167,24 @@ def format_targets(targets: set[str]) -> str:
     return "\n  ".join(sorted(targets))
 
 
+def format_pairs(pairs: set[tuple[str, str]]) -> str:
+    return "\n  ".join(f"{family}: {tag}" for tag, family in sorted(pairs))
+
+
+def family_for_wheel(
+    python_tag: str, abi_tag: str, families: dict[str, tuple[str, str]]
+) -> str | None:
+    """Map a wheel's tag triple to a declared ABI family (Plan 326).
+
+    A dotted future ABI (for example abi3.abi3t) is accepted only when a
+    declared family names that exact abi tag; nothing is inferred.
+    """
+    for family, (py, abi) in families.items():
+        if python_tag == py and abi_tag == abi:
+            return family
+    return None
+
+
 def _synthetic_wheel(directory: Path, version: str, platform_tag: str,
                    python_tag: str = "cp311", abi_tag: str = "abi3",
                    build_tag: str = "") -> Path:
@@ -194,23 +224,30 @@ def _synthetic_wheel(directory: Path, version: str, platform_tag: str,
 
 
 def cmd_self_test(matrix: Path) -> int:
-    """Fixture-level proofs (Plan 265): baseline passes; missing, extra,
-    duplicate, wrong-ABI, and generic-linux fixtures fail."""
+    """Fixture-level proofs: baseline passes; missing, extra, duplicate,
+    wrong-family, and generic-linux fixtures fail."""
     import subprocess
     import tempfile
 
-    required, declared = load_required_targets(matrix)
+    required, declared, families = load_required_targets(matrix)
     version = "0.2.0"
     failures = 0
 
-    def run_case(name: str, tags: list[str], expect_ok: bool,
-                 expect_snippet: str = "",
-                 python_tag: str = "cp311", abi_tag: str = "abi3") -> None:
+    def write_pairs(directory: Path, pairs: set[tuple[str, str]]) -> None:
+        for platform_tag, family in sorted(pairs):
+            python_tag, abi_tag = families[family]
+            _synthetic_wheel(directory, version, platform_tag, python_tag, abi_tag)
+
+    def run_case(
+        name: str,
+        pairs: set[tuple[str, str]],
+        expect_ok: bool,
+        expect_snippet: str = "",
+    ) -> None:
         nonlocal failures
         with tempfile.TemporaryDirectory(prefix="wheelset-selftest-") as tmp:
             tmpdir = Path(tmp)
-            for tag in tags:
-                _synthetic_wheel(tmpdir, version, tag, python_tag, abi_tag)
+            write_pairs(tmpdir, pairs)
             proc = subprocess.run(
                 [sys.executable, str(Path(__file__).resolve()),
                  str(tmpdir), "--version", version, "--matrix", str(matrix)],
@@ -218,7 +255,9 @@ def cmd_self_test(matrix: Path) -> int:
             )
             ok = proc.returncode == 0
             combined = proc.stdout + proc.stderr
-            if ok == expect_ok and (not expect_snippet or expect_snippet in combined):
+            if ok == expect_ok and (
+                not expect_snippet or expect_snippet in combined
+            ):
                 print(f"OK {name}")
             else:
                 print(f"FAIL {name}: rc={proc.returncode} expected_ok={expect_ok}")
@@ -226,43 +265,86 @@ def cmd_self_test(matrix: Path) -> int:
                 failures += 1
 
     baseline = sorted(required)
-    run_case("baseline required set passes", baseline, True)
-    run_case("missing required target fails", baseline[1:], False, "missing required")
-    run_case("undeclared extra target fails",
-             baseline + ["manylinux_2_17_ppc64le"], False, "undeclared")
-    with tempfile.TemporaryDirectory(prefix="wheelset-dup-") as tmp:
-        tmpdir = Path(tmp)
-        _synthetic_wheel(tmpdir, version, baseline[0])
-        # Second wheel file carrying the same platform tag. The numeric
-        # build segment keeps the filename valid while the platform collides.
-        _synthetic_wheel(tmpdir, version, baseline[0], build_tag="1")
-        proc = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()),
-             str(tmpdir), "--version", version, "--matrix", str(matrix)],
-            capture_output=True, text=True,
+    run_case("baseline required set passes", set(baseline), True)
+    run_case(
+        "missing required target fails", set(baseline[1:]), False,
+        "missing required",
+    )
+    ft_pairs = [pair for pair in baseline if pair[1] == "cp314t"]
+    if len(ft_pairs) != 3:
+        print(f"FAIL expected 3 free-threaded pairs, got {ft_pairs}")
+        failures += 1
+    else:
+        run_case(
+            "missing free-threaded target fails",
+            {pair for pair in baseline if pair != ft_pairs[0]},
+            False,
+            "missing required",
         )
-        if proc.returncode != 0 and "duplicate platform tag" in proc.stdout + proc.stderr:
-            print("OK duplicate platform tags fail")
-        else:
-            print(f"FAIL duplicate platform tags: rc={proc.returncode}")
-            print((proc.stdout + proc.stderr)[-2000:])
-            failures += 1
-    run_case("wrong ABI tag fails", baseline, False, "abi",
-             python_tag="cp312", abi_tag="cp312")
-    run_case("generic linux tag fails", ["linux_x86_64"], False, "linux")
+        ft_platform, ft_family = ft_pairs[0]
+        with tempfile.TemporaryDirectory(prefix="wheelset-dup-") as tmp:
+            tmpdir = Path(tmp)
+            write_pairs(tmpdir, set(baseline))
+            python_tag, abi_tag = families[ft_family]
+            _synthetic_wheel(
+                tmpdir, version, ft_platform, python_tag, abi_tag,
+                build_tag="1",
+            )
+            proc = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve()),
+                 str(tmpdir), "--version", version, "--matrix", str(matrix)],
+                capture_output=True, text=True,
+            )
+            combined = proc.stdout + proc.stderr
+            if proc.returncode != 0 and "duplicate" in combined:
+                print("OK duplicate family pair fails")
+            else:
+                print(f"FAIL duplicate family pair: rc={proc.returncode}")
+                print(combined[-2000:])
+                failures += 1
+        with tempfile.TemporaryDirectory(prefix="wheelset-tag-") as tmp:
+            tmpdir = Path(tmp)
+            write_pairs(tmpdir, set(baseline))
+            _synthetic_wheel(
+                tmpdir, version, ft_platform, "cp314", "abi3", build_tag="2"
+            )
+            proc = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve()),
+                 str(tmpdir), "--version", version, "--matrix", str(matrix)],
+                capture_output=True, text=True,
+            )
+            combined = proc.stdout + proc.stderr
+            if proc.returncode != 0 and "no declared ABI family" in combined:
+                print("OK undeclared tag triple fails")
+            else:
+                print(f"FAIL undeclared tag triple: rc={proc.returncode}")
+                print(combined[-2000:])
+                failures += 1
 
-    # ARMv7 musl is accepted only when the wheel exists: baseline (which
-    # contains it) passes, and removing just that tag fails.
-    musl_armv7 = "musllinux_1_2_armv7l"
+    run_case(
+        "undeclared extra target fails",
+        set(baseline) | {("manylinux_2_17_ppc64le", "cp311")},
+        False,
+        "undeclared",
+    )
+    run_case(
+        "generic linux tag fails", {("linux_x86_64", "cp311")}, False, "linux",
+    )
+
+    musl_armv7 = ("musllinux_1_2_armv7l", "cp311")
     if musl_armv7 in required:
-        run_case("armv7-musl present passes (in baseline)", baseline, True)
-        run_case("armv7-musl missing fails",
-                 [t for t in baseline if t != musl_armv7], False, "missing required")
+        run_case("armv7-musl present passes (in baseline)", set(baseline), True)
+        run_case(
+            "armv7-musl missing fails",
+            {pair for pair in baseline if pair != musl_armv7},
+            False,
+            "missing required",
+        )
     else:
         print("FAIL manifest does not require musllinux_1_2_armv7l")
         failures += 1
+    _ = declared
     return 1 if failures else 0
-
 
 def main() -> int:
     args = parse_args()
@@ -275,7 +357,9 @@ def main() -> int:
     directory: Path = args.directory
     expected_version: str = args.version
 
-    required_targets, declared_targets = load_required_targets(args.matrix)
+    required_targets, declared_targets, families = load_required_targets(
+        args.matrix
+    )
     allowed_targets = set(required_targets)
     if args.include_candidates:
         allowed_targets = set(declared_targets)
@@ -287,8 +371,9 @@ def main() -> int:
 
     failures = 0
     parsed = []
-    seen_platforms: dict[str, str] = {}
+    seen_pairs: dict[tuple[str, str], str] = {}
     all_platforms: set[str] = set()
+    all_pairs: set[tuple[str, str]] = set()
 
     for wheel in wheels:
         # --- Check 1: filename shape ---
@@ -306,6 +391,7 @@ def main() -> int:
         platform_tag = match.group("platform")
 
         platforms = list(dict.fromkeys(parse_platform_tags(platform_tag)))
+        family = family_for_wheel(python_tag, abi_tag, families)
 
         parsed.append({
             "wheel": wheel,
@@ -316,6 +402,8 @@ def main() -> int:
             "abi_tag": abi_tag,
             "platform_tag": platform_tag,
             "platforms": platforms,
+            "family": family,
+            "pair": (platform_tag, family),
         })
 
     if failures:
@@ -329,8 +417,17 @@ def main() -> int:
         abi_tag = entry["abi_tag"]
         platform_tag = entry["platform_tag"]
         platforms = entry["platforms"]
+        family = entry["family"]
+        pair = entry["pair"]
 
         print(f"\n--- {wheel.name} ---")
+        if family is None:
+            print(
+                f"  FAIL: wheel tags {python_tag}-{abi_tag} match no "
+                "declared ABI family",
+                file=sys.stderr,
+            )
+            failures += 1
 
         # --- Check 2: project name ---
         if distribution != "eggserve":
@@ -400,63 +497,58 @@ def main() -> int:
                     if line.lower().startswith("tag:"):
                         tag_lines.append(line.split(":", 1)[1].strip())
 
-                all_abi3 = True
-                all_cp311 = True
-                for tag in tag_lines:
-                    parts = tag.split("-")
-                    if len(parts) == 3:
-                        tag_python, tag_abi, tag_platform = parts
-                        if tag_abi != "abi3":
-                            all_abi3 = False
-                        if not tag_python.startswith("cp311"):
-                            all_cp311 = False
-
-                if not all_abi3:
+                if family is None:
                     print(
-                        f"  FAIL: not all WHEEL Tag abi fields are abi3: {tag_lines}",
+                        f"  FAIL: WHEEL tags match no declared ABI family: "
+                        f"{tag_lines}",
                         file=sys.stderr,
                     )
                     failures += 1
                 else:
-                    print(f"  OK: WHEEL Tag abi = abi3")
-
-                if not all_cp311:
-                    print(
-                        f"  FAIL: not all WHEEL Tag python fields start with cp311: {tag_lines}",
-                        file=sys.stderr,
-                    )
-                    failures += 1
-                else:
-                    print(f"  OK: WHEEL Tag python starts with cp311")
-
-                # Check filename abi/python tags match WHEEL tags
-                if abi_tag != "abi3":
-                    print(
-                        f"  FAIL: filename abi tag '{abi_tag}' != expected 'abi3'",
-                        file=sys.stderr,
-                    )
-                    failures += 1
-
-                if not python_tag.startswith("cp311"):
-                    print(
-                        f"  FAIL: filename python tag '{python_tag}' does not start with 'cp311'",
-                        file=sys.stderr,
-                    )
-                    failures += 1
+                    expected_python, expected_abi = families[family]
+                    bad = [
+                        tag for tag in tag_lines
+                        if len(tag.split("-")) != 3
+                        or tag.split("-")[0] != expected_python
+                        or tag.split("-")[1] != expected_abi
+                    ]
+                    if not tag_lines or bad:
+                        print(
+                            f"  FAIL: WHEEL Tag triple != declared "
+                            f"{expected_python}-{expected_abi} ({family}): "
+                            f"{tag_lines}",
+                            file=sys.stderr,
+                        )
+                        failures += 1
+                    else:
+                        print(
+                            f"  OK: WHEEL Tag = {expected_python}-{expected_abi} "
+                            f"({family})"
+                        )
+                    if (python_tag, abi_tag) != (expected_python, expected_abi):
+                        print(
+                            f"  FAIL: filename tags {python_tag}-{abi_tag} "
+                            f"!= declared {expected_python}-{expected_abi} "
+                            f"({family})",
+                            file=sys.stderr,
+                        )
+                        failures += 1
 
             # --- Check 5: Tier 1 target set ---
             all_platforms.update(platforms)
 
-            # --- Check 6: no duplicate platform target ---
+            # --- Check 6: no duplicate (platform, family) pair ---
             for plat in platforms:
-                if plat in seen_platforms:
+                key = (plat, family)
+                if key in seen_pairs:
                     print(
-                        f"  FAIL: duplicate platform tag '{plat}' in {wheel.name} "
-                        f"(first seen in {seen_platforms[plat]})",
+                        f"  FAIL: duplicate (platform, family) pair {key!r} "
+                        f"in {wheel.name} (first seen in {seen_pairs[key]})",
                         file=sys.stderr,
                     )
                     failures += 1
-                seen_platforms[plat] = wheel.name
+                seen_pairs[key] = wheel.name
+                all_pairs.add(key)
 
             # --- Check 7: no generic linux_* ---
             for plat in platforms:
@@ -524,20 +616,35 @@ def main() -> int:
     # Every enabled required target must be present; no required target may
     # appear twice (enforced above); unexpected targets not declared in the
     # manifest fail; declared candidates may not silently count as supported.
-    missing = required_targets - all_platforms
-    extra = all_platforms - allowed_targets
-    undeclared = all_platforms - declared_targets
+    missing = required_targets - all_pairs
+    extra = all_pairs - allowed_targets
+    undeclared = all_pairs - declared_targets
     if missing:
-        print(f"FAIL: missing required targets:\n  {format_targets(missing)}", file=sys.stderr)
+        print(
+            f"FAIL: missing required (platform, family) targets:\n  "
+            f"{format_pairs(missing)}",
+            file=sys.stderr,
+        )
         failures += 1
     if undeclared:
-        print(f"FAIL: undeclared platform targets (not in wheel matrix):\n  {format_targets(undeclared)}", file=sys.stderr)
+        print(
+            f"FAIL: undeclared (platform, family) targets (not in wheel "
+            f"matrix):\n  {format_pairs(undeclared)}",
+            file=sys.stderr,
+        )
         failures += 1
     elif extra:
-        print(f"FAIL: unexpected extra platform targets:\n  {format_targets(extra)}", file=sys.stderr)
+        print(
+            f"FAIL: unexpected extra (platform, family) targets:\n  "
+            f"{format_pairs(extra)}",
+            file=sys.stderr,
+        )
         failures += 1
     if not missing and not extra:
-        print(f"OK: required target set is exact ({len(required_targets)} targets)")
+        print(
+            f"OK: required target set is exact "
+            f"({len(required_targets)} platform/family pairs)"
+        )
 
     # --- Summary of platform distribution ---
     print(f"Platform targets found: {len(all_platforms)}")
