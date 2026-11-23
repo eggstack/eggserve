@@ -1,7 +1,8 @@
 # Python Facade Milestone 326 — Free-threaded CPython 3.14t staged support
 
-Status: implemented (closure conditionally closed: the free-threaded CI lane
-and a three-target release aggregate remain the named evidence conditions; see
+Status: implemented (closure closed 2026-11-23: the `python-free-threaded` CI
+lane is green and a `publish_target: none` release aggregate contains the
+three `cp314t` wheels; see
 `plans/closure/python-facade/326-free-threaded-cpython-314t-staged-support.md`)
 
 Approval: repository owner, 2026-11-23. Approved as drafted; no scope

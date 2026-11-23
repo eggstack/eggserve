@@ -1,6 +1,10 @@
 # Python Facade Milestone 327 — Free-threaded 3.14t qualification evidence and Beta tier decision
 
-Status: ready for handoff
+Status: implemented (closure closed 2026-11-23: both named conditions are
+observed, the contention soak passes three runs, and the tier decision is
+recorded as retain-Beta pending owner confirmation of the aggregate-as-release
+reading; see
+`plans/closure/python-facade/327-free-threaded-314t-qualification-and-tier-decision.md`)
 
 Approval: repository owner, 2026-11-23. Approved as drafted; no scope
 change from the reviewed plan.

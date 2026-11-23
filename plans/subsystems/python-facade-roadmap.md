@@ -1,6 +1,6 @@
 # Python Facade Roadmap
 
-Status: active (311 and 322 closed; 326 conditionally closed; 327 ready)
+Status: active (311, 322, and 326 closed; 327 closed with the tier decision recorded)
 
 Long-term references:
 
@@ -162,8 +162,8 @@ core compatibility runtime + static authority (closed)
     |
     +--> Milestone 311 (listing renderer consolidation)
     +--> Milestone 322 (streamed-response producer bounds)
-    +--> Milestone 326 (free-threaded CPython 3.14t, conditionally closed)
-    `--> Milestone 327 (qualification evidence + tier decision, ready)
+    +--> Milestone 326 (free-threaded CPython 3.14t, closed)
+    `--> Milestone 327 (qualification evidence + tier decision, closed)
 ```
 
 Milestone 311 has no hard dependency on other open milestones; it depends
@@ -271,7 +271,7 @@ Objective: produce the two conditions named by Plan 326's conditional closure
 make one recorded Beta/Stable decision using Plan 326's promotion gate and a
 bounded contention soak as the TSan substitute.
 
-Dependencies: Plan 326 implementation (hard, conditionally closed); repository
+Dependencies: Plan 326 implementation (hard, closed); repository
 write access and the existing CI/release workflows (operational); owner
 confirmation of the aggregate-as-release reading for promotion (interface).
 No publication is in scope.
@@ -371,5 +371,5 @@ behavior.
 |---|---|---|---|---|
 | 311 | closed | `plans/implementation/python-facade/311-directory-listing-renderer-consolidation.md` | `plans/closure/python-facade/311-directory-listing-renderer-consolidation.md` | One listing renderer: the bridge delegates to `eggserve-static`, so both surfaces emit byte-identical HTML and enforce the same 1 MiB response-byte ceiling. Gate rule `check_plan311_listing_renderer_authority`. Reported follow-up: six pre-existing clippy lints in the excluded Python crate, which belong to Milestone 313's scope. |
 | 322 | closed | `plans/implementation/python-facade/322-streamed-response-producer-lifecycle-bounds.md` | `plans/closure/python-facade/322-streamed-response-producer-lifecycle-bounds.md` | `Response.stream` spawns a detached producer thread per response. The empty-yield branch never checks the closed receiver, and the callback permit ends before the producer runs, so a blocking/endless iterator can accumulate threads after disconnect/timeout. The plan checks closure before each pull, bounds producers with an admission permit, and documents the non-interruptible `__next__` limitation. |
-| 326 | conditionally closed | `plans/implementation/python-facade/326-free-threaded-cpython-314t-staged-support.md` | `plans/closure/python-facade/326-free-threaded-cpython-314t-staged-support.md` | Beta `cp314-cp314t` family on Linux x86_64 glibc, macOS arm64, and Windows x86_64; family-aware matrix/validators/release lanes; free-threaded CI lane and concurrency tests. Implemented and locally qualified on macOS arm64 (explicit `gil_used = false`, wheel, 861-test suite, all packaging gates); the named conditions are a green `python-free-threaded` CI run and a three-target release aggregate. |
-| 327 | ready | `plans/implementation/python-facade/327-free-threaded-314t-qualification-and-tier-decision.md` | — (implementation not started) | Produce Plan 326's two named conditions (PR CI and a `publish_target: none` three-target aggregate), add a bounded contention soak as the TSan substitute, and make one recorded Beta/Stable decision. No product behavior or publication change. |
+| 326 | closed | `plans/implementation/python-facade/326-free-threaded-cpython-314t-staged-support.md` | `plans/closure/python-facade/326-free-threaded-cpython-314t-staged-support.md` | Beta `cp314-cp314t` family on Linux x86_64 glibc, macOS arm64, and Windows x86_64; family-aware matrix/validators/release lanes; free-threaded CI lane and concurrency tests. Closed with both named conditions observed: CI run 45277923657 (`python-free-threaded` green, 861 tests on CPython 3.14.10t, GIL stays disabled) and release run 45283657891 (exact 13-pair aggregate with the three `-ft` wheels; 5/5 ABI-proof lanes). |
+| 327 | closed | `plans/implementation/python-facade/327-free-threaded-314t-qualification-and-tier-decision.md` | `plans/closure/python-facade/327-free-threaded-314t-qualification-and-tier-decision.md` | Produced both Plan 326 conditions (CI run 45277923657; release run 45283657891, exact 13-pair aggregate), closed Plan 326, added `scripts/soak-python-free-threaded.py` with three zero-error records as the TSan substitute, and evaluated the promotion gate: all four criteria met, family retained at Beta pending the owner's confirmation of the aggregate-as-release reading. No product behavior or publication change. |
