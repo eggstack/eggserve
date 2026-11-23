@@ -192,7 +192,11 @@ id = "macos-arm64"
 name = "macOS arm64"
 rust_target = "aarch64-apple-darwin"
 platform_tag = "macosx_11_0_arm64"
-runner = "macos-14"
+# Plan 327: macos-14 stopped provisioning for this repository (its jobs were
+# cancelled one second after assignment with runner_id 0, twice). The CI
+# platform-compile lane proves macos-latest resolves an arm64 runner; the
+# platform tag stays pinned by MACOSX_DEPLOYMENT_TARGET and this platform_tag.
+runner = "macos-latest"
 manylinux = "auto"
 compatibility = "pypi"
 build = "native"
@@ -285,7 +289,8 @@ id = "macos-arm64-ft"
 name = "macOS arm64 (free-threaded 3.14t)"
 rust_target = "aarch64-apple-darwin"
 platform_tag = "macosx_11_0_arm64"
-runner = "macos-14"
+# Plan 327: same runner corrective as macos-arm64 (macos-14 did not provision).
+runner = "macos-latest"
 manylinux = "auto"
 compatibility = "pypi"
 build = "native"
