@@ -9,7 +9,7 @@ Canonical direction remains in:
 - `plans/002-long-term-roadmap.md`
 - `plans/003-planning-process.md`
 
-New milestone numbers continue from `321`. Legacy flat plans (`000`–`292`) and `release/plan-*.md` are archived in place and immutable.
+New milestone numbers continue from `323`. Legacy flat plans (`000`–`292`) and `release/plan-*.md` are archived in place and immutable.
 
 ## Status vocabulary
 
@@ -34,6 +34,7 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | Planning governance | active | `plans/subsystems/planning-governance-roadmap.md` | 314 publication-state staleness sweep | Milestones 1 and 302 closed. Reopened: six surfaces still describe the published 0.4.0 line as pending, including the agent-facing skill. Interface dependency: 304's closure record supplies the facts. |
 | Python facade | active | `plans/subsystems/python-facade-roadmap.md` | 311 directory-listing renderer consolidation | New roadmap. Milestone 311 is closed: the bridge's second listing renderer is gone and the 1 MiB response-byte ceiling now applies to the Python path. |
 | CLI, ops, and observability | active | `plans/subsystems/cli-ops-observability-roadmap.md` | 320 public-bind acknowledgment hardening (closed) | 312–320 closed. 320 hardened the CLI/Python public-bind gate so any non-loopback address requires `--public`/`public=True`; docs no longer claim `--public` alone expands to `0.0.0.0`. |
+| TLS identity | active | `plans/subsystems/tls-identity-roadmap.md` | 322 reload ALPN coherence (closed) | 321 corrected five seam defects at `26649bd` (provider panic, ALPN/runtime disagreement, CLI timeout mismatch, identity-cap order dependence, H3 transport-bound diagnostics) without a tier or default change. Its follow-up security review found that a running server's reload swap still accepted an h2 advertisement on an HTTP/2-disabled runtime; 322 enforces the check at the swap with the previous identity live. Closures: `plans/closure/tls-identity/321-tls-substrate-corrective.md`, `plans/closure/tls-identity/322-reload-alpn-coherence.md`. |
 | Docs architecture (overview index + deep dives) | closed | `plans/subsystems/docs-architecture-roadmap.md` | 301 closed (overview + deep dives refreshed to 0.4.0 baseline) | Trace: `plans/closure/docs-architecture/293-architecture-overview-deep-dive-refresh.md`. Interface: closed 294–299 code state + Plan 300 publication as review input. |
 
 ## Dependency-ready implementation plans
@@ -68,6 +69,8 @@ Dependency vocabulary: **hard / interface / soft / operational** (`003-planning-
 | CLI, ops, and observability | 318 | closed | `plans/implementation/cli-ops-observability/318-rustls-floor-and-testpypi-staging.md` | The manifest `rustls` floor is raised from `0.23.45` to `0.23.46` in the workspace table and in the excluded Python crate. The resolution does not move — all three lockfiles and the resolved feature sets are unchanged — but a consumer pinned to `=0.23.45` can no longer unify to the vulnerable release alongside these crates. The guard `docs/dependency-policy.md` already required but that never existed now does: gate rule `check_plan318_rustls_floor`. Closure: `plans/closure/cli-ops-observability/318-rustls-floor-and-testpypi-staging.md`. |
 | CLI, ops, and observability | 319 | closed | `plans/implementation/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md` | `eggserve-static` is bumped to `0.5.1` with the NT directory-buffer fixes the published `0.5.0` still carried; the dependent crates' caret requirements already accept it and are unchanged. `docs/release-contract.md` and five `architecture/` deep dives no longer name the superseded `0.4.0` line's versions. The six factually-wrong doc comments an audit found in Plan 313's 539-item remediation are corrected. Closure: `plans/closure/cli-ops-observability/319-static-0-5-1-patch-release-and-doc-sweep.md`. |
 | CLI, ops, and observability | 320 | closed | `plans/implementation/cli-ops-observability/320-public-bind-acknowledgment-hardening.md` | Done; closure: `plans/closure/cli-ops-observability/320-public-bind-acknowledgment-hardening.md`. Non-loopback binds require `--public`/`public=True`; docs match acknowledgment-only semantics. |
+| TLS identity | 321 | closed | `plans/implementation/tls-identity/321-tls-substrate-corrective.md` | The five reviewed defects are corrected with regression tests; Python/MSRV/clippy lanes pass. Closure: `plans/closure/tls-identity/321-tls-substrate-corrective.md`. Two pre-existing macOS-only test failures in untouched crates are recorded there. |
+| TLS identity | 322 | closed | `plans/implementation/tls-identity/322-reload-alpn-coherence.md` | `ServerHandle::replace_tls_config` now rejects an h2-advertising snapshot when the runtime cannot serve HTTP/2, before the swap, leaving the previous identity live; `tls_identity::reload_rejects_h2_alpn_when_http2_disabled` fails on the 321 behavior. The raw `TlsReloadHandle` accessor remains a documented bypass. Closure: `plans/closure/tls-identity/322-reload-alpn-coherence.md`. |
 
 ## Blocked work
 

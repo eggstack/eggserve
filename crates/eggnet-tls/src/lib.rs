@@ -20,7 +20,8 @@ use rustls::ServerConfig;
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
 
-/// Maximum SNI identities per [`TlsServerConfig`] (exact + wildcard combined).
+/// Maximum named SNI identities per [`TlsServerConfig`] (exact + wildcard
+/// combined; the optional default identity is separate).
 pub const MAX_TLS_IDENTITIES: usize = 64;
 /// Maximum DNS length for an SNI identity (DNS limit, without `*.` prefix).
 pub const MAX_SNI_LEN: usize = 253;
@@ -77,6 +78,11 @@ pub enum TlsError {
     TrustRootsRequired,
     /// The ALPN advertisement was malformed or out of bounds.
     InvalidAlpn(String),
+    /// The configured crypto provider could not serve the requested
+    /// protocol versions.
+    InvalidCryptoProvider(String),
+    /// A transport adapter's TLS configuration was out of range.
+    InvalidTransportConfig(String),
 }
 
 impl fmt::Display for TlsError {
@@ -110,6 +116,12 @@ impl fmt::Display for TlsError {
                 write!(f, "client authentication requires at least one trust root")
             }
             Self::InvalidAlpn(msg) => write!(f, "invalid ALPN protocols: {msg}"),
+            Self::InvalidCryptoProvider(msg) => {
+                write!(f, "invalid TLS crypto provider: {msg}")
+            }
+            Self::InvalidTransportConfig(msg) => {
+                write!(f, "invalid transport configuration: {msg}")
+            }
         }
     }
 }
@@ -261,6 +273,15 @@ pub fn parse_crls_pem(pem: &[u8]) -> Result<Vec<CertificateRevocationListDer<'st
     Ok(crls)
 }
 
+/// The rustls crypto provider used for every configuration this crate builds.
+///
+/// The provider is explicit rather than process-global: construction must not
+/// panic when a downstream dependency graph enables both `ring` and
+/// `aws-lc-rs`, and key validation must use the same provider as handshakes.
+fn crypto_provider() -> Arc<rustls::crypto::CryptoProvider> {
+    Arc::new(rustls::crypto::ring::default_provider())
+}
+
 fn build_single_cert_config(
     certs: Vec<CertificateDer<'static>>,
     key: PrivateKeyDer<'static>,
@@ -271,7 +292,9 @@ fn build_single_cert_config(
             "certificate chain too long (max {MAX_IDENTITY_CHAIN})"
         )));
     }
-    let mut config = ServerConfig::builder()
+    let mut config = ServerConfig::builder_with_provider(crypto_provider())
+        .with_safe_default_protocol_versions()
+        .map_err(|e| TlsError::InvalidCryptoProvider(e.to_string()))?
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .map_err(|e| TlsError::InvalidKey(e.to_string()))?;
@@ -327,7 +350,7 @@ fn validate_key_pair(
     certs: &[CertificateDer<'static>],
     key: &PrivateKeyDer<'static>,
 ) -> Result<(), TlsError> {
-    let provider = rustls::crypto::ring::default_provider();
+    let provider = crypto_provider();
     let signing_key = provider
         .key_provider
         .load_private_key(key.clone_key())
@@ -572,7 +595,7 @@ impl TlsServerConfigBuilder {
         certs: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,
     ) -> Result<Self, TlsError> {
-        if self.identities.len() + usize::from(self.default.is_some()) >= MAX_TLS_IDENTITIES {
+        if self.identities.len() >= MAX_TLS_IDENTITIES {
             return Err(TlsError::TooManyIdentities);
         }
         let (is_wildcard, normalized) = normalize_sni_name(name)?;
@@ -688,7 +711,7 @@ impl TlsServerConfigBuilder {
         if self.client_auth != ClientAuthMode::Disabled && self.roots.is_empty() {
             return Err(TlsError::TrustRootsRequired);
         }
-        let provider = rustls::crypto::ring::default_provider();
+        let provider = crypto_provider();
         let mut exact: HashMap<String, Arc<rustls::sign::CertifiedKey>> = HashMap::new();
         let mut wildcards: Vec<(String, Arc<rustls::sign::CertifiedKey>)> = Vec::new();
         let mut identity_names: Vec<String> = Vec::new();
@@ -727,7 +750,9 @@ impl TlsServerConfigBuilder {
             default,
         });
         let verifier = build_client_verifier(self.client_auth, &self.roots, self.crls)?;
-        let mut config = ServerConfig::builder()
+        let mut config = ServerConfig::builder_with_provider(crypto_provider())
+            .with_safe_default_protocol_versions()
+            .map_err(|e| TlsError::InvalidCryptoProvider(e.to_string()))?
             .with_client_cert_verifier(verifier)
             .with_cert_resolver(resolver);
         let alpn = self.alpn.unwrap_or_else(|| http_alpn_protocols(self.http2));
@@ -762,7 +787,8 @@ fn build_client_verifier(
                     .add(root.clone())
                     .map_err(|e| TlsError::InvalidTrustRoots(e.to_string()))?;
             }
-            let builder = WebPkiClientVerifier::builder(Arc::new(store));
+            let builder =
+                WebPkiClientVerifier::builder_with_provider(Arc::new(store), crypto_provider());
             let builder = if crls.is_empty() {
                 builder
             } else {
@@ -847,7 +873,8 @@ pub fn http_alpn_protocols(http2: bool) -> Vec<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{http_alpn_protocols, normalize_sni_name};
+    use super::{http_alpn_protocols, normalize_sni_name, ClientAuthMode, TlsServerConfig};
+    use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 
     #[test]
     fn h2_alpn_is_preferred_only_when_enabled() {
@@ -874,5 +901,26 @@ mod tests {
         let (wild, norm) = normalize_sni_name("Example.COM").unwrap();
         assert!(!wild);
         assert_eq!(norm, "example.com");
+    }
+
+    /// This test binary links both rustls providers (the `tokio-rustls`
+    /// dev-dependency enables `aws-lc-rs`), so the process-default builder
+    /// would panic here. Construction must be provider-explicit.
+    #[test]
+    fn construction_does_not_require_a_process_default_provider() {
+        let key_pair = rcgen::KeyPair::generate().expect("key pair");
+        let params = rcgen::CertificateParams::new(vec!["provider.test".to_owned()])
+            .expect("certificate params");
+        let cert = params.self_signed(&key_pair).expect("certificate");
+        let cert_der: CertificateDer<'static> = cert.into();
+        let key: PrivateKeyDer<'static> = PrivatePkcs8KeyDer::from(key_pair.serialize_der()).into();
+        let config = TlsServerConfig::builder()
+            .single_identity(vec![cert_der.clone()], key)
+            .expect("identity")
+            .client_auth_required(vec![cert_der])
+            .expect("trust roots")
+            .build()
+            .expect("provider-explicit build");
+        assert_eq!(config.client_auth(), ClientAuthMode::Required);
     }
 }

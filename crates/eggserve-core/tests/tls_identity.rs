@@ -1139,3 +1139,102 @@ async fn alpn_parity_survives_reload() {
     handle.shutdown();
     let _ = handle.wait().await;
 }
+
+/// H2 must not be advertised unless the runtime serves it; the static
+/// configuration and the current reload snapshot are both checked.
+#[cfg(feature = "http2")]
+#[test]
+fn tls_alpn_h2_requires_runtime_http2() {
+    use eggserve_core::server::Http2Config;
+
+    let a = make_identity(vec!["localhost"]);
+    let tls = TlsServerConfig::builder()
+        .single_identity(a.certs.clone(), a.key.clone_key())
+        .expect("identity")
+        .http2(true)
+        .build()
+        .expect("h2 config");
+    assert!(tls.alpn_protocols().contains(&b"h2".to_vec()));
+
+    let disabled = Http2Config {
+        enabled: false,
+        ..Default::default()
+    };
+    let config = eggserve_core::server::RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .http2(disabled.clone())
+        .tls_config(tls.into_server_config())
+        .build()
+        .expect("builder");
+    let error = config.validate().unwrap_err().to_string();
+    assert!(error.contains("http2.enabled"), "{error}");
+
+    let reload = TlsReloadHandle::from_tls_server_config(&tls);
+    let config = eggserve_core::server::RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .http2(disabled)
+        .tls_reload_handle(reload)
+        .build()
+        .expect("builder");
+    let error = config.validate().unwrap_err().to_string();
+    assert!(error.contains("http2.enabled"), "{error}");
+}
+
+/// A reload through the running server must not install an h2 advertisement
+/// the accept loop cannot serve; the previous identity stays live.
+#[cfg(feature = "http2")]
+#[tokio::test]
+async fn reload_rejects_h2_alpn_when_http2_disabled() {
+    use eggserve_core::server::Http2Config;
+
+    let a = make_identity(vec!["localhost"]);
+    let http1 = TlsServerConfig::builder()
+        .single_identity(a.certs.clone(), a.key.clone_key())
+        .expect("identity")
+        .http2(false)
+        .build()
+        .expect("http/1.1 config");
+    let reload = TlsReloadHandle::from_tls_server_config(&http1);
+    let config = eggserve_core::server::RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .http2(Http2Config {
+            enabled: false,
+            ..Default::default()
+        })
+        .tls_reload_handle(reload)
+        .build()
+        .expect("builder");
+    let server = Server::builder().runtime(config).build().unwrap();
+    let handle = server.start_with_service(echo_service()).await.unwrap();
+    handle.ready().await.unwrap();
+
+    let h2 = TlsServerConfig::builder()
+        .single_identity(a.certs.clone(), a.key.clone_key())
+        .expect("identity")
+        .http2(true)
+        .build()
+        .expect("h2 config");
+    let error = handle
+        .replace_tls_server_config(&h2)
+        .expect_err("h2 ALPN must be rejected at swap time");
+    assert!(error.to_string().contains("http2.enabled"), "{error}");
+
+    // The rejected swap left the live HTTP/1.1 identity in place.
+    let response = tls_get(
+        handle.local_addr(),
+        client_config_for(std::slice::from_ref(&a.cert_der_bytes), None),
+        "localhost",
+        GET_CLOSE,
+    )
+    .await
+    .expect("http/1.1 after rejected reload");
+    assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"));
+
+    // A coherent snapshot is still accepted.
+    handle
+        .replace_tls_server_config(&http1)
+        .expect("coherent reload");
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+}

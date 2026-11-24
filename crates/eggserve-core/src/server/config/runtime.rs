@@ -393,9 +393,10 @@ impl RuntimeConfig {
     /// [`crate::server::RuntimeState::try_new`] / [`crate::server::ServerBuilder::build`],
     /// which all enforce it.
     ///
-    /// Checks the shared runtime kernel plus `ResponsePolicy`. Feature-gated
-    /// TLS has no additional scalar invariants beyond presence; handshake
-    /// timeout is part of the shared kernel.
+    /// Checks the shared runtime kernel, `ResponsePolicy`, the HTTP/2 and
+    /// HTTP/3 policies, and TLS ALPN coherence. A TLS configuration (static
+    /// or the current reload snapshot) that advertises `h2` requires HTTP/2
+    /// to be enabled in a build that supports it.
     ///
     /// Services may lower request-body ceilings but cannot raise this runtime
     /// hard ceiling.
@@ -424,7 +425,52 @@ impl RuntimeConfig {
         if self.http3.enabled {
             self.http3.validate()?;
         }
+        // A TLS configuration must not advertise h2 to a runtime that cannot
+        // serve it; otherwise the handshake succeeds and the connection is
+        // dropped afterwards (accept.rs rejects the negotiated protocol).
+        #[cfg(all(feature = "tls", feature = "http2"))]
+        if !self.http2.enabled
+            && self
+                .effective_tls_config()
+                .is_some_and(|tls| Self::tls_advertises_h2(&tls))
+        {
+            return Err(crate::server::errors::ServerError::Config(
+                "TLS ALPN advertises h2 but http2.enabled is false".into(),
+            ));
+        }
+        #[cfg(all(feature = "tls", not(feature = "http2")))]
+        if self
+            .effective_tls_config()
+            .is_some_and(|tls| Self::tls_advertises_h2(&tls))
+        {
+            return Err(crate::server::errors::ServerError::Config(
+                "TLS ALPN advertises h2 but this build has no http2 feature".into(),
+            ));
+        }
         Ok(())
+    }
+
+    /// The TLS configuration new handshakes will read: the reload snapshot
+    /// when configured, otherwise the static compatibility configuration.
+    #[cfg(feature = "tls")]
+    fn effective_tls_config(&self) -> Option<Arc<rustls::ServerConfig>> {
+        if let Some(handle) = &self.tls_reload_handle {
+            Some(handle.current())
+        } else {
+            self.tls_config.clone()
+        }
+    }
+
+    /// Whether a TLS configuration advertises the H2 ALPN protocol.
+    ///
+    /// Shared with the server handle's reload coherence check so build/start
+    /// validation and swap-time validation use the same advertisement test.
+    #[cfg(feature = "tls")]
+    pub(crate) fn tls_advertises_h2(config: &rustls::ServerConfig) -> bool {
+        config
+            .alpn_protocols
+            .iter()
+            .any(|protocol| protocol.as_slice() == b"h2".as_slice())
     }
 
     /// Project shared runtime values into a [`RuntimeConfig`] (Plan 179 Track D).

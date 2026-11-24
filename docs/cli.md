@@ -98,7 +98,7 @@ Hyper exposes no aggregate header-byte, request-target, or request-line knob: th
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--header-timeout SECS` | Header read timeout (seconds) | `10` |
+| `--header-timeout SECS` | Header read and TLS handshake timeout (seconds) | `10` |
 | `--connection-total-timeout SECS` | Total connection lifetime timeout (seconds) | `60` |
 | `--handler-timeout SECS` | Handler invocation timeout (seconds) | `30` |
 | `--body-read-timeout SECS` | Request body read timeout (seconds) | `30` |

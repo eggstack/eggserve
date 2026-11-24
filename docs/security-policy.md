@@ -156,7 +156,7 @@ supported. The TLS feature is optional and not included in the default build.
 For public-facing deployments, a reverse proxy (Caddy, nginx, Traefik) is
 usually preferred over native TLS.
 
-TLS handshakes are bounded by the same timeout as HTTP header reads (`--header-timeout`, default 10 seconds). A slow or stalled TLS client cannot tie up a connection beyond this window.
+TLS handshakes are bounded by the same timeout as HTTP header reads (`--header-timeout` sets both deadlines; default 10 seconds). A slow or stalled TLS client cannot tie up a connection beyond this window.
 
 ## Compatibility mode
 

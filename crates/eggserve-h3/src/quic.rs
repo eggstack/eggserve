@@ -25,10 +25,14 @@ pub fn load_quic_server_config(
     use eggnet_tls::TlsError;
 
     let (certs, key) = eggnet_tls::load_identity(cert_path, key_path)?;
-    let mut tls = rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
-        .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .map_err(|e| TlsError::InvalidKey(e.to_string()))?;
+    let mut tls = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .map_err(|e| TlsError::InvalidCryptoProvider(e.to_string()))?
+    .with_no_client_auth()
+    .with_single_cert(certs, key)
+    .map_err(|e| TlsError::InvalidKey(e.to_string()))?;
     tls.alpn_protocols = vec![b"h3".to_vec()];
     tls.max_early_data_size = 0;
     let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(Arc::new(tls))
@@ -39,17 +43,26 @@ pub fn load_quic_server_config(
         .max_concurrent_bidi_streams(quinn::VarInt::from_u32(config.max_concurrent_bidi_streams))
         .max_concurrent_uni_streams(quinn::VarInt::from_u32(config.max_concurrent_uni_streams))
         .stream_receive_window(
-            quinn::VarInt::try_from(config.stream_receive_window)
-                .map_err(|_| TlsError::InvalidKey("stream receive window too large".into()))?,
+            quinn::VarInt::try_from(config.stream_receive_window).map_err(|_| {
+                TlsError::InvalidTransportConfig(
+                    "stream_receive_window exceeds the QUIC VarInt range".into(),
+                )
+            })?,
         )
         .receive_window(
-            quinn::VarInt::try_from(config.connection_receive_window)
-                .map_err(|_| TlsError::InvalidKey("connection receive window too large".into()))?,
+            quinn::VarInt::try_from(config.connection_receive_window).map_err(|_| {
+                TlsError::InvalidTransportConfig(
+                    "connection_receive_window exceeds the QUIC VarInt range".into(),
+                )
+            })?,
         )
         .send_window(config.send_window)
         .max_idle_timeout(Some(
-            quinn::IdleTimeout::try_from(config.max_idle_timeout)
-                .map_err(|_| TlsError::InvalidKey("idle timeout too large".into()))?,
+            quinn::IdleTimeout::try_from(config.max_idle_timeout).map_err(|_| {
+                TlsError::InvalidTransportConfig(
+                    "max_idle_timeout exceeds the QUIC VarInt range".into(),
+                )
+            })?,
         ));
 
     let mut server = quinn::ServerConfig::with_crypto(Arc::new(crypto));

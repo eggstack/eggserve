@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+- **TLS configuration is provider-deterministic.** `eggnet-tls` and the H3
+  QUIC assembler build every rustls configuration with the ring provider
+  explicitly instead of the process default. A consumer graph that also
+  enables `aws-lc-rs` no longer panics on a valid certificate pair, and the
+  Python wheel no longer installs a process-global provider as a workaround.
+- **ALPN/runtime coherence is validated.** A static TLS configuration or
+  reload snapshot that advertises `h2` while the runtime has HTTP/2 disabled
+  (or was built without the `http2` feature) is rejected at build/start, and a
+  running server rejects it at the reload swap (`ServerHandle::replace_tls_*`)
+  with the previous identity left live, instead of completing the handshake and
+  dropping the connection.
+- **`--header-timeout` now bounds TLS handshakes.** The CLI maps the flag to
+  both `header_read_timeout` and `tls_handshake_timeout`, matching the
+  published security policy instead of leaving the handshake at a fixed 10s.
+- **The SNI identity ceiling is order-independent.** The optional default
+  identity no longer counts toward `MAX_TLS_IDENTITIES`, so 64 named
+  identities are accepted whether the default is configured first or last.
+- **H3 QUIC bounds are validated and typed.** Out-of-range receive windows
+  and idle timeouts are rejected by `Http3Config::validate` with the field
+  named, and transport configuration failures no longer surface as
+  `invalid private key`.
+
 ## 0.5.1 — `eggserve-static` patch (published 2026-10-23)
 
 The `eggserve-static` crate is republished on its own line. The rest of the

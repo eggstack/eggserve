@@ -31,6 +31,11 @@ use tokio::sync::broadcast;
 use crate::server::errors::{ServerError, ShutdownResult};
 use crate::server::lifecycle::Lifecycle;
 
+#[cfg(all(feature = "tls", feature = "http2"))]
+const H2_ALPN_CONFLICT: &str = "TLS ALPN advertises h2 but http2.enabled is false";
+#[cfg(all(feature = "tls", not(feature = "http2")))]
+const H2_ALPN_CONFLICT: &str = "TLS ALPN advertises h2 but this build has no http2 feature";
+
 /// Handle to a running server instance.
 ///
 /// This type is experimental and its API may change without notice.
@@ -54,6 +59,10 @@ pub struct ServerHandle {
     ops: crate::ops::OpsContext,
     #[cfg(feature = "tls")]
     tls_reload: Option<crate::tls::TlsReloadHandle>,
+    /// Whether this runtime serves HTTP/2, captured at start so a reload swap
+    /// can reject an ALPN advertisement the accept loop cannot serve.
+    #[cfg(feature = "tls")]
+    tls_h2_enabled: bool,
 }
 
 impl std::fmt::Debug for ServerHandle {
@@ -105,6 +114,8 @@ impl ServerHandle {
             ops,
             #[cfg(feature = "tls")]
             tls_reload: None,
+            #[cfg(feature = "tls")]
+            tls_h2_enabled: false,
         }
     }
 
@@ -116,6 +127,7 @@ impl ServerHandle {
         lifecycle: std::sync::Arc<Lifecycle>,
         ops: crate::ops::OpsContext,
         tls_reload: Option<crate::tls::TlsReloadHandle>,
+        tls_h2_enabled: bool,
     ) -> Self {
         Self {
             endpoints,
@@ -124,30 +136,38 @@ impl ServerHandle {
             lifecycle,
             ops,
             tls_reload,
+            tls_h2_enabled,
         }
     }
 
     /// Atomically replace TLS identity/trust for new handshakes (Plan 203 F).
     ///
-    /// All-or-nothing: build the replacement first (validation happens in
-    /// `TlsServerConfigBuilder::build`); this swap never fails and never
-    /// touches established sessions. Returns an error when the server has no
-    /// reload handle (plaintext or legacy `tls_config`-only servers).
+    /// Build the replacement first (`TlsServerConfigBuilder::build` validates
+    /// it). The swap then rejects a snapshot that advertises `h2` while this
+    /// runtime cannot serve HTTP/2, leaving the live snapshot unchanged;
+    /// otherwise it never touches established sessions. Returns an error when
+    /// the server has no reload handle (plaintext or legacy `tls_config`-only
+    /// servers).
     #[cfg(feature = "tls")]
     pub fn replace_tls_config(
         &self,
         next: std::sync::Arc<rustls::ServerConfig>,
     ) -> Result<(), crate::server::errors::ServerError> {
-        self.tls_reload
-            .as_ref()
-            .map(|h| {
-                h.replace(next);
-            })
-            .ok_or_else(|| {
-                crate::server::errors::ServerError::Config(
-                    "TLS reload not configured for this server".into(),
-                )
-            })
+        let Some(reload) = self.tls_reload.as_ref() else {
+            return Err(crate::server::errors::ServerError::Config(
+                "TLS reload not configured for this server".into(),
+            ));
+        };
+        // `accept_tls` would otherwise complete the handshake and drop the
+        // connection after observing a negotiated protocol the runtime cannot
+        // serve. Reject before the swap so the previous identity stays live.
+        if !self.tls_h2_enabled && crate::server::RuntimeConfig::tls_advertises_h2(&next) {
+            return Err(crate::server::errors::ServerError::Config(
+                H2_ALPN_CONFLICT.into(),
+            ));
+        }
+        reload.replace(next);
+        Ok(())
     }
 
     /// Replace from a validated [`crate::tls::TlsServerConfig`].
@@ -160,6 +180,10 @@ impl ServerHandle {
     }
 
     /// Current TLS snapshot for observability/tests, if TLS is configured.
+    ///
+    /// Replacing through the returned handle bypasses this server's runtime
+    /// coherence check; prefer [`Self::replace_tls_config`] or
+    /// [`Self::replace_tls_server_config`].
     #[cfg(feature = "tls")]
     pub fn tls_reload_handle(&self) -> Option<crate::tls::TlsReloadHandle> {
         self.tls_reload.clone()

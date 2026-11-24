@@ -5,8 +5,8 @@ use std::sync::Arc;
 use eggnet_tls::{
     http_alpn_protocols, load_tls_config_with_alpn, parse_crls_pem, parse_identity_pem,
     parse_trust_roots_pem, ClientAuthMode, TlsError, TlsReloadHandle, TlsServerConfig,
-    MAX_ALPN_PROTOCOLS, MAX_ALPN_PROTOCOL_LEN, MAX_IDENTITY_CHAIN, MAX_TRUST_PEM_BYTES,
-    MAX_TRUST_ROOTS,
+    MAX_ALPN_PROTOCOLS, MAX_ALPN_PROTOCOL_LEN, MAX_IDENTITY_CHAIN, MAX_TLS_IDENTITIES,
+    MAX_TRUST_PEM_BYTES, MAX_TRUST_ROOTS,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
 use rustls_pki_types::pem::PemObject;
@@ -348,4 +348,46 @@ async fn custom_alpn_negotiates_end_to_end() {
         server_conn.get_ref().1.alpn_protocol(),
         Some(b"eggress-tunnel".as_slice())
     );
+}
+
+/// The named-identity ceiling is order-independent and excludes the optional
+/// default identity; a 65th named identity is rejected.
+#[test]
+fn identity_ceiling_excludes_the_optional_default() {
+    let shared = identity("shared.test");
+
+    let mut builder = TlsServerConfig::builder()
+        .single_identity(shared.certs.clone(), shared.key.clone_key())
+        .expect("default identity");
+    for i in 0..MAX_TLS_IDENTITIES {
+        builder = builder
+            .add_identity(
+                &format!("h{i}.test"),
+                shared.certs.clone(),
+                shared.key.clone_key(),
+            )
+            .expect("identity within the documented ceiling");
+    }
+    let built = builder.build().expect("ceiling build");
+    assert_eq!(built.identities().len(), MAX_TLS_IDENTITIES);
+    assert!(built.has_default_identity());
+
+    let mut overflow = TlsServerConfig::builder();
+    for i in 0..MAX_TLS_IDENTITIES {
+        overflow = overflow
+            .add_identity(
+                &format!("o{i}.test"),
+                shared.certs.clone(),
+                shared.key.clone_key(),
+            )
+            .expect("identity within the documented ceiling");
+    }
+    assert!(matches!(
+        overflow.add_identity(
+            "overflow.test",
+            shared.certs.clone(),
+            shared.key.clone_key()
+        ),
+        Err(TlsError::TooManyIdentities)
+    ));
 }

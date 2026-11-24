@@ -54,6 +54,7 @@ pub struct Args {
     max_connections: Option<usize>,
     max_file_streams: Option<usize>,
     max_in_flight_requests: Option<usize>,
+    /// Header-read timeout; also the documented TLS handshake bound.
     header_read_timeout: Option<Duration>,
     connection_total_timeout: Option<Duration>,
     handler_timeout: Option<Duration>,
@@ -837,6 +838,9 @@ impl Args {
         }
         if let Some(v) = self.header_read_timeout {
             limits.header_read_timeout = v;
+            // One documented bound covers both phases: a slow or stalled TLS
+            // client must not outlive the header-read window.
+            limits.tls_handshake_timeout = v;
         }
         if let Some(v) = self.connection_total_timeout {
             limits.connection_total_timeout = v;
@@ -902,7 +906,7 @@ pub fn print_usage() {
     println!("  --max-connections <N>      Max concurrent connections (default: 64)");
     println!("  --max-file-streams <N>     Max concurrent file streams (default: 32)");
     println!("  --max-in-flight-requests <N>  Max concurrent service executions (default: 64)");
-    println!("  --header-timeout <SECS>    Header read timeout in seconds (default: 10)");
+    println!("  --header-timeout <SECS>    Header read and TLS handshake timeout (default: 10)");
     println!("  --connection-total-timeout <SECS>  Total connection lifetime timeout in seconds (default: 60)");
     println!("  --handler-timeout <SECS>   Handler invocation timeout in seconds (default: 30)");
     println!("  --body-read-timeout <SECS> Request body read timeout in seconds (default: 30)");
@@ -1259,13 +1263,13 @@ mod tests {
 
     #[test]
     fn bind_and_port_separate_flags() {
-        let args = parse(&["--bind", "192.168.1.1:3000"]).unwrap();
+        let args = parse(&["--bind", "192.168.1.1:3000", "--public"]).unwrap();
         assert_eq!(args.bind, "192.168.1.1:3000".parse().unwrap());
     }
 
     #[test]
     fn bind_host_only_preserves_default_port() {
-        let args = parse(&["--bind", "192.168.1.1"]).unwrap();
+        let args = parse(&["--bind", "192.168.1.1", "--public"]).unwrap();
         assert_eq!(args.bind.ip(), "192.168.1.1".parse::<IpAddr>().unwrap());
         assert_eq!(args.bind.port(), 8000);
     }
@@ -1700,6 +1704,14 @@ mod tests {
         let limits = args.limits().unwrap();
         assert_eq!(limits.max_connections, 128);
         assert_eq!(limits.max_file_streams, 64);
+    }
+
+    #[test]
+    fn header_timeout_also_bounds_tls_handshakes() {
+        let args = parse(&["--header-timeout", "4"]).unwrap();
+        let limits = args.limits().unwrap();
+        assert_eq!(limits.header_read_timeout, Duration::from_secs(4));
+        assert_eq!(limits.tls_handshake_timeout, Duration::from_secs(4));
     }
 
     #[test]

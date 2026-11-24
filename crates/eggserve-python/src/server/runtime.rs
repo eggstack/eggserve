@@ -172,10 +172,6 @@ impl PyServer {
         forwarded_standard: bool,
         forwarded_legacy: bool,
     ) -> PyResult<Self> {
-        // rustls can be built with more than one provider through the
-        // workspace's feature-unified dependency graph. Select the same
-        // ring provider used by the CLI before constructing TLS config.
-        let _ = rustls::crypto::ring::default_provider().install_default();
         let bind_addr: SocketAddr = (bind, port)
             .to_socket_addrs()
             .map_err(|_| {

@@ -7,6 +7,9 @@
 
 use std::time::Duration;
 
+/// Largest value representable by a QUIC VarInt (2^62 - 1).
+const QUIC_VARINT_MAX: u64 = (1 << 62) - 1;
+
 /// EggServe-owned HTTP/3 and QUIC resource limits.
 ///
 /// HTTP/3 is experimental. The defaults keep the product disabled until a
@@ -84,8 +87,17 @@ impl Http3Config {
                 "must leave room for H3 control and QPACK streams",
             ));
         }
-        if self.stream_receive_window == 0 || self.connection_receive_window == 0 {
-            return Err(invalid("receive_window", "must be greater than zero"));
+        if self.stream_receive_window == 0 || self.stream_receive_window > QUIC_VARINT_MAX {
+            return Err(invalid(
+                "stream_receive_window",
+                "must be between 1 and 2^62-1 bytes",
+            ));
+        }
+        if self.connection_receive_window == 0 || self.connection_receive_window > QUIC_VARINT_MAX {
+            return Err(invalid(
+                "connection_receive_window",
+                "must be between 1 and 2^62-1 bytes",
+            ));
         }
         if self.connection_receive_window < self.stream_receive_window {
             return Err(invalid(
@@ -96,8 +108,13 @@ impl Http3Config {
         if self.send_window == 0 || self.max_send_buf_size == 0 {
             return Err(invalid("send_window", "must be greater than zero"));
         }
-        if self.max_idle_timeout.is_zero() {
-            return Err(invalid("max_idle_timeout", "must be greater than zero"));
+        if self.max_idle_timeout.is_zero()
+            || self.max_idle_timeout.as_millis() > u128::from(QUIC_VARINT_MAX)
+        {
+            return Err(invalid(
+                "max_idle_timeout",
+                "must be between 1ms and 2^62-1ms",
+            ));
         }
         if self.max_pending_handshakes == 0 {
             return Err(invalid(
@@ -112,5 +129,51 @@ impl Http3Config {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Http3Config, QUIC_VARINT_MAX};
+    use std::time::Duration;
+
+    #[test]
+    fn quic_window_bounds_are_validated() {
+        let too_large = Http3Config {
+            stream_receive_window: QUIC_VARINT_MAX + 1,
+            ..Default::default()
+        };
+        let error = too_large.validate().unwrap_err().to_string();
+        assert!(error.contains("http3.stream_receive_window"), "{error}");
+
+        let too_large = Http3Config {
+            connection_receive_window: QUIC_VARINT_MAX + 1,
+            ..Default::default()
+        };
+        let error = too_large.validate().unwrap_err().to_string();
+        assert!(error.contains("http3.connection_receive_window"), "{error}");
+
+        let at_limit = Http3Config {
+            stream_receive_window: QUIC_VARINT_MAX,
+            connection_receive_window: QUIC_VARINT_MAX,
+            ..Default::default()
+        };
+        assert!(at_limit.validate().is_ok());
+    }
+
+    #[test]
+    fn quic_idle_timeout_bound_is_validated() {
+        let too_large = Http3Config {
+            max_idle_timeout: Duration::from_millis(QUIC_VARINT_MAX + 1),
+            ..Default::default()
+        };
+        let error = too_large.validate().unwrap_err().to_string();
+        assert!(error.contains("http3.max_idle_timeout"), "{error}");
+
+        let at_limit = Http3Config {
+            max_idle_timeout: Duration::from_millis(QUIC_VARINT_MAX),
+            ..Default::default()
+        };
+        assert!(at_limit.validate().is_ok());
     }
 }

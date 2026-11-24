@@ -66,6 +66,15 @@ through `load_tls_config_with_http2` to `http_alpn_protocols(http2)` (offers
 non-HTTP transports advertise their own identifiers (empty means no ALPN);
 an explicit override wins over the `http2(bool)` convenience (last call wins).
 
+Every configuration is built with the ring provider explicitly
+(`crypto_provider()` in `crates/eggnet-tls/src/lib.rs`), never through
+rustls's process-default selection. A consumer graph that also enables
+`aws-lc-rs` therefore cannot make construction panic, and key validation uses
+the same provider as the handshake configuration. EggServe's compatibility
+runtime separately validates that a static configuration or a reload snapshot
+does not advertise `h2` when its own HTTP/2 capability is disabled or absent,
+both at build/start and when the server handle performs the reload swap.
+
 Bounded inputs (`crates/eggnet-tls/src/lib.rs`):
 
 | Bound | Value | Source |
