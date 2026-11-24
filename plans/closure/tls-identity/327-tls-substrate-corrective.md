@@ -1,10 +1,10 @@
-# TLS Identity Milestone 321 - Closure Status
+# TLS Identity Milestone 327 - Closure Status
 
 Status: closed
 
 Source implementation plan:
 
-- `plans/implementation/tls-identity/321-tls-substrate-corrective.md`
+- `plans/implementation/tls-identity/327-tls-substrate-corrective.md`
 
 Source subsystem roadmap:
 
@@ -20,7 +20,7 @@ Implementation commits or pull requests:
 
 The five reviewed TLS seam defects are corrected and each has a regression test that fails on the pre-fix behavior: provider-explicit construction, ALPN/HTTP2 coherence validation, the documented header/TLS timeout coupling, the order-independent SNI identity ceiling, and typed H3 QUIC transport-bound errors. Every milestone-owned lane passes, including the Python crate check and clippy, the 1.89 MSRV check, and the H3 feature lanes.
 
-The broad wrapper `./scripts/verify.sh fast` does not complete on this macOS host because of two pre-existing failures in untouched crates (details in section 10); the equivalent remaining lanes were run directly and are recorded below.
+The broad wrapper `./scripts/verify.sh fast` did not complete on this macOS host at the original baseline because of two pre-existing failures in untouched crates (details in section 10); the equivalent remaining lanes were run directly and are recorded below. After the merge with main, Plan 323's canonicalization fix cleared the `eggserve-static` one; only the platform-specific `eggserve-server` test still fails locally.
 
 ## 2. Requirement-to-evidence matrix
 
@@ -100,7 +100,7 @@ cargo test --workspace     # stopped on a pre-existing macOS-only test
 ## 6. Failure and recovery review
 
 - Static configuration contradictions fail at `RuntimeConfig::validate` (called by `ServerBuilder::build` and `Server::start`).
-- A reload that introduces an `h2` advertisement on an HTTP/2-disabled runtime is rejected by the per-connection `validate()` call, so connections fail closed; established sessions are untouched. **Correction (milestone 322):** an h2-negotiating client does not reach that validator, because `accept_tls` drops the connection first; the swap-time guard in milestone 322 is the enforcement point.
+- A reload that introduces an `h2` advertisement on an HTTP/2-disabled runtime is rejected by the per-connection `validate()` call, so connections fail closed; established sessions are untouched. **Correction (milestone 328):** an h2-negotiating client does not reach that validator, because `accept_tls` drops the connection first; the swap-time guard in milestone 328 is the enforcement point.
 - Provider selection is stateless and deterministic; no new lock or shared state.
 - The identity-cap change does not alter handshake or reload behavior.
 
@@ -127,15 +127,15 @@ Updated `docs/tls.md`, `docs/security-policy.md`, `docs/deployment.md`, `docs/cl
 | Severity | Finding | Impact | Required action |
 |---|---|---|---|
 | medium | `eggserve-server` test `app_bounded_body_accepts_and_over_limit_rejects` fails on this macOS host with `ConnectionReset` at the client `read_to_end` (line 205) | `./scripts/verify.sh fast` cannot complete locally | Fix separately in `direct-h1-runtime`: tolerate the reset or assert the 413 on a platform-stable read path. Untouched by this milestone and reproduces alone. |
-| low | `eggserve-static` test `resolve_child_directory_retains_canonical_path` fails because macOS resolves `/var` to `/private/var` | `cargo test --workspace` cannot be green locally | Fix separately in `static-confinement` by comparing canonicalized temp paths. Untouched by this milestone. |
+| low | `eggserve-static` test `resolve_child_directory_retains_canonical_path` fails because macOS resolves `/var` to `/private/var` | `cargo test --workspace` could not be green locally at the original baseline | **Resolved upstream:** main's Plan 323 fixed the canonicalization comparison before this branch merged; `cargo test --workspace` is now green locally. |
 | low | Two Plan 320 bind-parsing tests (`bind_and_port_separate_flags`, `bind_host_only_preserves_default_port`) lacked the `--public` acknowledgment required by the baseline gate | The CLI lib suite failed before this milestone's changes | Corrected here by adding `--public`; test intent is preserved. |
 
 ## 11. Roadmap disposition
 
-Milestone 321 is closed; no hard dependency blocks the next TLS identity or H2/H3 milestone. The two platform-test findings are owned by their respective subsystem roadmaps.
+Milestone 327 is closed; no hard dependency blocks the next TLS identity or H2/H3 milestone. The remaining platform-test finding is owned by the `direct-h1-runtime` roadmap.
 
 ## 12. Registry updates
 
-- `plans/registry.md`: TLS identity milestone 321 marked closed with this record; next milestone number 322.
-- `plans/subsystems/tls-identity-roadmap.md`: milestone 321 marked closed.
-- `plans/implementation/tls-identity/321-tls-substrate-corrective.md`: status implemented.
+- `plans/registry.md`: TLS identity milestone 327 marked closed with this record; next milestone number 329.
+- `plans/subsystems/tls-identity-roadmap.md`: milestone 327 marked closed.
+- `plans/implementation/tls-identity/327-tls-substrate-corrective.md`: status implemented.

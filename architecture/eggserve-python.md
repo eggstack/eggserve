@@ -126,6 +126,14 @@ proxy, endpoint, lifecycle, and tunnel metadata retain their explicit eager
 conversion where the bridge needs stable Python-owned values. The bounded
 dedicated producer-thread design for synchronous stream iterables remains in
 place; redesigning that isolation is deferred pending a separate proof.
+Plan 322 bounds that design without changing the bridge: one
+`stream_producer_semaphore` beside the callback semaphore (capacity reuses
+`max_python_callbacks`, independent budget so a long download does not consume
+a callback slot) admits producer threads fail-fast with a sanitized 503; the
+owned permit moves into the thread and releases on every exit path; receiver
+closure is checked before every pull and in the empty-chunk branch. A Python
+`__next__` that blocks indefinitely remains an uninterruptible residual risk
+(the permit stays held until it returns).
 
 - Plans 246/252 keep the published stubs faithful to the runtime surface
   (`lowlevel.pyi` + `py.typed`; `AsyncRequest` dict headers, text `*_addr`

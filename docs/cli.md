@@ -20,7 +20,7 @@ eggserve [OPTIONS] [PORT] [DIRECTORY]
 | `--port PORT` | Port to listen on (blocks positional port override) | `8000` |
 | `PORT` | Positional port argument; a valid numeric token fills the unoccupied port slot | `8000` |
 | `DIRECTORY` | First positional token not consumed as PORT; once PORT is occupied, it is used verbatim, including numeric names | `.` (current directory) |
-| `--public` | Acknowledge public exposure intent (required for any non-loopback bind) | off |
+| `--public` | Acknowledge public exposure intent; required for any non-loopback bind, and does not change the bind address | off |
 | `--http3` | Enable experimental native HTTP/3/QUIC beside TCP; requires `--tls-cert` (and optionally `--tls-key`), binds same-port UDP, and advertises `Alt-Svc` | off |
 | `--tls-cert PATH` | PEM certificate chain; enables TLS (requires `tls` build) | none |
 | `--tls-key PATH` | PEM private key; defaults to `--tls-cert` when omitted; requires `--tls-cert` (requires `tls` build) | `--tls-cert` |
@@ -52,7 +52,9 @@ sets both host and port and cannot be combined with `--bind`. Default is
 `--header-timeout` must not exceed `--connection-total-timeout`.
 
 Binding to any non-loopback address (including `0.0.0.0`, `::`, or a LAN/unicast
-address) without `--public` is rejected with an error.
+address) without `--public` is rejected with an error. `--public` only
+acknowledges that bind; it does not select or change the address, so `--public`
+alone still binds `127.0.0.1:8000`.
 
 ### Security policies
 

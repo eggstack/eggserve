@@ -1,4 +1,4 @@
-# Plan 320 — Public-bind acknowledgment hardening
+# Plan 326 — Public-bind acknowledgment hardening
 
 Status: closed
 
@@ -44,7 +44,7 @@ address is itself the acknowledgment.
    `architecture/eggserve-bin.md`, `architecture/policy-system.md` —
    describe acknowledgment for any non-loopback bind; correct the false
    “`--public` alone binds 0.0.0.0” claim.
-4. Register milestone 320 on the CLI roadmap + `plans/registry.md`.
+4. Register milestone 326 on the CLI roadmap + `plans/registry.md`.
 
 ## Verification
 

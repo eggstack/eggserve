@@ -37,6 +37,18 @@ entry point; PyPy and free-threaded CPython are not supported.
 | `eggserve-core` crate | Rust compatibility/composition umbrella over the direct primitives, runtime, static-serving, TLS, and optional protocol adapters | crates.io (planned) |
 | Python wheel `eggserve` | Python package containing the native extension, CLI entry point, and Rust primitives | PyPI (planned) |
 
+### Release manifest provenance
+
+The aggregated release artifact set includes a `MANIFEST` produced by the
+release workflow itself: source SHA, version, wheel-matrix digest, and one
+SHA-256 digest per wheel. Those digests are **integrity-comparison data, not
+independently signed provenance**: they are generated in the same workflow run
+that uploads the wheels, so a compromise of that run could produce a matching
+manifest. Do not treat the `MANIFEST` as an independent attestation. Adding
+SLSA/provenance attestation is a separate milestone (it needs `id-token` and
+`attestations` permissions plus verification steps); this contract only
+records the limitation of the current manifest.
+
 ### Feature Gates
 
 | Feature | Default | Enables |
@@ -222,6 +234,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 ### Safe Defaults (enforced at library level)
 
 - Loopback bind (`127.0.0.1`) by default; any non-loopback bind requires `--public`
+  acknowledgment (the flag does not change the bind address)
 - Symlinks denied unless `--follow-symlinks` is passed
 - Dotfiles denied unless `--allow-dotfiles` is passed
 - Directory listing disabled unless `--directory-listing` is passed

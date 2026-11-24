@@ -17,6 +17,12 @@ command -v cargo-deny >/dev/null 2>&1 || {
     exit 1
 }
 
+# Plan 320: the offline floor guard runs before the network audits so a
+# known-vulnerable resolved version fails even when the advisory database or
+# registry is unreachable. `cargo audit` remains the advisory authority.
+echo "== offline advisory floor guard =="
+python3 "$SCRIPT_DIR/check-advisory-floors.py"
+
 echo "== root dependency advisory audit =="
 (cd "$REPO_ROOT" && cargo audit --file Cargo.lock)
 
@@ -27,4 +33,4 @@ echo "== Python wheel dependency advisory audit =="
 (cd "$REPO_ROOT" && cargo audit --file crates/eggserve-python/Cargo.lock)
 
 echo "== Python wheel dependency policy check =="
-(cd "$PYTHON_CRATE" && cargo deny check --config ../../deny.toml)
+(cd "$PYTHON_CRATE" && cargo deny --config ../../deny.toml check)

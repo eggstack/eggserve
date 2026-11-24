@@ -828,6 +828,34 @@ Neither milestone changes observable behavior.
   (`check_plan318_rustls_floor`) that fails when any constraining manifest,
   including the excluded Python crate, declares a lower floor.
 
+## Plan 321: forwarded-metadata trust follows the transport (security correction)
+
+`trusted_proxy.trust_unix` previously meant "any connection with no socket
+peer address is trusted", which included caller-owned byte streams driven
+through `serve_http1_connection` / `serve_http_connection`. It now means what
+its documentation always said: a runtime-owned Unix-domain listener is
+trusted for `Forwarded` / `X-Forwarded-*` metadata. The trust decision uses an
+internal transport kind recorded by the accepting owner.
+
+| Transport | `trust_unix = true` | Behavior |
+|---|---|---|
+| Runtime-owned Unix listener (direct or compatibility accept loop, including systemd-adopted listeners) | yes | trusted (unchanged) |
+| Runtime-owned TCP/TLS/QUIC listener | yes | peer/CIDR policy only (unchanged) |
+| Caller-owned stream via any public driver, including `ConnectionContext::for_unix()` | yes | **ignored** (corrected) |
+
+**Migration.** An embedder that relied on `trust_unix` to adopt forwarding
+metadata on a caller-owned stream loses that implicit trust. This is a
+security correction: the runtime did not accept that peer and cannot know who
+is on the other end. There is no replacement implicit opt-in. If the outer
+transport genuinely controls the peer, terminate the forwarding metadata
+there, or expose the trusted identity through your own service state. Raw
+peers, canonical `Host`, and the request target were never rewritten and are
+unchanged.
+
+The Python facade's `trust_unix_local` passes through to the same native
+policy; runtimes that own a Unix listener keep working, and no Python
+signature changed.
+
 ## Breaking Change Policy
 
 Patch releases preserve stable source compatibility. Before 1.0, intentional

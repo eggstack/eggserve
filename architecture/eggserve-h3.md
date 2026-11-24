@@ -34,6 +34,12 @@ Rules:
   -0349) here as in every constraining manifest. Reusable PEM parsing stays in
   `eggnet-tls`; QUIC TLS assembly (TLS 1.3, `h3` ALPN, zero 0-RTT) stays
   here in `quic.rs`.
+- Quinn's resolved line carries the advisory floors (Plan 320):
+  `quinn-proto >= 0.11.19` (RUSTSEC-2026-0523, -0524) and
+  `quinn-udp >= 0.5.16` (RUSTSEC-2026-0538). Both are transitive through the
+  frozen `quinn 0.11.11` / `h3-quinn 0.0.10` pair, so the patch bumps do not
+  move the H3 protocol crates. This is a security floor, not a tier change:
+  H3 remains experimental with the evidence boundary recorded below.
 
 ## Module inventory
 

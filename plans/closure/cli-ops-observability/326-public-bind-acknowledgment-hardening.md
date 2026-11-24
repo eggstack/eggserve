@@ -1,8 +1,8 @@
-# Closure — Plan 320 public-bind acknowledgment hardening
+# Closure — Plan 326 public-bind acknowledgment hardening
 
 Status: closed
 
-Implementation: `plans/implementation/cli-ops-observability/320-public-bind-acknowledgment-hardening.md`
+Implementation: `plans/implementation/cli-ops-observability/326-public-bind-acknowledgment-hardening.md`
 
 ## What landed
 
@@ -37,4 +37,4 @@ PYTHONPATH=python:tests python3 -m unittest \
 ## Residuals
 
 None for this gate. Accepted filesystem/protocol residuals from the security
-audit are unchanged and out of scope for 320.
+audit are unchanged and out of scope for 326.

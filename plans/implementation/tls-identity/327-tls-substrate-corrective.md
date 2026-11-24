@@ -1,4 +1,4 @@
-# TLS Identity Milestone 321 - TLS substrate corrective
+# TLS Identity Milestone 327 - TLS substrate corrective
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Repository baseline: `26649bd` (branch `plan-320-public-bind-acknowledgment-hard
 
 Source roadmap:
 
-- `plans/subsystems/tls-identity-roadmap.md#7` (Milestone 321)
+- `plans/subsystems/tls-identity-roadmap.md#7` (Milestone 327)
 
 Long-term requirements:
 
@@ -139,7 +139,7 @@ Acceptance evidence: unit tests for each field; the error message does not say p
 
 ## 8. Failure, cancellation, restart, and contention semantics
 
-Static validation fails `Server::build`/`start`. A reload that introduces an h2 advertisement on an H2-disabled runtime is rejected on the next connection validation (fail closed); established connections are unaffected. **Correction (milestone 322):** the TLS accept path rejects the h2 negotiation before the per-connection validator runs, so 322 enforces the check at `ServerHandle`'s reload swap. Provider selection is deterministic and stateless, so concurrent construction and reload are unchanged. The identity-cap change does not alter handshake behavior.
+Static validation fails `Server::build`/`start`. A reload that introduces an h2 advertisement on an H2-disabled runtime is rejected on the next connection validation (fail closed); established connections are unaffected. **Correction (milestone 328):** the TLS accept path rejects the h2 negotiation before the per-connection validator runs, so 328 enforces the check at `ServerHandle`'s reload swap. Provider selection is deterministic and stateless, so concurrent construction and reload are unchanged. The identity-cap change does not alter handshake behavior.
 
 ## 9. Compatibility and migration
 

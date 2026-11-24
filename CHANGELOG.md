@@ -1,28 +1,88 @@
 # Changelog
 
-## Unreleased
+## Unreleased — post-audit maintenance (Plans 320–328)
 
-- **TLS configuration is provider-deterministic.** `eggnet-tls` and the H3
-  QUIC assembler build every rustls configuration with the ring provider
-  explicitly instead of the process default. A consumer graph that also
-  enables `aws-lc-rs` no longer panics on a valid certificate pair, and the
-  Python wheel no longer installs a process-global provider as a workaround.
-- **ALPN/runtime coherence is validated.** A static TLS configuration or
-  reload snapshot that advertises `h2` while the runtime has HTTP/2 disabled
-  (or was built without the `http2` feature) is rejected at build/start, and a
-  running server rejects it at the reload swap (`ServerHandle::replace_tls_*`)
-  with the previous identity left live, instead of completing the handshake and
-  dropping the connection.
-- **`--header-timeout` now bounds TLS handshakes.** The CLI maps the flag to
-  both `header_read_timeout` and `tls_handshake_timeout`, matching the
+No version has been published from this work; the Rust line stays on `0.5.x`
+and the wheel on `0.2.5` until a maintainer chooses a release.
+
+- **Compatible dependency refresh (Plan 325).** The root, Python-wheel, and
+  fuzz lockfiles now resolve the newest semver-compatible dependency set
+  available at implementation time, with shared packages aligned. The pinned
+  audit tools are `cargo-audit 0.23.0` and `cargo-deny 0.21.0`; the Python
+  policy invocation follows cargo-deny's global `--config` option. No manifest
+  requirement, public API, capability, behavior, or support tier changed, and
+  no release or version bump is included.
+- **Advisory floors (Plan 320).** The lockfiles resolve `quinn-proto 0.11.19`
+  (RUSTSEC-2026-0523, -0524), `quinn-udp 0.5.16` (RUSTSEC-2026-0538),
+  `rustix 1.1.6` (RUSTSEC-2026-0486), and `tokio 1.53.3`
+  (RUSTSEC-2026-0386). No dependency was added or removed and the H3
+  protocol crates did not move. `scripts/check-advisory-floors.py` is a new
+  offline guard (with `--self-test`) wired into `scripts/check-supply-chain.sh`
+  and `scripts/verify.sh fast`. H3 remains experimental.
+- **Forwarded-metadata trust (Plan 321).** `trusted_proxy.trust_unix` now
+  applies only to runtime-owned Unix-domain listeners. A caller-owned peerless
+  stream — including one driven with `ConnectionContext::for_unix()` through a
+  public connection API — never inherits that trust, because the runtime did
+  not accept its peer. TCP/TLS/QUIC peer policy, PROXY preambles, raw peers,
+  canonical `Host`, and the request target are unchanged. This is a security
+  correction for embedders that relied on the broader behavior; see the
+  migration guide.
+- **Bounded Python stream producers (Plan 322).** `Response.stream` producer
+  threads observe receiver closure before every pull and in the empty-chunk
+  branch, and each holds one admission permit for its lifetime. Capacity
+  reuses `max_python_callbacks` (default 8) but is independent of the callback
+  budget; exhaustion is a sanitized 503 before response start. A Python
+  `__next__` that blocks indefinitely still cannot be interrupted.
+- **Operator and repository hygiene (Plan 323).** `--public` documentation now
+  matches the fail-safe CLI (it acknowledged a wildcard bind and did not
+  change the address; Plan 326 later widened the requirement to any
+  non-loopback address). `cargo audit` policy moved to `.cargo/audit.toml` (the
+  dead root `audit.toml` is gone) and `deny.toml` remains the cargo-deny
+  policy. `eggserve-core` no longer enables the unused `tokio/signal` feature in its
+  production graph; the six core examples keep a dev-only signal feature.
+  `.gitignore` gains credential patterns with a fixture negation. Release
+  container images are digest-pinned and `docs/action-pinning.md` matches the
+  actual action inventory. The corrupted `docs/threat-model.md` opening
+  paragraph is restored. The macOS-only static canonicalization test now
+  passes. The release `MANIFEST` is documented as integrity data, not signed
+  provenance.
+- **Runtime/TLS hardening (Plan 324).** `ServerBuilder` adopts each systemd
+  descriptor at most once (a duplicate index or name fails before the fd is
+  borrowed). Ambiguous request framing closes the connection in both
+  pipelines. Identity certificate/key PEM input is bounded to 1 MiB before
+  parsing, for in-memory and file-path loads. No TLS identity/trust/auth
+  semantics changed.
+- **Public-bind acknowledgment tightening (Plan 326).** Any resolved
+  non-loopback address — wildcard, LAN, or routable — now requires `--public`
+  on the CLI and `public=True` through the Python lowlevel surface. The flag
+  remains acknowledgment-only: it does not select or change the bind address,
+  and `--public` alone still binds loopback.
+- **TLS configuration is provider-deterministic (Plan 327).** `eggnet-tls` and
+  the H3 QUIC assembler build every rustls configuration with the ring
+  provider explicitly instead of the process default. A consumer graph that
+  also enables `aws-lc-rs` no longer panics on a valid certificate pair, and
+  the Python wheel no longer installs a process-global provider as a
+  workaround.
+- **TLS ALPN is validated against the runtime (Plan 327).** A static
+  configuration that advertises `h2` while HTTP/2 is disabled (or the build
+  lacks the `http2` feature) is rejected at build/start instead of completing
+  the handshake and dropping the connection. Plan 328 extends the same check
+  to the reload swap.
+- **`--header-timeout` now bounds TLS handshakes (Plan 327).** The CLI maps the
+  flag to both `header_read_timeout` and `tls_handshake_timeout`, matching the
   published security policy instead of leaving the handshake at a fixed 10s.
-- **The SNI identity ceiling is order-independent.** The optional default
-  identity no longer counts toward `MAX_TLS_IDENTITIES`, so 64 named
+- **The SNI identity ceiling is order-independent (Plan 327).** The optional
+  default identity no longer counts toward `MAX_TLS_IDENTITIES`, so 64 named
   identities are accepted whether the default is configured first or last.
-- **H3 QUIC bounds are validated and typed.** Out-of-range receive windows
-  and idle timeouts are rejected by `Http3Config::validate` with the field
-  named, and transport configuration failures no longer surface as
+- **H3 QUIC bounds are validated and typed (Plan 327).** Out-of-range receive
+  windows and idle timeouts are rejected by `Http3Config::validate` with the
+  field named, and transport configuration failures no longer surface as
   `invalid private key`.
+- **Reload ALPN coherence is enforced at the swap (Plan 328).**
+  `ServerHandle::replace_tls_config` / `replace_tls_server_config` reject an
+  `h2`-advertising snapshot when the runtime cannot serve HTTP/2, before it
+  becomes live, so the previous identity stays in service instead of every h2
+  client completing a handshake and being dropped.
 
 ## 0.5.1 — `eggserve-static` patch (published 2026-10-23)
 

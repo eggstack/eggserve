@@ -345,6 +345,7 @@ impl Server {
                                         state,
                                         &token,
                                         conn_id,
+                                        connection::PeerTransport::Socket,
                                     );
                                     let watch = async {
                                         relay_shutdown.cancelled().await;

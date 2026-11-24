@@ -7,6 +7,7 @@
 //! native consumer access, and unchanged compatibility behavior.
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
@@ -17,6 +18,7 @@ use eggserve_core::primitives::proxy::{
     IpPrefix, ProxySourceKind, TrustedProxyConfig, PROXY_V1_MAX_BYTES, PROXY_V2_MAX_LEN,
     PROXY_V2_SIGNATURE,
 };
+use eggserve_core::server::connection::ConnectionContext;
 use eggserve_core::server::{service_fn, Request, RuntimeConfig, Server};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -974,4 +976,118 @@ fn eggserve_performs_no_reverse_proxying() {
     assert!(!source.contains("proxy_client"));
     assert!(!source.contains("upstream"));
     assert!(!source.contains("forward_request"));
+}
+
+// ---------------------------------------------------------------------------
+// Plan 321: transport-kind trust boundary
+// ---------------------------------------------------------------------------
+
+fn forwarded_trust_config(trust_unix: bool) -> RuntimeConfig {
+    let mut config = RuntimeConfig::default();
+    config.trusted_proxy.trust_unix = trust_unix;
+    config.trusted_proxy.forwarded.standard_enabled = true;
+    config.trusted_proxy.forwarded.legacy_enabled = true;
+    config
+}
+
+#[cfg(unix)]
+async fn unix_listener_request(trust_unix: bool) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("trusted-proxy.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let server = Server::builder()
+        .runtime(forwarded_trust_config(trust_unix))
+        .from_unix_listener(listener)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(echo_service()).await.unwrap();
+    handle.ready().await.unwrap();
+
+    let mut client = tokio::net::UnixStream::connect(&path).await.unwrap();
+    client
+        .write_all(
+            b"GET / HTTP/1.1\r\nHost: localhost\r\n\
+              Forwarded: for=203.0.113.9\r\nConnection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+    let mut buf = Vec::new();
+    client.read_to_end(&mut buf).await.unwrap();
+
+    handle.shutdown();
+    handle.wait().await.unwrap();
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_listener_with_trust_unix_adopts_forwarded_metadata() {
+    let response = unix_listener_request(true).await;
+    assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+    assert!(
+        response.contains("effective=203.0.113.9"),
+        "runtime-owned Unix listener must adopt trusted Forwarded metadata: {response}"
+    );
+    // Raw canonical data is untouched.
+    assert!(response.contains("canonical=localhost"), "{response}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_listener_without_trust_unix_ignores_forwarded_metadata() {
+    let response = unix_listener_request(false).await;
+    assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+    assert!(
+        response.contains("effective=none"),
+        "trust_unix disabled must ignore Forwarded metadata: {response}"
+    );
+    assert!(response.contains("canonical=localhost"), "{response}");
+}
+
+#[tokio::test]
+async fn compat_caller_owned_stream_ignores_trust_unix() {
+    use eggserve_core::server::connection::{
+        serve_http1_connection, ConnectionShutdown as CompatConnectionShutdown,
+    };
+    use eggserve_core::server::RuntimeState;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let config = Arc::new(forwarded_trust_config(true));
+    let runtime_state = Arc::new(RuntimeState::new(&config));
+    let (mut client, server) = tokio::io::duplex(64 * 1024);
+    let shutdown = CompatConnectionShutdown::new();
+    let context = ConnectionContext::for_non_socket(Scheme::Http, None);
+    let driver = tokio::spawn(async move {
+        serve_http1_connection(
+            server,
+            echo_service(),
+            config,
+            context,
+            runtime_state,
+            &shutdown,
+        )
+        .await
+    });
+
+    client
+        .write_all(
+            b"GET / HTTP/1.1\r\nHost: localhost\r\n\
+              Forwarded: for=203.0.113.9;proto=https;host=public.example\r\n\
+              Connection: close\r\n\r\n",
+        )
+        .await
+        .unwrap();
+    let mut buf = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut buf)).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), driver).await;
+
+    let response = String::from_utf8_lossy(&buf);
+    assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+    assert!(
+        response.contains("effective=none"),
+        "caller-owned stream must not inherit trust_unix: {response}"
+    );
+    assert!(response.contains("canonical=localhost"), "{response}");
 }

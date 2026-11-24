@@ -201,8 +201,9 @@ eggserve --public --addr 0.0.0.0:8000 --directory public
 ```
 
 `--public` is required for any non-loopback bind (wildcard or unicast). It does
-not expand a loopback default by itself. When binding publicly, consider using a
-reverse proxy for TLS termination and access control.
+not change or select the bind address: `--public` alone keeps the loopback
+default. When binding publicly, consider using a reverse proxy for TLS
+termination and access control.
 
 ## Combining patterns
 

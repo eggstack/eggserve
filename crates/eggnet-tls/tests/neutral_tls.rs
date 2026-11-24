@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use eggnet_tls::{
-    http_alpn_protocols, load_tls_config_with_alpn, parse_crls_pem, parse_identity_pem,
-    parse_trust_roots_pem, ClientAuthMode, TlsError, TlsReloadHandle, TlsServerConfig,
-    MAX_ALPN_PROTOCOLS, MAX_ALPN_PROTOCOL_LEN, MAX_IDENTITY_CHAIN, MAX_TLS_IDENTITIES,
-    MAX_TRUST_PEM_BYTES, MAX_TRUST_ROOTS,
+    http_alpn_protocols, load_identity, load_tls_config_with_alpn, parse_crls_pem,
+    parse_identity_pem, parse_trust_roots_pem, ClientAuthMode, TlsError, TlsReloadHandle,
+    TlsServerConfig, MAX_ALPN_PROTOCOLS, MAX_ALPN_PROTOCOL_LEN, MAX_IDENTITY_CHAIN,
+    MAX_IDENTITY_PEM_BYTES, MAX_TLS_IDENTITIES, MAX_TRUST_PEM_BYTES, MAX_TRUST_ROOTS,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
 use rustls_pki_types::pem::PemObject;
@@ -390,4 +390,78 @@ fn identity_ceiling_excludes_the_optional_default() {
         ),
         Err(TlsError::TooManyIdentities)
     ));
+}
+
+/// Plan 324: identity PEM input is bounded before parsing, and a valid
+/// identity at the ceiling still parses.
+#[test]
+fn identity_pem_size_bound_is_enforced_before_parsing() {
+    use std::io::Write;
+
+    init_tls();
+    let key_pair = rcgen::KeyPair::generate().expect("key pair");
+    let params =
+        rcgen::CertificateParams::new(vec!["bounded.test".to_owned()]).expect("certificate params");
+    let cert = params.self_signed(&key_pair).expect("certificate");
+    let cert_pem = cert.pem();
+    let key_pem = key_pair.serialize_pem();
+
+    // One byte over the ceiling: rejected before the PEM readers run.
+    let mut oversized_cert = cert_pem.clone();
+    oversized_cert.push_str(&"\n".repeat(MAX_IDENTITY_PEM_BYTES + 1 - oversized_cert.len()));
+    assert_eq!(oversized_cert.len(), MAX_IDENTITY_PEM_BYTES + 1);
+    assert!(matches!(
+        parse_identity_pem(oversized_cert.as_bytes(), key_pem.as_bytes()),
+        Err(TlsError::CertReadError(_))
+    ));
+
+    let mut oversized_key = key_pem.clone();
+    oversized_key.push_str(&"\n".repeat(MAX_IDENTITY_PEM_BYTES + 1 - oversized_key.len()));
+    assert!(matches!(
+        parse_identity_pem(cert_pem.as_bytes(), oversized_key.as_bytes()),
+        Err(TlsError::KeyReadError(_))
+    ));
+
+    // Exactly at the ceiling: padding is ignored by the PEM reader and the
+    // identity still parses and pairs.
+    let mut at_ceiling = cert_pem.clone();
+    at_ceiling.push_str(&"\n".repeat(MAX_IDENTITY_PEM_BYTES - at_ceiling.len()));
+    assert_eq!(at_ceiling.len(), MAX_IDENTITY_PEM_BYTES);
+    let parsed = parse_identity_pem(at_ceiling.as_bytes(), key_pem.as_bytes())
+        .expect("identity at the ceiling must parse");
+    assert_eq!(parsed.0.len(), 1);
+
+    // File path: the same ceiling applies without relying on metadata.
+    let dir =
+        std::env::temp_dir().join(format!("eggnet-tls-identity-bound-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let cert_path = dir.join("cert.pem");
+    let key_path = dir.join("key.pem");
+    let write = |path: &std::path::Path, contents: &str| {
+        let mut file = std::fs::File::create(path).expect("create fixture");
+        file.write_all(contents.as_bytes()).expect("write fixture");
+    };
+
+    write(&cert_path, &cert_pem);
+    write(&key_path, &key_pem);
+    let loaded = load_identity(&cert_path, &key_path).expect("normal identity loads");
+    assert_eq!(loaded.0.len(), 1);
+
+    write(&cert_path, &oversized_cert);
+    assert!(matches!(
+        load_identity(&cert_path, &key_path),
+        Err(TlsError::CertReadError(_))
+    ));
+
+    write(&cert_path, &cert_pem);
+    write(&key_path, &oversized_key);
+    assert!(matches!(
+        load_identity(&cert_path, &key_path),
+        Err(TlsError::KeyReadError(_))
+    ));
+
+    write(&key_path, &key_pem);
+    assert!(load_identity(&cert_path, &key_path).is_ok());
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

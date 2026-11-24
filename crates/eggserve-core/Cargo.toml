@@ -62,7 +62,10 @@ httpdate = { workspace = true }
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio", "server", "http1"] }
 thiserror = "2"
-tokio = { workspace = true, features = ["macros", "net", "signal", "time", "fs", "io-util", "sync"] }
+# Plan 323: `signal` is intentionally absent. Only `eggserve-bin` installs
+# signal handlers (`shutdown.rs`); the library runtime consumes a shutdown
+# token and must not pull the signal driver into embedders that never use it.
+tokio = { workspace = true, features = ["macros", "net", "time", "fs", "io-util", "sync"] }
 
 # TLS dependencies (feature-gated)
 # The rustls security floor (Plan 218, RUSTSEC-2026-0285) is declared once in
@@ -86,7 +89,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = { workspace = true }
 rcgen = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+# Plan 323: examples own their Ctrl-C handling (`tokio::signal::ctrl_c`).
+# This is dev-only, so the production core graph stays signal-free while
+# `--all-targets` still compiles the examples.
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
 rustls-pki-types = { workspace = true }
 tokio-rustls = { workspace = true, default-features = true }
 # Plan 199 Track I: dev-only WebSocket interop fixture proving the generic

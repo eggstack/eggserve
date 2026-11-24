@@ -69,7 +69,7 @@ A capability review at baseline `26649bd` found five defects at the seams:
 4. The SNI identity cap counts the optional default identity and is enforced in one builder method only, making the documented ceiling order-dependent.
 5. H3 QUIC window/idle-timeout bounds are not validated to the QUIC VarInt range and are reported through `TlsError::InvalidKey`, misdiagnosing transport configuration as certificate material.
 
-The follow-up security review of 321 found one more seam: a running server's reload swap accepted an h2 advertisement while HTTP/2 was disabled, and the accept loop then completed every h2 client's handshake before dropping it. Milestone 322 enforces the coherence check at the swap.
+The follow-up security review of 327 found one more seam: a running server's reload swap accepted an h2 advertisement while HTTP/2 was disabled, and the accept loop then completed every h2 client's handshake before dropping it. Milestone 328 enforces the coherence check at the swap.
 
 ## 5. Target architecture
 
@@ -77,18 +77,18 @@ Every rustls server configuration is built with an explicit `Arc<CryptoProvider>
 
 ## 6. Dependency graph
 
-    Milestone 321 TLS substrate corrective (closed)
+    Milestone 327 TLS substrate corrective (closed)
         |
-        +--> Milestone 322 reload ALPN coherence (closed)
+        +--> Milestone 328 reload ALPN coherence (closed)
         |
         +--> future SNI/mTLS capability milestones (soft)
         `--> H2/H3 transport milestones (soft; ALPN coherence shared)
 
-Milestone 321 has no hard dependency; milestone 322 takes 321's shared ALPN predicate as an interface dependency and is closed.
+Milestone 327 has no hard dependency; milestone 328 takes 327's shared ALPN predicate as an interface dependency and is closed.
 
 ## 7. Milestones
 
-### Milestone 321 - TLS substrate corrective
+### Milestone 327 - TLS substrate corrective
 
 Class: invariant
 
@@ -100,23 +100,23 @@ Deliverable boundary: `eggnet-tls`, the core runtime validator, the CLI limit pr
 
 User or operator value: no process abort on valid credentials in multi-provider builds; no silent h2 connection drops from contradictory configuration; the documented handshake timeout actually applies; documented identity limits are order-independent; H3 transport misconfiguration is diagnosed correctly.
 
-Exit conditions: all acceptance criteria in `plans/implementation/tls-identity/321-tls-substrate-corrective.md` pass and the closure record is written.
+Exit conditions: all acceptance criteria in `plans/implementation/tls-identity/327-tls-substrate-corrective.md` pass and the closure record is written.
 
 Deferred work: H3 SNI metadata exposure; mTLS/SNI CLI flags; any tier promotion.
 
-### Milestone 322 - Reload ALPN coherence
+### Milestone 328 - Reload ALPN coherence
 
 Class: invariant
 
-Objective: enforce 321's ALPN/runtime coherence at the server handle's reload swap, so a running server never accepts an h2 advertisement it cannot serve.
+Objective: enforce 327's ALPN/runtime coherence at the server handle's reload swap, so a running server never accepts an h2 advertisement it cannot serve.
 
-Dependencies: 321 (interface: the shared ALPN predicate); the `eggserve-core` compatibility facade.
+Dependencies: 327 (interface: the shared ALPN predicate); the `eggserve-core` compatibility facade.
 
-Deliverable boundary: `ServerHandle` capability capture and swap guard, one regression test, docs, and the 321 correction note.
+Deliverable boundary: `ServerHandle` capability capture and swap guard, one regression test, docs, and the 327 correction note.
 
 User or operator value: a contradictory certificate rotation is rejected at the call site with the previous identity still live, instead of silently failing every h2 client after a completed handshake.
 
-Exit conditions: the acceptance criteria in `plans/implementation/tls-identity/322-reload-alpn-coherence.md` pass and this closure record is written.
+Exit conditions: the acceptance criteria in `plans/implementation/tls-identity/328-reload-alpn-coherence.md` pass and this closure record is written.
 
 Deferred work: making the neutral `TlsReloadHandle` runtime-aware; the raw accessor remains a documented bypass.
 
@@ -161,5 +161,5 @@ The subsystem is complete when configuration construction is provider-determinis
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| 321 | closed | `plans/implementation/tls-identity/321-tls-substrate-corrective.md` | `plans/closure/tls-identity/321-tls-substrate-corrective.md` | none |
-| 322 | closed | `plans/implementation/tls-identity/322-reload-alpn-coherence.md` | `plans/closure/tls-identity/322-reload-alpn-coherence.md` | none |
+| 327 | closed | `plans/implementation/tls-identity/327-tls-substrate-corrective.md` | `plans/closure/tls-identity/327-tls-substrate-corrective.md` | none |
+| 328 | closed | `plans/implementation/tls-identity/328-reload-alpn-coherence.md` | `plans/closure/tls-identity/328-reload-alpn-coherence.md` | none |

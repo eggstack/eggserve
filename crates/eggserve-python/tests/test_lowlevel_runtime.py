@@ -257,6 +257,119 @@ class StreamingResponseTests(unittest.TestCase):
             srv.shutdown()
             srv.wait()
 
+    def test_empty_iterator_stops_after_teardown(self):
+        """Plan 322: a b""-forever iterator must observe a dropped receiver.
+
+        The response makes no progress, so the write-progress deadline closes
+        the connection; the empty-yield branch is the only place that can
+        notice the closed channel (no send is ever attempted).
+        """
+        calls = []
+
+        def gen():
+            while True:
+                calls.append(1)
+                yield b""
+
+        def handler(req):
+            return lowlevel.Response.stream(200, gen())
+
+        cfg = lowlevel.RuntimeConfig(
+            port=0,
+            response_write_timeout_secs=1,
+            graceful_shutdown_timeout_secs=1,
+        )
+        srv = lowlevel.Server(config=cfg, handler=handler)
+        srv.start()
+        srv.wait_ready()
+        try:
+            host, port = srv.addr.split(":")
+            sock = socket.create_connection((host, int(port)), timeout=5)
+            try:
+                sock.sendall(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+                # Wait until the call count has stopped advancing for a
+                # sustained window. Fixed sleeps are flaky on a loaded host;
+                # the bounded poll proves stability without assuming timing.
+                deadline = time.time() + 10
+                last = -1
+                stable_since = None
+                while time.time() < deadline:
+                    current = len(calls)
+                    if current == last:
+                        stable_since = stable_since or time.time()
+                        if time.time() - stable_since >= 0.75:
+                            break
+                    else:
+                        stable_since = None
+                        last = current
+                    time.sleep(0.05)
+                else:
+                    self.fail(
+                        "empty-yield producer kept advancing after teardown"
+                    )
+                self.assertGreater(len(calls), 0, "producer never started")
+            finally:
+                sock.close()
+        finally:
+            srv.shutdown()
+            srv.wait()
+
+    def test_stream_producer_budget_rejects_with_503(self):
+        """Plan 322: producer threads are bounded; exhaustion is a 503."""
+        gate = threading.Event()
+        started = []
+
+        def gen():
+            started.append(1)
+            gate.wait(timeout=10)
+            yield b"x"
+
+        def handler(req):
+            return lowlevel.Response.stream(200, gen())
+
+        cfg = lowlevel.RuntimeConfig(port=0, max_python_callbacks=4)
+        srv = lowlevel.Server(config=cfg, handler=handler)
+        srv.start()
+        srv.wait_ready()
+        clients = []
+        try:
+            host, port = srv.addr.split(":")
+            for _ in range(4):
+                sock = socket.create_connection((host, int(port)), timeout=5)
+                sock.sendall(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+                clients.append(sock)
+
+            # Wait until every producer permit is held.
+            deadline = time.time() + 5
+            while time.time() < deadline and len(started) < 4:
+                time.sleep(0.02)
+            self.assertEqual(len(started), 4, "producers did not start")
+
+            status, body, _ = _raw(host, int(port), "GET", "/")
+            self.assertEqual(status, 503)
+            self.assertNotIn(b"Traceback", body)
+
+            # Release the blocked producers; the permit returns to the pool.
+            gate.set()
+            for sock in clients:
+                sock.close()
+            clients = []
+            deadline = time.time() + 5
+            recovered = False
+            while time.time() < deadline:
+                status, _, _ = _raw(host, int(port), "GET", "/")
+                if status == 200:
+                    recovered = True
+                    break
+                time.sleep(0.05)
+            self.assertTrue(recovered, "producer permits were not released")
+        finally:
+            gate.set()
+            for sock in clients:
+                sock.close()
+            srv.shutdown()
+            srv.wait()
+
     def test_known_length_mismatch_truncates(self):
         def handler(req):
             return lowlevel.Response.stream(200, [b"ab"], content_length=10)

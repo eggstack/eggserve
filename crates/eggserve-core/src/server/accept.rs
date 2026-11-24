@@ -13,7 +13,7 @@ use tokio::sync::broadcast;
 
 use super::runtime::RuntimeState;
 use crate::server::config::RuntimeConfig;
-use crate::server::connection::ConnectionShutdown;
+use crate::server::connection::{ConnectionShutdown, PeerTransport};
 use crate::server::errors::ShutdownResult;
 use crate::server::lifecycle::Lifecycle;
 use crate::server::service::{Service, ServiceError};
@@ -586,6 +586,7 @@ fn handle_tcp_accept<S: Service>(
                                         &conn_shutdown,
                                         conn_id,
                                         protocol,
+                                        PeerTransport::Socket,
                                     )
                                     .await;
                                 return;
@@ -620,6 +621,7 @@ fn handle_tcp_accept<S: Service>(
                         &conn_shutdown,
                         conn_id,
                         super::connection::driver::WireProtocol::Auto,
+                        PeerTransport::Socket,
                     )
                     .await;
                     return;
@@ -669,6 +671,7 @@ fn handle_tcp_accept<S: Service>(
                                 &conn_shutdown,
                                 conn_id,
                                 protocol,
+                                PeerTransport::Socket,
                             )
                             .await;
                             return;
@@ -694,6 +697,7 @@ fn handle_tcp_accept<S: Service>(
                 &conn_shutdown,
                 conn_id,
                 super::connection::driver::WireProtocol::Auto,
+                PeerTransport::Socket,
             )
             .await;
         };
@@ -788,6 +792,7 @@ fn handle_unix_accept<S: Service>(
                 &conn_shutdown,
                 conn_id,
                 super::connection::driver::WireProtocol::Auto,
+                PeerTransport::Unix,
             )
             .await;
         };

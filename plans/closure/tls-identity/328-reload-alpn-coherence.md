@@ -1,16 +1,16 @@
-# TLS Identity Milestone 322 - Closure Status
+# TLS Identity Milestone 328 - Closure Status
 
 Status: closed
 
 Source implementation plan:
 
-- `plans/implementation/tls-identity/322-reload-alpn-coherence.md`
+- `plans/implementation/tls-identity/328-reload-alpn-coherence.md`
 
 Source subsystem roadmap:
 
-- `plans/subsystems/tls-identity-roadmap.md#7` (Milestone 322)
+- `plans/subsystems/tls-identity-roadmap.md#7` (Milestone 328)
 
-Repository baseline reviewed: `26649bd` plus the milestone 321 working-tree changes (nothing committed by the agent)
+Repository baseline reviewed: `26649bd` plus the milestone 327 working-tree changes (nothing committed by the agent)
 
 Implementation commits or pull requests:
 
@@ -18,7 +18,7 @@ Implementation commits or pull requests:
 
 ## 1. Executive finding
 
-Milestone 321's ALPN/runtime guarantee is now enforced at the server-owned reload swap. A running server whose HTTP/2 capability is disabled rejects an h2-advertising TLS snapshot before it becomes live, so the accept loop no longer completes a handshake only to drop the connection for every h2-capable client. The regression test fails on the 321 behavior because `replace_tls_server_config` returned `Ok`.
+Milestone 327's ALPN/runtime guarantee is now enforced at the server-owned reload swap. A running server whose HTTP/2 capability is disabled rejects an h2-advertising TLS snapshot before it becomes live, so the accept loop no longer completes a handshake only to drop the connection for every h2-capable client. The regression test fails on the 327 behavior because `replace_tls_server_config` returned `Ok`.
 
 ## 2. Requirement-to-evidence matrix
 
@@ -78,7 +78,7 @@ python3 scripts/check-crate-topology.py
 
 ## 7. Migration and compatibility review
 
-- `replace_tls_config` can now return a configuration error for an input the 321 behavior accepted. The handle is experimental; this is a correctness fix with no signature change.
+- `replace_tls_config` can now return a configuration error for an input the 327 behavior accepted. The handle is experimental; this is a correctness fix with no signature change.
 - No public item is added or removed. The neutral `TlsReloadHandle` API is unchanged.
 - Operators replacing through `ServerHandle` get the guarantee; the raw-handle bypass is documented rather than removed.
 
@@ -93,7 +93,7 @@ python3 scripts/check-crate-topology.py
 - `docs/tls.md` states the build/start and swap-time behavior and the raw-handle bypass.
 - `architecture/eggnet-tls.md` includes the swap in the compatibility-runtime validation.
 - `CHANGELOG.md` Unreleased ALPN bullet covers the swap.
-- The 321 closure and implementation records carry a correction note pointing here.
+- The 327 closure and implementation records carry a correction note pointing here.
 
 ## 10. Unresolved findings
 
@@ -103,10 +103,10 @@ python3 scripts/check-crate-topology.py
 
 ## 11. Roadmap disposition
 
-Milestone 322 is closed. The TLS identity roadmap's completion definition now includes the reload swap. No hard dependency blocks the next TLS identity or H2/H3 milestone.
+Milestone 328 is closed. The TLS identity roadmap's completion definition now includes the reload swap. No hard dependency blocks the next TLS identity or H2/H3 milestone.
 
 ## 12. Registry updates
 
-- `plans/registry.md`: milestone 322 marked closed with this record; next milestone number 323.
-- `plans/subsystems/tls-identity-roadmap.md`: milestone 322 marked closed.
-- `plans/implementation/tls-identity/322-reload-alpn-coherence.md`: status implemented.
+- `plans/registry.md`: milestone 328 marked closed with this record; next milestone number 329.
+- `plans/subsystems/tls-identity-roadmap.md`: milestone 328 marked closed.
+- `plans/implementation/tls-identity/328-reload-alpn-coherence.md`: status implemented.

@@ -18,11 +18,11 @@ use eggserve_primitives::request_body_policy::RequestBodyPolicy;
 // (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
 // it. The bridge names the leaf directly. `StaticPolicy` stays
 // primitives-owned.
-use eggserve_primitives::policy::StaticPolicy;
 use eggserve_core::server::config::RuntimeConfig;
-use eggserve_server::errors::ShutdownResult;
 use eggserve_core::server::lifecycle::LifecycleState;
 use eggserve_core::server::{Server, ServerHandle};
+use eggserve_primitives::policy::StaticPolicy;
+use eggserve_server::errors::ShutdownResult;
 
 use super::static_responder::PyStaticPolicyWrapper;
 use super::sync_handler::PythonCallbackService;
@@ -48,9 +48,7 @@ pub(super) async fn wait_until_running(
     }
 
     // Wait for the readiness signal with a deadline.
-    let timed_out = tokio::time::timeout(timeout, handle.ready())
-        .await
-        .is_err();
+    let timed_out = tokio::time::timeout(timeout, handle.ready()).await.is_err();
 
     // Re-read the authoritative state regardless of timeout vs. signal.
     let state = handle.state();
@@ -71,7 +69,6 @@ pub(super) async fn wait_until_running(
         )))
     }
 }
-
 
 /// Dropping a started `Server` without calling `stop()` (or leaving the
 /// context manager) drops the native tokio runtime synchronously when the
@@ -275,7 +272,14 @@ impl PyServer {
                 }
                 let msg = violations
                     .iter()
-                    .map(|v| format!("{} must be {}: got {}", py_field(v.field), v.constraint, v.value))
+                    .map(|v| {
+                        format!(
+                            "{} must be {}: got {}",
+                            py_field(v.field),
+                            v.constraint,
+                            v.value
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("; ");
                 return Err(pyo3::exceptions::PyValueError::new_err(msg));
@@ -397,7 +401,9 @@ impl PyServer {
         let trusted_proxies = trusted_proxies.unwrap_or_default();
         for entry in &trusted_proxies {
             eggserve_primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
-                pyo3::exceptions::PyValueError::new_err(format!("invalid trusted_proxies entry: {e}"))
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "invalid trusted_proxies entry: {e}"
+                ))
             })?;
         }
 
@@ -487,7 +493,9 @@ impl PyServer {
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
             if handle_guard.is_some()
                 || runtime_guard.is_some()
-                || this.starting.swap(true, std::sync::atomic::Ordering::AcqRel)
+                || this
+                    .starting
+                    .swap(true, std::sync::atomic::Ordering::AcqRel)
             {
                 return Err(crate::LifecycleError::new_err("Server already started"));
             }
@@ -657,8 +665,7 @@ impl PyServer {
             eggserve_server::response_policy::DatePolicy::SystemClock
         });
         if !stripped_response_headers.is_empty() {
-            runtime_builder =
-                runtime_builder.stripped_response_headers(stripped_response_headers);
+            runtime_builder = runtime_builder.stripped_response_headers(stripped_response_headers);
         }
         runtime_builder = runtime_builder.error_policy(if error_empty {
             eggserve_primitives::policy::ErrorRepresentationPolicy::Empty
@@ -673,12 +680,11 @@ impl PyServer {
             use eggserve_primitives::proxy::TrustedProxyConfig;
             let mut proxy_config = TrustedProxyConfig::default();
             for entry in &trusted_proxies {
-                let prefix =
-                    eggserve_primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
-                        pyo3::exceptions::PyValueError::new_err(format!(
-                            "invalid trusted_proxies entry: {e}"
-                        ))
-                    })?;
+                let prefix = eggserve_primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "invalid trusted_proxies entry: {e}"
+                    ))
+                })?;
                 proxy_config.peers.push(prefix);
             }
             proxy_config.trust_unix = trust_unix_local;
@@ -708,6 +714,11 @@ impl PyServer {
                     let service = PythonCallbackService {
                         handler: Arc::new(std::sync::Mutex::new(Some(handler))),
                         callback_semaphore: Arc::new(Semaphore::new(max_python_callbacks)),
+                        // Plan 322: bounded stream-producer threads. Same
+                        // capacity as callbacks (no new knob) but an
+                        // independent budget, so a long download holds a
+                        // producer permit rather than a callback slot.
+                        stream_producer_semaphore: Arc::new(Semaphore::new(max_python_callbacks)),
                         body_policy,
                     };
                     let server = Server::builder()

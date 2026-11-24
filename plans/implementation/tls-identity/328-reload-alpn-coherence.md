@@ -1,12 +1,12 @@
-# TLS Identity Milestone 322 - Reload ALPN coherence
+# TLS Identity Milestone 328 - Reload ALPN coherence
 
 Status: implemented
 
-Repository baseline: `26649bd` plus the milestone 321 working-tree changes (branch `plan-320-public-bind-acknowledgment-hardening`; nothing committed by the agent)
+Repository baseline: `26649bd` plus the milestone 327 working-tree changes (branch `plan-320-public-bind-acknowledgment-hardening`; nothing committed by the agent)
 
 Source roadmap:
 
-- `plans/subsystems/tls-identity-roadmap.md#7` (Milestone 322)
+- `plans/subsystems/tls-identity-roadmap.md#7` (Milestone 328)
 
 Long-term requirements:
 
@@ -23,18 +23,18 @@ Primary class: invariant
 
 ## 1. Objective
 
-Make milestone 321's ALPN/runtime guarantee true at the server-owned reload swap: a running server must not accept a TLS snapshot that advertises `h2` when its runtime cannot serve HTTP/2.
+Make milestone 327's ALPN/runtime guarantee true at the server-owned reload swap: a running server must not accept a TLS snapshot that advertises `h2` when its runtime cannot serve HTTP/2.
 
 ## 2. Why this milestone is ready
 
-321 already added the shared h2 advertisement test and the build/start validation. A security review of that change found the remaining path: `ServerHandle::replace_tls_config` wrote the snapshot into the reload handle without any runtime-coherence check, and the per-connection validator the 321 records relied on is not reached for an h2-negotiating client. The fix is local to `eggserve-core` and needs no new dependency.
+327 already added the shared h2 advertisement test and the build/start validation. A security review of that change found the remaining path: `ServerHandle::replace_tls_config` wrote the snapshot into the reload handle without any runtime-coherence check, and the per-connection validator the 327 records relied on is not reached for an h2-negotiating client. The fix is local to `eggserve-core` and needs no new dependency.
 
 ## 3. Current implementation evidence
 
 - `crates/eggserve-core/src/server/handle.rs`: `replace_tls_config` wrote the snapshot through `TlsReloadHandle::replace` with no capability check.
 - `crates/eggserve-core/src/server/accept.rs`: `accept_tls` completes the handshake and returns `None` when the negotiated ALPN is `h2` and `h2_enabled` is false, before the HTTP driver runs.
 - `crates/eggserve-core/src/server/connection/mod.rs`: the per-connection `config.validate()` lives inside `serve_http_connection_with_id_and_protocol`, so an h2-negotiating client never reaches it.
-- `plans/closure/tls-identity/321-tls-substrate-corrective.md`: section 6 claimed the per-connection validator caught a contradictory reload; that holds only for clients that negotiate `http/1.1`.
+- `plans/closure/tls-identity/327-tls-substrate-corrective.md`: section 6 claimed the per-connection validator caught a contradictory reload; that holds only for clients that negotiate `http/1.1`.
 
 ## 4. Invariants that must not regress
 
@@ -88,7 +88,7 @@ Acceptance evidence: the test fails because `replace_tls_server_config` returns 
 
 Intent: the documented guarantee matches the enforced one.
 
-Required changes: `docs/tls.md`, `CHANGELOG.md`, `architecture/eggnet-tls.md`, roadmap, registry, and a correction note in the 321 closure.
+Required changes: `docs/tls.md`, `CHANGELOG.md`, `architecture/eggnet-tls.md`, roadmap, registry, and a correction note in the 327 closure.
 
 ## 8. Failure, cancellation, restart, and contention semantics
 
@@ -130,8 +130,8 @@ python3 scripts/check-crate-topology.py
 - `docs/tls.md`: ALPN guarantee at build/start and at the reload swap; the raw-handle bypass.
 - `CHANGELOG.md`: the Unreleased ALPN bullet names the swap.
 - `architecture/eggnet-tls.md`: compatibility-runtime validation includes the swap.
-- `plans/subsystems/tls-identity-roadmap.md` and `plans/registry.md`: milestone 322.
-- `plans/closure/tls-identity/321-tls-substrate-corrective.md`: correction note for the per-connection claim.
+- `plans/subsystems/tls-identity-roadmap.md` and `plans/registry.md`: milestone 328.
+- `plans/closure/tls-identity/327-tls-substrate-corrective.md`: correction note for the per-connection claim.
 
 ## 13. Acceptance criteria
 
@@ -151,4 +151,4 @@ Exact commands and outcomes, the regression test name, the protected behavior (l
 
 ## 16. Handoff notes
 
-The raw `TlsReloadHandle` remains a documented bypass; making the neutral handle capability-aware is deferred because `eggnet-tls` must stay protocol-neutral. The broad `./scripts/verify.sh fast` wrapper still stops at the pre-existing macOS `eggserve-server` failure recorded in the 321 closure.
+The raw `TlsReloadHandle` remains a documented bypass; making the neutral handle capability-aware is deferred because `eggnet-tls` must stay protocol-neutral. The broad `./scripts/verify.sh fast` wrapper still stops at the pre-existing macOS `eggserve-server` failure recorded in the 327 closure.

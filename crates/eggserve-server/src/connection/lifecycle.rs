@@ -51,6 +51,18 @@ impl LifecycleDisposition {
         }
     }
 
+    /// Disposition for a request rejected for ambiguous message framing
+    /// (Plan 324).
+    ///
+    /// An ambiguous boundary must never leave a reusable connection: the
+    /// rejection closes it and cancels the unread body. Hyper 1.11 rejects
+    /// duplicate `Content-Length` and normalizes a lone `TE` + `CL` before the
+    /// canonical pipeline, so this is defense-in-depth for a future or
+    /// alternate parser rather than a live wire path.
+    pub(crate) const fn for_ambiguous_framing() -> Self {
+        Self::close_and_cancel_body()
+    }
+
     pub(crate) const fn with_graceful_drain(mut self) -> Self {
         self.graceful_drain = true;
         self
@@ -210,5 +222,11 @@ mod tests {
             second_lifecycle.cancellation_reason(),
             Some(RequestCancellationReason::PeerDisconnected)
         );
+    }
+    #[test]
+    fn ambiguous_framing_closes_and_cancels_body() {
+        let disposition = LifecycleDisposition::for_ambiguous_framing();
+        assert_eq!(disposition, LifecycleDisposition::close_and_cancel_body());
+        assert!(disposition.close_after_response_required());
     }
 }

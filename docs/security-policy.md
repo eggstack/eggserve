@@ -11,7 +11,7 @@ eggserve ships with the following safe defaults. These are not configurable with
 
 | Default | Behavior |
 |---------|----------|
-| **bind to loopback** | Server binds to `127.0.0.1` unless `--public` is passed |
+| **bind to loopback** | Server binds to `127.0.0.1` by default; an explicit `0.0.0.0`/`::` bind is rejected unless `--public` acknowledges it |
 | **GET and HEAD only (static service)** | The built-in static service rejects other methods with 405 |
 | **request bodies rejected (static service)** | Body-bearing requests are rejected before method dispatch; custom services declare their own policy |
 | **no symlink following** | Symlinks are denied unless `--follow-symlinks` is passed |
@@ -56,11 +56,11 @@ The following options weaken security defaults. Each requires an explicit CLI fl
 
 Acknowledges intent to bind a non-loopback address. Without this flag, the CLI
 rejects any resolved address that is not loopback (wildcards such as `0.0.0.0`
-/`::`, and unicast LAN or routable addresses). The flag does not rewrite the
-bind host by itself: pass an explicit non-loopback `--bind`/`--addr` (for
-example `--addr 0.0.0.0:8000 --public`). Use only when the server must be
-reachable from other machines. The operator is responsible for network-level
-access control.
+/`::`, and unicast LAN or routable addresses). The flag does not rewrite or
+select the bind host by itself: pass an explicit non-loopback `--bind`/`--addr`
+(for example `--addr 0.0.0.0:8000 --public`), and `--public` alone still binds
+loopback. Use only when the server must be reachable from other machines. The
+operator is responsible for network-level access control.
 
 ### `--follow-symlinks`
 

@@ -165,6 +165,10 @@ impl Server {
             tcp_source: None,
             #[cfg(unix)]
             unix_source: None,
+            #[cfg(unix)]
+            adopted_systemd_indices: std::collections::BTreeSet::new(),
+            #[cfg(unix)]
+            adopted_systemd_names: std::collections::BTreeSet::new(),
             ops_context: None,
             #[cfg(feature = "http3")]
             http3_identity: None,
@@ -198,6 +202,12 @@ pub struct ServerBuilder {
     tcp_source: Option<accept::TcpListenerSource>,
     #[cfg(unix)]
     unix_source: Option<accept::UnixListenerSource>,
+    /// systemd descriptor indices already adopted by this builder (Plan 324).
+    #[cfg(unix)]
+    adopted_systemd_indices: std::collections::BTreeSet<usize>,
+    /// systemd `LISTEN_FDNAMES` entries already adopted (Plan 324).
+    #[cfg(unix)]
+    adopted_systemd_names: std::collections::BTreeSet<String>,
     ops_context: Option<crate::ops::OpsContext>,
     #[cfg(feature = "http3")]
     http3_identity: Option<(PathBuf, PathBuf)>,
@@ -327,6 +337,28 @@ impl ServerBuilder {
         Ok(self)
     }
 
+    /// Reject a second adoption of the same systemd descriptor (Plan 324).
+    ///
+    /// Runs before `adopt_systemd_listener` so a rejected duplicate never
+    /// borrows or takes the fd: a second `FromRawFd` would double-close a
+    /// descriptor the first listener still owns.
+    #[cfg(unix)]
+    fn check_systemd_adoption(&self, index: usize, name: Option<&str>) -> Result<(), ServerError> {
+        if self.adopted_systemd_indices.contains(&index) {
+            return Err(ServerError::Config(format!(
+                "systemd descriptor index {index} was already adopted by this builder; refusing a second adoption (double close)"
+            )));
+        }
+        if let Some(name) = name {
+            if self.adopted_systemd_names.contains(name) {
+                return Err(ServerError::Config(format!(
+                    "systemd descriptor name {name:?} was already adopted by this builder; refusing a second adoption (double close)"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Adopt the `index`-th systemd/socket-activation descriptor (Unix only).
     ///
     /// Reads `LISTEN_PID`/`LISTEN_FDS`, requires an explicit `index` (never
@@ -339,8 +371,15 @@ impl ServerBuilder {
     /// [`crate::server::listener::clear_systemd_activation_env`] after
     /// adoption when spawning children that must not inherit activation
     /// state.
+    ///
+    /// **Once-only contract (Plan 324).** A builder adopts each descriptor
+    /// index at most once. A second call with an already-adopted index fails
+    /// with `ServerError::Config` *before* borrowing the fd, because a second
+    /// `FromRawFd` would take ownership of a descriptor the first listener
+    /// still owns and double-close it.
     #[cfg(unix)]
     pub fn from_systemd_index(mut self, index: usize) -> Result<Self, ServerError> {
+        self.check_systemd_adoption(index, None)?;
         match crate::server::listener::adopt_systemd_listener(index)? {
             crate::server::listener::SystemdListener::Tcp(l) => {
                 self.tcp_source = Some(accept::TcpListenerSource::Listener(l));
@@ -349,6 +388,7 @@ impl ServerBuilder {
                 self.unix_source = Some(accept::UnixListenerSource::Listener(l));
             }
         }
+        self.adopted_systemd_indices.insert(index);
         Ok(self)
     }
 
@@ -356,9 +396,15 @@ impl ServerBuilder {
     ///
     /// Requires `LISTEN_FDNAMES` to map `name` explicitly; never guesses.
     /// Validation and ownership match [`ServerBuilder::from_systemd_index`].
+    ///
+    /// The name resolves to its descriptor index *before* adoption, so a
+    /// repeated name and two names aliasing the same index both fail closed
+    /// under the once-only contract (Plan 324).
     #[cfg(unix)]
     pub fn from_systemd_name(mut self, name: &str) -> Result<Self, ServerError> {
-        match crate::server::listener::adopt_systemd_listener_by_name(name)? {
+        let index = crate::server::listener::systemd_index_for_name(name)?;
+        self.check_systemd_adoption(index, Some(name))?;
+        match crate::server::listener::adopt_systemd_listener(index)? {
             crate::server::listener::SystemdListener::Tcp(l) => {
                 self.tcp_source = Some(accept::TcpListenerSource::Listener(l));
             }
@@ -366,6 +412,8 @@ impl ServerBuilder {
                 self.unix_source = Some(accept::UnixListenerSource::Listener(l));
             }
         }
+        self.adopted_systemd_indices.insert(index);
+        self.adopted_systemd_names.insert(name.to_owned());
         Ok(self)
     }
 
@@ -819,5 +867,27 @@ mod tests {
     fn windows_fd_exhaustion_includes_process_handle_limit() {
         let error = std::io::Error::from_raw_os_error(10023); // WSAENFILE
         assert!(super::accept::is_fd_exhaustion(&error));
+    }
+    /// Plan 324: the tracking guard rejects a duplicate index or name before
+    /// any descriptor is borrowed.
+    #[cfg(unix)]
+    #[test]
+    fn systemd_duplicate_adoption_is_rejected_before_fd_access() {
+        let mut builder = Server::builder();
+        builder.adopted_systemd_indices.insert(0);
+        builder.adopted_systemd_names.insert("web".to_owned());
+
+        let index_error = builder.check_systemd_adoption(0, None).unwrap_err();
+        assert!(index_error.to_string().contains("already adopted"));
+
+        // A distinct index is accepted by the guard.
+        assert!(builder.check_systemd_adoption(1, Some("api")).is_ok());
+
+        // A repeated name is rejected even with a distinct index, and an
+        // alias that resolves to an adopted index is rejected by the index
+        // check before any fd access.
+        let name_error = builder.check_systemd_adoption(1, Some("web")).unwrap_err();
+        assert!(name_error.to_string().contains("already adopted"));
+        assert!(builder.check_systemd_adoption(0, Some("alias")).is_err());
     }
 }
