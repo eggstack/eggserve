@@ -358,8 +358,11 @@ def _normalize_compat_server_address(server_address):
 
     The empty host is the conventional IPv4 wildcard spelling used by
     ``http.server``. It is normalized before entering the native binding
-    layer, where it also carries explicit wildcard intent. Other hostnames
-    and literals remain untouched so Rust performs the only resolution.
+    layer. An explicit constructor address is itself the public-bind
+    acknowledgment (Plan 094): non-loopback IP literals, wildcards, and
+    hostnames set ``public_intent`` so the native gate does not demand a
+    second flag. Loopback literals stay quiet. Other hostnames and
+    literals remain untouched so Rust performs the only resolution.
     """
     if not isinstance(server_address, tuple) or len(server_address) != 2:
         raise OSError("server_address must be a (host, port) tuple")
@@ -371,10 +374,14 @@ def _normalize_compat_server_address(server_address):
     if host == "":
         return "0.0.0.0", port, True
     try:
-        wildcard = ipaddress.ip_address(host).is_unspecified
+        # Non-loopback (including unspecified) needs public acknowledgment.
+        public_intent = not ipaddress.ip_address(host).is_loopback
     except ValueError:
-        wildcard = False
-    return host, port, wildcard
+        # Hostname: the constructor already chose a non-literal host, so
+        # treat that as explicit network-bind intent. Loopback hostnames
+        # still bind loopback; public_intent does not expand the address.
+        public_intent = True
+    return host, port, public_intent
 
 
 def _split_native_address(value):
@@ -453,7 +460,7 @@ class HTTPServer:
     def _init_compat(self, server_address, handler_class, bind_and_activate, *, max_workers,
                      max_request_body_bytes, max_handler_response_bytes,
                      tls_certfile, tls_keyfile):
-        host, port, wildcard = _normalize_compat_server_address(server_address)
+        host, port, public_intent = _normalize_compat_server_address(server_address)
         factory = handler_class.func if isinstance(handler_class, partial) else handler_class
         if not isinstance(factory, type) or not issubclass(factory, BaseHTTPRequestHandler):
             raise TypeError("RequestHandlerClass must subclass BaseHTTPRequestHandler")
@@ -483,7 +490,7 @@ class HTTPServer:
         self._serve_done.set()
         self._native = None
         self._bind = host
-        self._wildcard_bind = wildcard
+        self._public_bind = public_intent
         self._requested_port = port
         self._max_workers = max_workers
         self._max_request_body_bytes = max_request_body_bytes
@@ -612,7 +619,7 @@ class HTTPServer:
                 native_kwargs["max_connections"] = self._max_workers
             self._native = _NativeServer(
                 root, bind=self._bind, port=self._requested_port, handler=callback,
-                public=self._wildcard_bind,
+                public=self._public_bind,
                 max_python_callbacks=self._max_workers if callback is not None else 1,
                 request_body_mode="reject" if self._static_config is not None else "buffer",
                 max_request_body_bytes=0 if self._static_config is not None else self._max_request_body_bytes,

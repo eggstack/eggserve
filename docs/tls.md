@@ -1,6 +1,6 @@
 # TLS Support
 
-eggserve supports optional native TLS termination via [rustls](https://docs.rs/rustls). TLS is behind a feature flag and is **not** included in the default build. The reusable identity, trust, client-authentication, and reload substrate is the neutral [`eggnet-tls`](../architecture/eggnet-tls.md) crate; EggServe re-exports it through `eggserve_core::tls` while retaining only transport and HTTP/3-specific assembly.
+eggserve supports optional native TLS termination via [rustls](https://docs.rs/rustls). TLS is behind a feature flag and is **not** included in the default build. Every TLS configuration is built with rustls's ring crypto provider explicitly, so applications never need to install a process-default `CryptoProvider`; a dependency graph that also enables `aws-lc-rs` cannot turn configuration construction into a panic. The reusable identity, trust, client-authentication, and reload substrate is the neutral [`eggnet-tls`](../architecture/eggnet-tls.md) crate; EggServe re-exports it through `eggserve_core::tls` while retaining only transport and HTTP/3-specific assembly.
 
 ## When to use native TLS
 
@@ -142,8 +142,12 @@ Handshake and admission:
 - Slow clients cannot occupy unlimited tasks (connection semaphore + per-handshake
   deadline; permits released exactly once). Selection/verification performs no
   unbounded blocking work. Errors use fixed sanitized categories and never echo
-  rustls internals to clients. H2 ALPN derives from `RuntimeConfig.http2.enabled`;
-  H3 uses a separate TLS 1.3/`h3` QUIC config (see below).
+  rustls internals to clients. A TLS configuration that advertises `h2` must
+  agree with `RuntimeConfig.http2.enabled` (and with the compiled `http2`
+  feature); the runtime rejects a contradictory static configuration at
+  build/start and rejects a contradictory snapshot when the server handle swaps
+  it in, instead of completing the handshake and dropping the connection. H3
+  uses a separate TLS 1.3/`h3` QUIC config (see below).
 
 Atomic reload:
 
@@ -165,9 +169,13 @@ handle.replace_tls_server_config(&next)?; // new handshakes only; established ke
 ```
 
 - Immutable validated objects + atomic snapshot read by new handshakes; failed
-  builds never touch live state. No filesystem watcher. H3 rotation requires
-  endpoint replacement/drain (Quinn `set_server_config` handoff); TCP reload does
-  not atomically rotate H3 — see “H3 coherence”.
+  builds never touch live state. `ServerHandle::replace_tls_config` /
+  `replace_tls_server_config` additionally reject a snapshot whose ALPN the
+  runtime cannot serve, leaving the previous identity live. Replacing through
+  the raw `TlsReloadHandle` returned by `ServerHandle::tls_reload_handle`
+  bypasses that check. No filesystem watcher. H3 rotation requires endpoint
+  replacement/drain (Quinn `set_server_config` handoff); TCP reload does not
+  atomically rotate H3 — see “H3 coherence”.
 
 Session resumption and 0-RTT:
 
@@ -193,7 +201,7 @@ Python projection:
 
 ## Handshake timeout
 
-TLS handshakes are bounded by `tls_handshake_timeout` (CLI `--header-timeout` surface, default 10 seconds; `RuntimeConfig.tls_handshake_timeout`). A client that opens a TCP connection but never completes the TLS handshake will hold a connection permit for at most that duration; after timeout the connection is dropped silently. The connection-permit semaphore prevents an unbounded number of pending handshakes, and the per-handshake timeout prevents a single slow client from holding a permit indefinitely. Permits recover after timeout; new handshakes succeed.
+TLS handshakes are bounded by `tls_handshake_timeout` (CLI `--header-timeout`, default 10 seconds; Rust callers also set `RuntimeConfig.tls_handshake_timeout` directly). The CLI flag sets both `header_read_timeout` and `tls_handshake_timeout`, so one documented window covers both phases. A client that opens a TCP connection but never completes the TLS handshake will hold a connection permit for at most that duration; after timeout the connection is dropped silently. The connection-permit semaphore prevents an unbounded number of pending handshakes, and the per-handshake timeout prevents a single slow client from holding a permit indefinitely. Permits recover after timeout; new handshakes succeed.
 
 ## Certificate requirements
 

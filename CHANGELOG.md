@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — post-audit maintenance (Plans 320–325)
+## Unreleased — post-audit maintenance (Plans 320–328)
 
 No version has been published from this work; the Rust line stays on `0.5.x`
 and the wheel on `0.2.5` until a maintainer chooses a release.
@@ -34,8 +34,9 @@ and the wheel on `0.2.5` until a maintainer chooses a release.
   budget; exhaustion is a sanitized 503 before response start. A Python
   `__next__` that blocks indefinitely still cannot be interrupted.
 - **Operator and repository hygiene (Plan 323).** `--public` documentation now
-  matches the fail-safe CLI (it acknowledges a wildcard bind and does not
-  change the address). `cargo audit` policy moved to `.cargo/audit.toml` (the
+  matches the fail-safe CLI (it acknowledged a wildcard bind and did not
+  change the address; Plan 326 later widened the requirement to any
+  non-loopback address). `cargo audit` policy moved to `.cargo/audit.toml` (the
   dead root `audit.toml` is gone) and `deny.toml` remains the cargo-deny
   policy. `eggserve-core` no longer enables the unused `tokio/signal` feature in its
   production graph; the six core examples keep a dev-only signal feature.
@@ -51,6 +52,37 @@ and the wheel on `0.2.5` until a maintainer chooses a release.
   pipelines. Identity certificate/key PEM input is bounded to 1 MiB before
   parsing, for in-memory and file-path loads. No TLS identity/trust/auth
   semantics changed.
+- **Public-bind acknowledgment tightening (Plan 326).** Any resolved
+  non-loopback address — wildcard, LAN, or routable — now requires `--public`
+  on the CLI and `public=True` through the Python lowlevel surface. The flag
+  remains acknowledgment-only: it does not select or change the bind address,
+  and `--public` alone still binds loopback.
+- **TLS configuration is provider-deterministic (Plan 327).** `eggnet-tls` and
+  the H3 QUIC assembler build every rustls configuration with the ring
+  provider explicitly instead of the process default. A consumer graph that
+  also enables `aws-lc-rs` no longer panics on a valid certificate pair, and
+  the Python wheel no longer installs a process-global provider as a
+  workaround.
+- **TLS ALPN is validated against the runtime (Plan 327).** A static
+  configuration that advertises `h2` while HTTP/2 is disabled (or the build
+  lacks the `http2` feature) is rejected at build/start instead of completing
+  the handshake and dropping the connection. Plan 328 extends the same check
+  to the reload swap.
+- **`--header-timeout` now bounds TLS handshakes (Plan 327).** The CLI maps the
+  flag to both `header_read_timeout` and `tls_handshake_timeout`, matching the
+  published security policy instead of leaving the handshake at a fixed 10s.
+- **The SNI identity ceiling is order-independent (Plan 327).** The optional
+  default identity no longer counts toward `MAX_TLS_IDENTITIES`, so 64 named
+  identities are accepted whether the default is configured first or last.
+- **H3 QUIC bounds are validated and typed (Plan 327).** Out-of-range receive
+  windows and idle timeouts are rejected by `Http3Config::validate` with the
+  field named, and transport configuration failures no longer surface as
+  `invalid private key`.
+- **Reload ALPN coherence is enforced at the swap (Plan 328).**
+  `ServerHandle::replace_tls_config` / `replace_tls_server_config` reject an
+  `h2`-advertising snapshot when the runtime cannot serve HTTP/2, before it
+  becomes live, so the previous identity stays in service instead of every h2
+  client completing a handshake and being dropped.
 
 ## 0.5.1 — `eggserve-static` patch (published 2026-10-23)
 

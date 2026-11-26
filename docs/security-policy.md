@@ -54,10 +54,12 @@ The following options weaken security defaults. Each requires an explicit CLI fl
 
 ### `--public`
 
-Acknowledges an explicit wildcard bind (`0.0.0.0` or `::`). It does not change
-or select the bind address: a wildcard bind is rejected without it, and with it
-the configured address is used unchanged. `--public` alone still binds
-loopback. Use only when the server must be accessible from other machines. The
+Acknowledges intent to bind a non-loopback address. Without this flag, the CLI
+rejects any resolved address that is not loopback (wildcards such as `0.0.0.0`
+/`::`, and unicast LAN or routable addresses). The flag does not rewrite or
+select the bind host by itself: pass an explicit non-loopback `--bind`/`--addr`
+(for example `--addr 0.0.0.0:8000 --public`), and `--public` alone still binds
+loopback. Use only when the server must be reachable from other machines. The
 operator is responsible for network-level access control.
 
 ### `--follow-symlinks`
@@ -154,7 +156,7 @@ supported. The TLS feature is optional and not included in the default build.
 For public-facing deployments, a reverse proxy (Caddy, nginx, Traefik) is
 usually preferred over native TLS.
 
-TLS handshakes are bounded by the same timeout as HTTP header reads (`--header-timeout`, default 10 seconds). A slow or stalled TLS client cannot tie up a connection beyond this window.
+TLS handshakes are bounded by the same timeout as HTTP header reads (`--header-timeout` sets both deadlines; default 10 seconds). A slow or stalled TLS client cannot tie up a connection beyond this window.
 
 ## Compatibility mode
 

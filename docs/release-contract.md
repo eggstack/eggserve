@@ -233,7 +233,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 
 ### Safe Defaults (enforced at library level)
 
-- Loopback bind (`127.0.0.1`) by default; a wildcard bind requires `--public`
+- Loopback bind (`127.0.0.1`) by default; any non-loopback bind requires `--public`
   acknowledgment (the flag does not change the bind address)
 - Symlinks denied unless `--follow-symlinks` is passed
 - Dotfiles denied unless `--allow-dotfiles` is passed

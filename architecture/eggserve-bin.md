@@ -42,7 +42,8 @@ Canonical grammar is `[OPTIONS] [PORT] [DIRECTORY]` (normative flags in
 * `--directory DIR` occupies DIRECTORY; `.` default. `--bind HOST[:PORT]`
   (host-only leaves PORT free), `--port PORT`, `--addr HOST:PORT` (cannot
   combine with `--bind`); `:PORT` means `0.0.0.0:PORT` (still needs
-  `--public`). Hostnames resolve once; wildcard results still need `--public`.
+  `--public`). Hostnames resolve once; any non-loopback result needs
+  `--public` (acknowledgment only; the flag does not expand the host).
 * Two logical slots: PORT then DIRECTORY. Explicit port sources occupy PORT;
   the next positional after occupied PORT is DIRECTORY verbatim (even numeric).
   `--directory` occupying DIRECTORY leaves a later numeric positional free for

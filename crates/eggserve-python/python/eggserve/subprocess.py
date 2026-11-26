@@ -153,7 +153,10 @@ class ServeConfig:
                 f"log_format must be one of {sorted(_VALID_LOG_FORMATS)}, "
                 f"got {self.log_format!r}"
             )
-        if not self.public and ipaddress.ip_address(host).is_unspecified:
+        # Match the CLI gate: any non-loopback bind (wildcard or unicast)
+        # needs an explicit public acknowledgment. `public=True` alone does
+        # not expand the host; it only authorizes network exposure.
+        if not self.public and not ipaddress.ip_address(host).is_loopback:
             raise ValueError(
                 f"binding to {self.bind} requires public=True "
                 "to acknowledge public exposure intent"

@@ -736,6 +736,10 @@ impl Server {
 
         #[cfg(feature = "tls")]
         let tls_reload_for_handle = runtime_config.tls_reload_handle.clone();
+        #[cfg(all(feature = "tls", feature = "http2"))]
+        let tls_h2_for_handle = runtime_config.http2.enabled;
+        #[cfg(all(feature = "tls", not(feature = "http2")))]
+        let tls_h2_for_handle = false;
         let config = Arc::new(runtime_config);
         let runtime_state = Arc::new(RuntimeState::with_ops(&config, ops.clone())?);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
@@ -822,6 +826,7 @@ impl Server {
             lifecycle,
             ops,
             tls_reload_for_handle,
+            tls_h2_for_handle,
         );
         #[cfg(not(feature = "tls"))]
         let handle =

@@ -54,6 +54,7 @@ pub struct Args {
     max_connections: Option<usize>,
     max_file_streams: Option<usize>,
     max_in_flight_requests: Option<usize>,
+    /// Header-read timeout; also the documented TLS handshake bound.
     header_read_timeout: Option<Duration>,
     connection_total_timeout: Option<Duration>,
     handler_timeout: Option<Duration>,
@@ -741,7 +742,12 @@ impl Args {
 
         let bind_ip = resolve_bind_ip(&bind_host, bind_port)?;
 
-        if !public && bind_ip.is_unspecified() {
+        // Threat-model asset: without `--public`, do not bind a public
+        // interface. Unspecified addresses are the usual case, but any
+        // non-loopback unicast (LAN or routable) is also network exposure
+        // and needs the same acknowledgment. `--public` alone does not
+        // expand the default host; it only authorizes a non-loopback bind.
+        if !public && !bind_ip.is_loopback() {
             return Err(format!(
                 "binding to {bind_ip} requires --public to acknowledge public exposure intent"
             ));
@@ -832,6 +838,9 @@ impl Args {
         }
         if let Some(v) = self.header_read_timeout {
             limits.header_read_timeout = v;
+            // One documented bound covers both phases: a slow or stalled TLS
+            // client must not outlive the header-read window.
+            limits.tls_handshake_timeout = v;
         }
         if let Some(v) = self.connection_total_timeout {
             limits.connection_total_timeout = v;
@@ -887,7 +896,7 @@ pub fn print_usage() {
     println!("  --port <PORT>             Bind port (default: 8000)");
     println!("  --addr <HOST:PORT>        Full socket address (cannot combine with --bind)");
     println!(
-        "  --public                  Acknowledge public exposure intent (required for 0.0.0.0 or ::)"
+        "  --public                  Acknowledge public exposure intent (required for any non-loopback bind)"
     );
     println!("  --directory-listing       Enable directory listing (disabled by default)");
     println!("  --follow-symlinks         Follow symlinks (denied by default)");
@@ -897,7 +906,7 @@ pub fn print_usage() {
     println!("  --max-connections <N>      Max concurrent connections (default: 64)");
     println!("  --max-file-streams <N>     Max concurrent file streams (default: 32)");
     println!("  --max-in-flight-requests <N>  Max concurrent service executions (default: 64)");
-    println!("  --header-timeout <SECS>    Header read timeout in seconds (default: 10)");
+    println!("  --header-timeout <SECS>    Header read and TLS handshake timeout (default: 10)");
     println!("  --connection-total-timeout <SECS>  Total connection lifetime timeout in seconds (default: 60)");
     println!("  --handler-timeout <SECS>   Handler invocation timeout in seconds (default: 30)");
     println!("  --body-read-timeout <SECS> Request body read timeout in seconds (default: 30)");
@@ -1254,13 +1263,13 @@ mod tests {
 
     #[test]
     fn bind_and_port_separate_flags() {
-        let args = parse(&["--bind", "192.168.1.1:3000"]).unwrap();
+        let args = parse(&["--bind", "192.168.1.1:3000", "--public"]).unwrap();
         assert_eq!(args.bind, "192.168.1.1:3000".parse().unwrap());
     }
 
     #[test]
     fn bind_host_only_preserves_default_port() {
-        let args = parse(&["--bind", "192.168.1.1"]).unwrap();
+        let args = parse(&["--bind", "192.168.1.1", "--public"]).unwrap();
         assert_eq!(args.bind.ip(), "192.168.1.1".parse::<IpAddr>().unwrap());
         assert_eq!(args.bind.port(), 8000);
     }
@@ -1432,6 +1441,30 @@ mod tests {
         let result = parse(&["--addr", "0.0.0.0:8000"]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("--public"));
+    }
+
+    #[test]
+    fn non_loopback_unicast_without_public_flag_fails() {
+        let result = parse(&["--addr", "192.168.1.10:8000"]);
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.contains("--public"), "{error}");
+        assert!(error.contains("192.168.1.10"), "{error}");
+    }
+
+    #[test]
+    fn non_loopback_unicast_with_public_flag_allowed() {
+        let args = parse(&["--addr", "192.168.1.10:8000", "--public"]).unwrap();
+        assert_eq!(args.bind, "192.168.1.10:8000".parse().unwrap());
+        assert!(!args.bind.ip().is_loopback());
+    }
+
+    #[test]
+    fn loopback_bind_does_not_require_public_flag() {
+        let args = parse(&["--addr", "127.0.0.1:8000"]).unwrap();
+        assert!(args.bind.ip().is_loopback());
+        let args = parse(&["--bind", "::1", "--port", "8000"]).unwrap();
+        assert!(args.bind.ip().is_loopback());
     }
 
     #[test]
@@ -1680,6 +1713,14 @@ mod tests {
         let limits = args.limits().unwrap();
         assert_eq!(limits.max_connections, 128);
         assert_eq!(limits.max_file_streams, 64);
+    }
+
+    #[test]
+    fn header_timeout_also_bounds_tls_handshakes() {
+        let args = parse(&["--header-timeout", "4"]).unwrap();
+        let limits = args.limits().unwrap();
+        assert_eq!(limits.header_read_timeout, Duration::from_secs(4));
+        assert_eq!(limits.tls_handshake_timeout, Duration::from_secs(4));
     }
 
     #[test]

@@ -113,7 +113,7 @@ Independent budgets for connections, in-flight service work, parser memory, and 
 Notes:
 
 - **Reverse-proxy production** favors persistent connections, bounded parser memory, meaningful service concurrency, and idle/write-stall defense. Raise the total lifetime into the hours so it acts purely as defense-in-depth; the idle and write timers bound routine use. Keep `header-timeout` at or above the proxy's keep-alive gap, otherwise Hyper closes healthy idle connections and they count as header timeouts.
-- **Direct TLS** uses the same core bounds plus the existing TLS handshake budget (10s code default; no CLI flag).
+- **Direct TLS** uses the same core bounds plus the TLS handshake budget, which follows `--header-timeout` (10s by default). Raising or lowering the header window moves the handshake bound with it.
 - **Embedded anonymity-sensitive** uses stricter open-connection, header, keep-alive, request-count, and write-stall bounds suitable for resource-constrained direct origins. This is still not rate limiting: all clients share the same generic resource budgets — there are no per-IP/client/user token buckets, authentication quotas, or reputation logic anywhere in the core.
 - Every production claim must name a profile from the production profiles defined in this guide. Hardened profiles must not allow symlink following.
 
@@ -193,16 +193,16 @@ See README.md for Windows-specific profiles (windows-reverse-proxy, windows-dire
 
 ## Binding to all interfaces
 
-To make eggserve accessible from other machines (without a reverse proxy), bind
-an explicit wildcard address and acknowledge the exposure with `--public`:
+To make eggserve accessible from other machines (without a reverse proxy), pass
+an explicit non-loopback address and acknowledge it with `--public`:
 
 ```sh
-eggserve --directory public --public --addr 0.0.0.0:8000
+eggserve --public --addr 0.0.0.0:8000 --directory public
 ```
 
-`--public` acknowledges the wildcard bind; it does not change the bind address.
-The example above binds `0.0.0.0:8000`, while `--public` alone keeps the
-loopback default. When binding publicly, consider using a reverse proxy for TLS
+`--public` is required for any non-loopback bind (wildcard or unicast). It does
+not change or select the bind address: `--public` alone keeps the loopback
+default. When binding publicly, consider using a reverse proxy for TLS
 termination and access control.
 
 ## Combining patterns

@@ -1,6 +1,6 @@
 # CLI, Ops, and Observability Roadmap
 
-Status: active (312–319, 320, 323, and 325 closed)
+Status: active (312–319, 320, 323, 325, and 326 closed)
 
 Long-term references:
 
@@ -259,6 +259,28 @@ Exit conditions: all three lockfiles and the resolved feature sets are
 unchanged; the floor is declared once and inherited; the gate rule fails
 closed on a regressed floor in either the table or the excluded crate.
 
+### Milestone 326 — Public-bind acknowledgment hardening
+
+Class: invariant
+
+Objective: align the CLI and Python public-bind gates with the threat-model
+asset that without an explicit public acknowledgment the process must not
+bind a public (non-loopback) interface.
+
+Dependencies: none beyond the closed code state.
+
+Deliverable boundary: CLI `Args` parsing, Python `ServeConfig` and native
+runtime constructor, `HTTPServer` address normalization, and the user/docs
+surfaces that describe `--public`. No filesystem, TLS, or protocol change.
+
+User or operator value: a LAN or routable unicast bind cannot slip through
+without `--public`/`public=True`, and documentation no longer claims the
+flag alone expands the default host to `0.0.0.0`.
+
+Exit conditions: non-loopback binds without acknowledgment fail; loopback
+and acknowledged non-loopback binds succeed; docs match the acknowledgment
+semantics verified by Plan 303 (`--public --port` still loopback).
+
 ### Milestone 319 — `eggserve-static` 0.5.1 patch release and current-line sweep
 
 Class: polish
@@ -448,3 +470,4 @@ changing any resolved version.
 | 320 | closed | `plans/implementation/cli-ops-observability/320-h3-quic-advisory-remediation.md` | `plans/closure/cli-ops-observability/320-h3-quic-advisory-remediation.md` | Root advisory gate is red at the baseline: `quinn-proto 0.11.18`, `quinn-udp 0.5.15`, `rustix 1.1.4`, and `tokio 1.52.3`/`1.53.1` carry RUSTSEC-2026-0523/-0524/-0538 (vulnerabilities; H3-only) and -0486/-0386 (unsound; no in-tree affected API calls). The plan bumps the patched releases, proves resolution neutrality, adds an offline resolved-version guard, and keeps H3 experimental. Operational dependency: network access to the advisory database/registry. |
 | 323 | closed | `plans/implementation/cli-ops-observability/323-post-audit-operator-and-repository-hygiene-sweep.md` | `plans/closure/cli-ops-observability/323-post-audit-operator-and-repository-hygiene-sweep.md` | Low/Informational audit sweep: `--public` docs vs actual CLI, inert `audit.toml`, unused core `tokio/signal`, missing credential ignore patterns, mutable release image tags, stale action-pinning inventory, corrupted threat-model opening, macOS static-test canonicalization, and release-manifest provenance wording. No `--public` behavior change; image digests may be recorded blocked if registry access is unavailable. |
 | 325 | closed | `plans/implementation/cli-ops-observability/325-compatible-dependency-refresh-and-tool-pins.md` | `plans/closure/cli-ops-observability/325-compatible-dependency-refresh-and-tool-pins.md` | Closed: all three latest-compatible lockfiles are refreshed, shared package identities align, and post-update dry runs offer zero further updates. Both audit tools are current and the end-to-end supply-chain script passes. Floors, MSRV 1.89, and first-party feature activations remain intact; upstream transitive tree differences and the macOS wrapper skip limitation are recorded in the closure. No source/API/behavior change, publication, or version bump. |
+| 326 | closed | `plans/implementation/cli-ops-observability/326-public-bind-acknowledgment-hardening.md` | `plans/closure/cli-ops-observability/326-public-bind-acknowledgment-hardening.md` | CLI/Python gate requires `--public`/`public=True` for any non-loopback bind; docs corrected; `HTTPServer` constructor address remains intent. Originally allocated 320 on the feature branch before the post-audit batch claimed that number. |
