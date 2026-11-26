@@ -139,3 +139,15 @@ Milestone 327 is closed; no hard dependency blocks the next TLS identity or H2/H
 - `plans/registry.md`: TLS identity milestone 327 marked closed with this record; next milestone number 329.
 - `plans/subsystems/tls-identity-roadmap.md`: milestone 327 marked closed.
 - `plans/implementation/tls-identity/327-tls-substrate-corrective.md`: status implemented.
+
+## 13. Post-closure correction (review follow-up)
+
+- `crates/eggserve-h3/src/config.rs`: the send-buffer check combined `send_window`
+  and `max_send_buf_size` and always named `http3.send_window`, so a zero
+  `max_send_buf_size` produced a false field attribution. Split into two arms
+  (matching `http2.rs`), with `zero_send_buf_size_names_its_own_field` covering
+  both branches.
+- Open low finding: `max_send_buf_size` is bounded only below (`> 0`), and
+  `send_window` has no upper bound even though quinn documents it as the
+  per-connection retained-write memory cap. The H3 knobs are Rust-API only (no
+  CLI or Python surface), and the defaults stay at 4 MiB / 256 KiB.

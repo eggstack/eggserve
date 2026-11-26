@@ -105,8 +105,11 @@ impl Http3Config {
                 "must be at least stream_receive_window",
             ));
         }
-        if self.send_window == 0 || self.max_send_buf_size == 0 {
+        if self.send_window == 0 {
             return Err(invalid("send_window", "must be greater than zero"));
+        }
+        if self.max_send_buf_size == 0 {
+            return Err(invalid("max_send_buf_size", "must be greater than zero"));
         }
         if self.max_idle_timeout.is_zero()
             || self.max_idle_timeout.as_millis() > u128::from(QUIC_VARINT_MAX)
@@ -159,6 +162,26 @@ mod tests {
             ..Default::default()
         };
         assert!(at_limit.validate().is_ok());
+    }
+
+    /// A zero send buffer must be reported against `max_send_buf_size`.
+    /// The earlier combined check blamed `send_window` for either field.
+    #[test]
+    fn zero_send_buf_size_names_its_own_field() {
+        let zero_buffer = Http3Config {
+            max_send_buf_size: 0,
+            ..Default::default()
+        };
+        let error = zero_buffer.validate().unwrap_err().to_string();
+        assert!(error.contains("http3.max_send_buf_size"), "{error}");
+        assert!(!error.contains("send_window"), "{error}");
+
+        let zero_window = Http3Config {
+            send_window: 0,
+            ..Default::default()
+        };
+        let error = zero_window.validate().unwrap_err().to_string();
+        assert!(error.contains("http3.send_window"), "{error}");
     }
 
     #[test]
