@@ -1,6 +1,6 @@
 # Python Facade Roadmap
 
-Status: active (311 and 322 closed)
+Status: active (311 and 322 closed; 330–332 planned)
 
 Long-term references:
 
@@ -140,6 +140,16 @@ Known gaps at the baseline:
 - Plan 238 (async producer redesign) is deferred; the current async bridge
   is a bounded `asyncio.to_thread` + 16-chunk queue bridge and stays
   experimental.
+- The extension declared free-threading support implicitly: PyO3 >= 0.28
+  emits `Py_MOD_GIL_NOT_USED` for a `#[pymodule]` without `gil_used`, so a
+  source build on free-threaded CPython 3.14 already runs GIL-free while the
+  support contract says free-threaded is unsupported. The 2026-11-28 audit
+  confirmed this on 3.14.5t (GIL disabled after import; 856 tests pass) and
+  found Plan 267's "loads GIL-required" rationale inverted. **Tracked by
+  Milestone 330**: the declaration becomes explicit, the branch records are
+  renumbered, and the family lands as **Beta**. Milestone 331 hardens the
+  concurrency contracts the audit found; Milestone 332 owns the per-target
+  contention evidence and the only Beta→Stable decision.
 
 ## 5. Target architecture
 
@@ -155,13 +165,21 @@ canonical values into Python objects and nothing more.
 core compatibility runtime + static authority (closed)
     |
     +--> Milestone 311 (listing renderer consolidation)
-    `--> Milestone 322 (streamed-response producer bounds)
+    +--> Milestone 322 (streamed-response producer bounds)
+    `--> Milestone 330 (free-threaded 3.14t adoption, Beta)
+             |
+             +--> Milestone 331 (concurrency contract hardening, hard)
+             `--> Milestone 332 (contention evidence + tier promotion, hard; 331 soft)
 ```
 
 Milestone 311 has no hard dependency on other open milestones; it depends
 on the closed `eggserve-static` authority and on the closed core runtime
 projection. Milestone 322 is an independent post-audit corrective over the
 same closed bridge; it does not reopen the static-listing authority.
+Milestone 330 integrates the adjacent free-threaded branch and renumbers its
+records to 333/334. Milestone 331 depends on 330 for the landed declaration
+and test module; Milestone 332 depends on 330 for the wheel family and treats
+331's fixes as a soft prerequisite for any promotion decision.
 
 ## 7. Milestones
 
@@ -218,6 +236,83 @@ client disconnects; concurrent producers never exceed the budget and
 exhaustion is a 503, not a hang; normal streaming, trailers, HEAD/body
 suppression, and truncation behavior are unchanged; the residual blocking
 limitation is documented.
+
+### Milestone 330 — Free-threaded CPython 3.14t branch adoption (Beta)
+
+Class: capability
+
+Objective: integrate the adjacent free-threaded branch onto `main` as an
+additive `cp314-cp314t` family for CPython 3.14t on Linux x86_64 (glibc),
+macOS arm64, and Windows x86_64, with an explicit `gil_used = false`
+declaration, a free-threaded CI lane, the concurrency tests, and corrected
+documentation — at **Beta**, not Stable.
+
+Dependencies: the adjacent branch `feat/auto-20261116-7cc8b1dc` tip
+`6e3003f` (hard, code-complete); PyO3 0.29 opt-out declaration semantics
+(hard, resolved); Plan 267 Track A (interface, closed as DEFERRED and
+superseded for this slice).
+
+Deliverable boundary: one additive wheel family; the branch's records
+renumbered to 333/334; Beta tier in the classifier and every touched doc;
+one declaration/tier guard. No publication, no new platform, no GIL-family
+change, no concurrency-contract fix beyond what the branch carries.
+
+User or operator value: 3.14t users get an installable, documented Beta wheel
+instead of an unqualified source build, and the documentation no longer
+claims something the binary contradicts.
+
+Exit conditions: the merge lands with no plan-number collision; every tier
+surface says Beta; the GIL family is unchanged; the 3.14t and GIL suites pass;
+the declaration guard fails when the attribute or tier drifts.
+
+### Milestone 331 — Free-threading concurrency contract hardening
+
+Class: invariant
+
+Objective: remove silent wrong-data races from the Python-visible concurrency
+contracts now that the GIL can be absent: the `BodySource` take/restore lost
+read, the request-body bridge's restore consistency, untested single-consumer
+contracts, the facade's close/serve race, and the async bridge's loop
+affinity.
+
+Dependencies: Milestone 330 (hard; supplies the explicit declaration, the
+free-threaded test module, and the tunnel `recv` guard this milestone must
+not duplicate).
+
+Deliverable boundary: one shared take/restore helper with a typed
+concurrent-entry error; regression tests for each contract; no public API
+removal, no worker-count knob, no admission/default change.
+
+User or operator value: concurrent misuse fails loudly with a stable error
+instead of returning plausible but wrong data.
+
+Exit conditions: a concurrent `BodySource` read returns the bytes once or
+raises; sequential re-reads are unchanged; the facade close/serve race is
+deterministic; the suite passes on both wheel families.
+
+### Milestone 332 — Free-threaded contention evidence and Beta→Stable promotion
+
+Class: infrastructure
+
+Objective: make the free-threaded claim repeatable — provenance-complete
+soak records on all three targets against the actual `-ft` wheels, a bounded
+contention subset in the free-threaded CI job, and a `publish_target: none`
+aggregate — then decide Beta→Stable from that evidence.
+
+Dependencies: Milestone 330 (hard; wheel family, CI lane, soak script);
+Milestone 331 (soft; a promotion decision should not precede the
+concurrency-contract fixes).
+
+Deliverable boundary: qualification scripts, CI, records, and the tier
+statement. No product behavior, no publication, no new target, no timing
+gate.
+
+User or operator value: the documented support tier is backed by a run that
+can be reproduced from a commit and a wheel filename, on every claimed
+platform.
+
+Exit conditions: every promotion criterion is met and the classifier/doc
+change lands with the evidence, or Beta is retained with the blocker named.
 
 ## 8. Cross-cutting requirements
 
@@ -286,3 +381,6 @@ behavior.
 |---|---|---|---|---|
 | 311 | closed | `plans/implementation/python-facade/311-directory-listing-renderer-consolidation.md` | `plans/closure/python-facade/311-directory-listing-renderer-consolidation.md` | One listing renderer: the bridge delegates to `eggserve-static`, so both surfaces emit byte-identical HTML and enforce the same 1 MiB response-byte ceiling. Gate rule `check_plan311_listing_renderer_authority`. Reported follow-up: six pre-existing clippy lints in the excluded Python crate, which belong to Milestone 313's scope. |
 | 322 | closed | `plans/implementation/python-facade/322-streamed-response-producer-lifecycle-bounds.md` | `plans/closure/python-facade/322-streamed-response-producer-lifecycle-bounds.md` | `Response.stream` spawns a detached producer thread per response. The empty-yield branch never checks the closed receiver, and the callback permit ends before the producer runs, so a blocking/endless iterator can accumulate threads after disconnect/timeout. The plan checks closure before each pull, bounds producers with an admission permit, and documents the non-interruptible `__next__` limitation. |
+| 330 | ready | `plans/implementation/python-facade/330-free-threaded-314t-branch-adoption.md` | (lands 333/334) | Integrates the adjacent free-threaded branch as Beta; renumbers its records; resolves the two merge conflicts; adds the declaration/tier guard. Hard dependency: none. |
+| 331 | ready | `plans/implementation/python-facade/331-free-threading-concurrency-contract-hardening.md` | (to be written) | `BodySource` lost read, body-bridge restore consistency, single-consumer regressions, facade close/serve, async affinity, test atomicity, runtime envelope. Hard dependency: 330. |
+| 332 | ready | `plans/implementation/python-facade/332-free-threaded-contention-evidence-and-promotion.md` | (to be written) | Provenance-complete three-target soak, bounded CI gate, aggregate evidence, Beta→Stable decision. Hard: 330; soft: 331. |
