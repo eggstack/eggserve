@@ -44,6 +44,25 @@ VALID_LIBCS = {"glibc", "musl", "darwin", "msvc"}
 VALID_MANYLINUX = {"2_17", "musllinux_1_2", "auto"}
 VALID_COMPATIBILITY = {"pypi", "auto"}
 
+# Plan 333: the matrix gains an ABI-family dimension. The GIL family stays
+# cp311-abi3 on every existing target; the free-threaded family is
+# cp314-cp314t on three targets only and is tier `required` so it must appear
+# in every release aggregate (the public tier stays Beta).
+VALID_ABI_FAMILIES = {"cp311", "cp314t"}
+ABI_FAMILY_TAGS = {
+    "cp311": ("cp311", "abi3"),
+    "cp314t": ("cp314", "cp314t"),
+}
+FREE_THREADED_PLATFORM_TAGS = {
+    "manylinux_2_17_x86_64",
+    "macosx_11_0_arm64",
+    "win_amd64",
+}
+FREE_THREADED_INTERPRETERS = {
+    "python3.14t",
+    "/opt/python/cp314-cp314t/bin/python",
+}
+
 RUST_TARGET_RE = re.compile(r"^[a-z0-9_]+-[a-z0-9_]+-[a-z0-9_]+(-[a-z0-9_]+)?$")
 PLATFORM_TAG_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
@@ -77,8 +96,8 @@ def validate_matrix(path: Path) -> list[str]:
         return errors + ["no [[target]] entries"]
 
     seen_ids: dict[str, int] = {}
-    seen_tags: dict[str, str] = {}
-    seen_rust: dict[str, str] = {}
+    seen_tags: dict[tuple[str, str], str] = {}
+    seen_rust: dict[tuple[str, str], str] = {}
     for i, t in enumerate(targets):
         where = f"target[{i}]"
         if not isinstance(t, dict):
@@ -89,6 +108,8 @@ def validate_matrix(path: Path) -> list[str]:
             "id", "name", "rust_target", "platform_tag", "runner",
             "manylinux", "compatibility", "build", "smoke", "tier",
             "arch_family", "libc", "artifact",
+            "abi_family", "python_tag", "abi_tag", "interpreter",
+            "setup_python",
         ):
             if key not in t:
                 errors.append(f"{where} ({tid}): missing key {key!r}")
@@ -119,6 +140,61 @@ def validate_matrix(path: Path) -> list[str]:
                 f"{where} ({tid}): unknown compatibility {compat!r} "
                 "(expected 'pypi' or 'auto')"
             )
+        # Plan 333: the declared ABI family must agree with its tag triple,
+        # interpreter, and (for free-threaded) the three-target subset.
+        family = t.get("abi_family")
+        if family not in VALID_ABI_FAMILIES:
+            errors.append(
+                f"{where} ({tid}): unknown abi_family {family!r} "
+                f"(expected one of {sorted(VALID_ABI_FAMILIES)})"
+            )
+        else:
+            expected_python, expected_abi = ABI_FAMILY_TAGS[family]
+            if t.get("python_tag") != expected_python:
+                errors.append(
+                    f"{where} ({tid}): abi_family {family!r} needs "
+                    f"python_tag {expected_python!r}, got "
+                    f"{t.get('python_tag')!r}"
+                )
+            if t.get("abi_tag") != expected_abi:
+                errors.append(
+                    f"{where} ({tid}): abi_family {family!r} needs "
+                    f"abi_tag {expected_abi!r}, got {t.get('abi_tag')!r}"
+                )
+            if family == "cp311":
+                if t.get("interpreter") != "python3.11":
+                    errors.append(
+                        f"{where} ({tid}): cp311 family must build with "
+                        "interpreter 'python3.11' "
+                        f"(got {t.get('interpreter')!r})"
+                    )
+                if t.get("setup_python") != "3.11":
+                    errors.append(
+                        f"{where} ({tid}): cp311 family must set "
+                        "setup_python '3.11' "
+                        f"(got {t.get('setup_python')!r})"
+                    )
+            else:
+                if t.get("platform_tag") not in FREE_THREADED_PLATFORM_TAGS:
+                    errors.append(
+                        f"{where} ({tid}): free-threaded target outside the "
+                        "declared subset (Linux x86_64 glibc, macOS arm64, "
+                        "Windows x86_64); got "
+                        f"{t.get('platform_tag')!r}"
+                    )
+                if t.get("interpreter") not in FREE_THREADED_INTERPRETERS:
+                    errors.append(
+                        f"{where} ({tid}): free-threaded interpreter must be "
+                        "python3.14t or the manylinux "
+                        "/opt/python/cp314-cp314t/bin/python path "
+                        f"(got {t.get('interpreter')!r})"
+                    )
+                if t.get("setup_python") != "3.14t":
+                    errors.append(
+                        f"{where} ({tid}): free-threaded setup_python must be "
+                        "'3.14t' "
+                        f"(got {t.get('setup_python')!r})"
+                    )
         # Track A: never reuse the compatibility policy as the container selector.
         if manylinux == "pypi":
             errors.append(
@@ -217,21 +293,26 @@ def validate_matrix(path: Path) -> list[str]:
         if tid in seen_ids:
             errors.append(f"duplicate target id {tid!r}")
         seen_ids[tid] = i
-        if tag and tag in seen_tags:
+        # Plan 333: one entry per (platform_tag, abi_family); the same
+        # platform may carry both families (cp311 + cp314t).
+        family_key = t.get("abi_family", "")
+        if tag and (tag, family_key) in seen_tags:
             errors.append(
-                f"duplicate platform tag {tag!r} "
-                f"({seen_tags[tag]!r} and {tid!r})"
+                f"duplicate platform tag {tag!r} for family "
+                f"{family_key!r} ({seen_tags[(tag, family_key)]!r} and "
+                f"{tid!r})"
             )
-            seen_tags[tag] = tid
+            seen_tags[(tag, family_key)] = tid
         else:
-            seen_tags[tag] = tid
-        if rust_target and rust_target in seen_rust:
+            seen_tags[(tag, family_key)] = tid
+        if rust_target and (rust_target, family_key) in seen_rust:
             errors.append(
-                f"duplicate rust target {rust_target!r} "
-                f"({seen_rust[rust_target]!r} and {tid!r})"
+                f"duplicate rust target {rust_target!r} for family "
+                f"{family_key!r} ({seen_rust[(rust_target, family_key)]!r} "
+                f"and {tid!r})"
             )
         else:
-            seen_rust[rust_target] = tid
+            seen_rust[(rust_target, family_key)] = tid
 
     required = [t for t in targets if isinstance(t, dict) and t.get("tier") == "required"]
     if not required:
@@ -240,8 +321,16 @@ def validate_matrix(path: Path) -> list[str]:
 
 
 def required_tags(data: dict) -> list[str]:
-    return sorted(
+    return sorted({
         t["platform_tag"] for t in data.get("target", [])
+        if isinstance(t, dict) and t.get("tier") == "required"
+    })
+
+
+def required_pairs(data: dict) -> list[tuple[str, str]]:
+    """Required (platform_tag, abi_family) pairs (Plan 333)."""
+    return sorted(
+        (t["platform_tag"], t["abi_family"]) for t in data.get("target", [])
         if isinstance(t, dict) and t.get("tier") == "required"
     )
 
@@ -273,6 +362,11 @@ def emit_gha_matrix(data: dict) -> list[dict]:
             "compatibility": t["compatibility"],
             "artifact": t["artifact"],
             "platform_tag": t["platform_tag"],
+            "abi_family": t.get("abi_family", ""),
+            "python_tag": t.get("python_tag", ""),
+            "abi_tag": t.get("abi_tag", ""),
+            "interpreter": t.get("interpreter", ""),
+            "setup_python": t.get("setup_python", ""),
             "build": t["build"],
             "smoke": t["smoke"],
             "qemu_platform": t.get("qemu_platform", ""),
@@ -329,6 +423,8 @@ def cmd_self_test() -> int:
         "build": "cross-container", "smoke": "native",
         "tier": "required", "arch_family": "x86_64", "libc": "glibc",
         "artifact": "wheel-a",
+        "abi_family": "cp311", "python_tag": "cp311", "abi_tag": "abi3",
+        "interpreter": "python3.11", "setup_python": "3.11",
     }
 
     def clone(**over: object) -> dict:
@@ -341,6 +437,32 @@ def cmd_self_test() -> int:
                   rust_target="aarch64-unknown-linux-gnu", artifact="wheel-b",
                   smoke="deferred-native", qualify_runner="ubuntu-24.04-arm")
     check("two-target valid", {"target": [clone(), other]}, None)
+    free_threaded = clone(
+        id="t1ft", abi_family="cp314t", python_tag="cp314",
+        abi_tag="cp314t", interpreter="python3.14t",
+        setup_python="3.14t", artifact="wheel-a-ft",
+    )
+    check("same platform carries both families",
+          {"target": [clone(), free_threaded]}, None)
+    check("unknown abi family",
+          {"target": [clone(abi_family="cp313t")]}, "unknown abi_family")
+    check("family tag mismatch",
+          {"target": [clone(abi_family="cp314t")]}, "python_tag")
+    check("free-threaded on musl",
+          {"target": [clone(
+              id="m", platform_tag="musllinux_1_2_x86_64",
+              rust_target="x86_64-unknown-linux-musl",
+              manylinux="musllinux_1_2", libc="musl",
+              abi_family="cp314t", python_tag="cp314", abi_tag="cp314t",
+              interpreter="python3.14t", setup_python="3.14t",
+              artifact="wheel-m")]},
+          "outside the declared subset")
+    check("duplicate family pair",
+          {"target": [free_threaded, clone(
+              id="t2", abi_family="cp314t", python_tag="cp314",
+              abi_tag="cp314t", interpreter="python3.14t",
+              setup_python="3.14t", artifact="wheel-b-ft")]},
+          "duplicate platform tag")
     check("duplicate ids", {"target": [clone(), clone(id="t1", platform_tag="win_amd64",
           rust_target="x86_64-pc-windows-msvc", artifact="wheel-c",
           manylinux="auto", libc="msvc", arch_family="x86_64")]}, "duplicate target id")
@@ -419,10 +541,28 @@ def cmd_self_test() -> int:
     else:
         print("OK real manifest contains musllinux_1_2_armv7l")
     if len(tags) != 10:
-        print(f"FAIL required tag count != 10: {tags}")
+        print(f"FAIL required platform tag count != 10: {tags}")
         failures += 1
     else:
-        print("OK required tag count is 10")
+        print("OK required platform tag count is 10")
+    pairs = required_pairs(data)
+    if len(pairs) != 13:
+        print(f"FAIL required target count != 13 (10 GIL + 3 ft): {pairs}")
+        failures += 1
+    else:
+        print("OK required target count is 13 (10 GIL + 3 free-threaded)")
+    ft_ids = {
+        t["id"] for t in data.get("target", [])
+        if t.get("abi_family") == "cp314t"
+    }
+    expected_ft = {
+        "linux-x86_64-glibc-ft", "macos-arm64-ft", "windows-x86_64-ft",
+    }
+    if ft_ids != expected_ft:
+        print(f"FAIL free-threaded target set != expected: {sorted(ft_ids)}")
+        failures += 1
+    else:
+        print("OK free-threaded family covers exactly the three declared targets")
     # Plan 268: emitted matrix must carry the split controls and must never
     # emit `pypi` as the container selector.
     emitted = emit_gha_matrix(data)
@@ -436,6 +576,15 @@ def cmd_self_test() -> int:
         failures += 1
     else:
         print("OK emitted matrix carries compatibility")
+    if any(
+        not e.get("abi_family") or not e.get("interpreter")
+        or not e.get("setup_python")
+        for e in emitted
+    ):
+        print("FAIL emitted matrix missing family/interpreter fields")
+        failures += 1
+    else:
+        print("OK emitted matrix carries abi_family/interpreter/setup_python")
     # Deferred targets must not request build-host native smoke.
     by_id = {e["id"]: e for e in emitted}
     for did in ("linux-aarch64-glibc", "windows-arm64", "linux-aarch64-musl"):
@@ -481,10 +630,14 @@ def main(argv: list[str] | None = None) -> int:
 
     data = load_matrix(args.matrix)
     if args.command == "validate":
+        pairs = required_pairs(data)
         tags = required_tags(data)
-        print(f"Wheel matrix valid: {len(tags)} required targets")
-        for tag in tags:
-            print(f"  {tag}")
+        print(
+            f"Wheel matrix valid: {len(pairs)} required targets on "
+            f"{len(tags)} platform tags"
+        )
+        for tag, family in pairs:
+            print(f"  {family:7s} {tag}")
         return 0
     if args.command == "emit-matrix":
         print(json.dumps(emit_gha_matrix(data)))

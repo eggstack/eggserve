@@ -58,7 +58,7 @@ statement when the evidence supports it.
 - CLI: `--requests` (default 400), `--workers` (8), `--duration` (120 s),
   `--callbacks` (8), `--pace-ms` (10), `--max-body-bytes` (1 MiB),
   `--json`.
-- Existing records (`plans/closure/python-facade/327-soak-{1,2,3}.json` on
+- Existing records (`plans/closure/python-facade/334-soak-{1,2,3}.json` on
   the adjacent branch, renumbered with its plan): 120 s each, ~80-85k HTTP
   requests, 0 failures, GIL disabled before/after, peak concurrency 8.
 - Provenance present: interpreter build string, platform, machine=arm64,

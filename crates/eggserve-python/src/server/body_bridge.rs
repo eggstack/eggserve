@@ -264,6 +264,13 @@ pub(super) fn spawn_python_stream_producer(
 // Python RequestBody — wraps Rust RequestBody
 // ---------------------------------------------------------------------------
 
+/// Python-facing one-shot request body.
+///
+/// `read()`, `read_chunk()`, and `iter_chunks()` are mutually exclusive
+/// consumption modes; concurrent callers race the same one-shot state and the
+/// losers receive the existing typed consumption errors. This holds on
+/// free-threaded builds too: the mutex is structural, not a sharing API, and
+/// thread safety is never inferred from the GIL.
 #[pyclass(frozen, from_py_object, name = "RequestBody")]
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -581,7 +588,12 @@ impl PyRequestBody {
 // Python BodyChunkIterator — synchronous iterator over body chunks
 // ---------------------------------------------------------------------------
 
-/// PyBodyChunkIterator is not thread-safe; concurrent __next__ calls are not supported.
+/// Synchronous iterator over request-body chunks.
+///
+/// Not thread-safe: `__next__` takes `&mut self`, so a concurrent call from
+/// another Python thread raises `Already borrowed` rather than corrupting the
+/// channel. One consumer per iterator; on a free-threaded interpreter the
+/// guard stays structural (the GIL is not involved).
 #[pyclass(name = "BodyChunkIterator")]
 #[allow(dead_code)]
 pub struct PyBodyChunkIterator {

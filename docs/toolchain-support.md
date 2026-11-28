@@ -97,7 +97,7 @@ target-native C toolchain for `ring` and `aws-lc-sys`.
 | GIL-enabled CPython 3.11–3.15 (`>=3.11`) | Supported (one `cp311-abi3` wheel per platform; Plan 264) |
 | CPython < 3.11 | Unsupported |
 | PyPy | Unsupported |
-| Free-threaded CPython (3.13t, 3.14t, 3.15t) | Unsupported (Plan 267 owns the feasibility decision) |
+| Free-threaded CPython 3.14t (`cp314-cp314t`) | Beta — Linux x86_64 (glibc), macOS arm64, Windows x86_64 only (Plan 333; tier set by Plan 334; promotion owned by Plan 332) |
 
 ### ABI
 
@@ -110,15 +110,38 @@ same Linux x86_64 wheel bytes on every supported minor (build-once,
 test-many; see `docs/release-process.md`). No per-minor `cp312-cp312`
 artifacts are produced.
 
+Free-threaded CPython 3.14t adds an explicit second family:
+`cp314-cp314t` wheels on Linux x86_64 (glibc), macOS arm64, and Windows
+x86_64 only, at support tier **Beta**. The required-family release aggregate
+with all three wheels is green and the bounded contention soak passes, but
+the soak records name no commit, wheel filename, or host and were taken on a
+single macOS arm64 host, so the claim is not reproducible from the record.
+Plan 332 owns the per-target evidence and the only Beta-to-Stable decision.
+The `gil_used = false` declaration is explicit and guarded:
+`scripts/check-python-free-threaded-compile.sh` asserts `Py_GIL_DISABLED`,
+the free-threaded test module asserts the GIL stays disabled after import,
+and the release metadata gate requires the classifier to match
+`EXPECTED_FREE_THREADING_TIER`.
+The GIL `cp311-abi3` family is unchanged. CPython 3.13t/3.15t, `abi3t`
+(PEP 803), PyPy, ARMv7, Windows arm64, and musl free-threaded builds are
+not supported; this line does not use `abi3t`.
+
 ### Build System
 
-Wheels are built with **maturin** (latest stable, `>=1.0, <2.0`). The build backend is declared in `pyproject.toml`.
+Wheels are built with **maturin** (`>=1.14.1, <2.0`, matching the pinned
+1.14.1 release pipeline and the `abi3t`-capable backend). The build backend
+is declared in `pyproject.toml`.
 
 ### PyO3 Version
 
-The Python bindings use PyO3 **0.29.2** with the `extension-module` and
-`abi3-py311` features. The excluded Python crate has its own lockfile, which
-is audited and checked against the shared dependency policy in CI.
+The Python bindings use PyO3 **0.29.3** (resolved; the manifest keeps a
+`0.29.2` caret requirement) with the `extension-module` and `abi3-py311`
+features. Since PyO3 0.28, `#[pymodule]` without `gil_used` declares
+`Py_MOD_GIL_NOT_USED`; the crate now states `gil_used = false` explicitly
+for the CPython 3.14t Beta family. `abi3-py311` is ignored on a free-threaded
+interpreter, where PyO3 builds version-specifically. The excluded Python
+crate has its own lockfile, which is audited and checked against the shared
+dependency policy in CI.
 
 ### Wheel Matrix
 
@@ -140,10 +163,22 @@ platform list may drift.
 | Windows x86_64 | `win_amd64` |
 | Windows arm64 | `win_arm64` |
 
-All wheels are `cp311-abi3`, compatible with GIL-enabled CPython 3.11–3.15.
-One wheel per platform serves all supported CPython minor versions. Release
-wheels are built against the minimum supported ABI baseline (CPython 3.11)
-rather than a newer interpreter.
+All GIL wheels are `cp311-abi3`, compatible with GIL-enabled CPython
+3.11–3.15. One wheel per platform serves all supported CPython minor
+versions, built against the minimum ABI baseline (CPython 3.11) rather than a
+newer interpreter. The free-threaded family adds `cp314-cp314t` wheels on
+the three targets below; the matrix has 13 required entries on 10 platform
+tags, and the public free-threaded tier is Beta.
+
+| Free-threaded target | Wheel Target | Binary interpreter |
+|---|---|---|
+| Linux x86_64 (glibc) | `manylinux_2_17_x86_64` | `/opt/python/cp314-cp314t/bin/python` |
+| macOS arm64 | `macosx_11_0_arm64` | `python3.14t` |
+| Windows x86_64 | `win_amd64` | `python3.14t` |
+
+The GIL family keeps the unchanged build-once/test-many ABI proof; the
+free-threaded family is built and smoked against its own 3.14t interpreter
+and must leave the GIL disabled on import.
 
 Extended candidates (not supported; promotion needs build, binary-install,
 and smoke evidence with no dependency-policy exception): manylinux i686,
@@ -199,6 +234,6 @@ See [security-policy.md](security-policy.md) and [non-goals.md](non-goals.md) fo
 | Tool | Required Version | Purpose |
 |------|-----------------|---------|
 | Rust stable | Current stable | Building all crates, running tests |
-| Python | 3.11–3.15 (GIL-enabled, `cp311-abi3` wheel) | Wheel builds, Python tests |
-| maturin | `>=1.0, <2.0` | Python wheel builds |
+| Python | 3.11–3.15 (GIL-enabled, `cp311-abi3` wheel); 3.14t (Beta, `cp314-cp314t` on three targets) | Wheel builds, Python tests |
+| maturin | `>=1.14.1, <2.0` | Python wheel builds |
 | bash | Any POSIX-compatible | CI and local scripts (`scripts/`) |

@@ -44,9 +44,11 @@ is owned by Milestone 332.
 - The adjacent branch is code-complete and self-tested: 8 free-threaded tests,
   a `python-free-threaded` CI job, a compile check, family-aware validators
   with self-tests, and three `-ft` matrix entries.
-- `git merge-tree --write-tree origin/main 6e3003f` produces a tree with
-  conflicts only in `CHANGELOG.md` and `plans/registry.md`; every source,
-  workflow, script, test, and doc file auto-merges.
+- The pre-merge `git merge-tree --write-tree origin/main 6e3003f` produced a
+  tree with conflicts only in `CHANGELOG.md` and `plans/registry.md`. At merge
+  time `plans/subsystems/python-facade-roadmap.md` conflicted as well, because
+  the plan-set commit edited the same roadmap the branch edits; every source,
+  workflow, script, test, and other doc file auto-merged.
 - The current `main` state is strictly worse than the branch: the extension
   already advertises `Py_MOD_GIL_NOT_USED` and runs GIL-free from a source
   build, while the docs claim free-threaded is unsupported and Plan 267's
@@ -122,7 +124,7 @@ Six commits (`ab418f8`..`6e3003f`), `40 files changed, 4530 insertions`:
 
 ### 3.4 Evidence not yet sufficient for Stable
 
-- `plans/closure/python-facade/327-soak-1.json` (and 2/3) record the
+- `plans/closure/python-facade/334-soak-1.json` (and 2/3, renumbered at merge) record the
   interpreter build, platform, arm64, and `qualified: true`, but **no commit
   SHA, no wheel filename/tag, and no host identifier**; all three runs are on
   one local macOS arm64 interpreter, two minutes apart.
@@ -250,8 +252,7 @@ Required changes:
   existing 326 (public bind) and 327 (TLS) records must be byte-identical to
   `origin/main`.
 
-Acceptance evidence: `git grep -n "326-free-threaded\|327-free-threaded"`
-returns nothing; `python3 scripts/check-crate-topology.py` passes; the
+Acceptance evidence: `git grep -nE '32(6|7)-free-threaded'` returns nothing; `python3 scripts/check-crate-topology.py` passes; the
 registry has exactly one row per number.
 
 ### Work package C — Beta tier

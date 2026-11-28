@@ -237,7 +237,10 @@ When Python code is used to build a server (via the `Server` primitive or the su
 - Socket I/O, connection acceptance, and timeout enforcement are handled by the Rust runtime.
 - File streaming is handled by the Rust runtime; file bodies never pass through Python memory.
 - Python code returns explicit `Response` values; it does not drive socket I/O directly.
-- The GIL is released during I/O operations, allowing other Python threads to run.
+- Python work detaches from the interpreter during Rust-owned I/O waits: the
+  GIL is released on GIL-enabled builds, and a free-threaded build has no GIL
+  to release. Handlers may run in parallel up to `max_python_callbacks`;
+  caller-owned shared state needs its own synchronization.
 - Callback-induced latency or errors must not prevent Rust from enforcing connection-level policy.
 
 This separation ensures that Python application code cannot bypass timeout limits, connection caps, or file-stream quotas.

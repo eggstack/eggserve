@@ -1,0 +1,86 @@
+{
+  "config": {
+    "duration_requested_seconds": 120.0,
+    "max_python_callbacks": 8,
+    "max_request_body_bytes": 1048576,
+    "pace_ms": 10.0,
+    "request_body_mode": "buffer",
+    "requests_minimum": 400,
+    "workers": 8
+  },
+  "duration_seconds": 120.852,
+  "gil": {
+    "disabled_build": true,
+    "enabled_after": false,
+    "enabled_before": false
+  },
+  "interpreter": {
+    "build": "3.14.5 free-threading build (main, May 10 2026, 19:22:49) [Clang 22.1.3 ]",
+    "debug_build": false,
+    "gil_disabled_build": true,
+    "implementation": "cpython",
+    "machine": "arm64",
+    "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "platform": "macosx-11.0-arm64",
+    "version": "3.14.5"
+  },
+  "phases": [
+    {
+      "client_peak_concurrency": 8,
+      "index": 0,
+      "seconds": 60.207,
+      "server_peak_concurrency": 8,
+      "stuck_threads": [],
+      "tunnel_queue_remaining": 0
+    },
+    {
+      "client_peak_concurrency": 8,
+      "index": 1,
+      "seconds": 60.184,
+      "server_peak_concurrency": 8,
+      "stuck_threads": [],
+      "tunnel_queue_remaining": 0
+    }
+  ],
+  "plan": "334",
+  "problems": [],
+  "qualified": true,
+  "resources": {
+    "peak_rss_bytes": 614023168,
+    "threads_at_end": 1
+  },
+  "started_at": "2026-11-23T22:20:05Z",
+  "tool": "soak-python-free-threaded",
+  "totals": {
+    "by_scenario": {
+      "disconnect": {
+        "fail": 0,
+        "ok": 592
+      },
+      "iter": {
+        "fail": 0,
+        "ok": 21193
+      },
+      "post": {
+        "fail": 0,
+        "ok": 21194
+      },
+      "race": {
+        "fail": 0,
+        "ok": 21192
+      },
+      "stream": {
+        "fail": 0,
+        "ok": 21190
+      },
+      "tunnel": {
+        "fail": 0,
+        "ok": 582
+      }
+    },
+    "errors": [],
+    "fail": 0,
+    "http_requests": 84769,
+    "ok": 85943
+  }
+}

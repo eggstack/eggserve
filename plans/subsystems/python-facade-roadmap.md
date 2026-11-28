@@ -1,6 +1,6 @@
 # Python Facade Roadmap
 
-Status: active (311 and 322 closed; 330–332 planned)
+Status: active (311, 322, 333, and 334 closed; 330 closed as the adoption record; 331–332 planned)
 
 Long-term references:
 
@@ -149,7 +149,9 @@ Known gaps at the baseline:
   Milestone 330**: the declaration becomes explicit, the branch records are
   renumbered, and the family lands as **Beta**. Milestone 331 hardens the
   concurrency contracts the audit found; Milestone 332 owns the per-target
-  contention evidence and the only Beta→Stable decision.
+  contention evidence and the only Beta→Stable decision. That adoption
+  landed on 2026-11-28: the branch records are 333/334 and the family is
+  **Beta**.
 
 ## 5. Target architecture
 
@@ -166,6 +168,8 @@ core compatibility runtime + static authority (closed)
     |
     +--> Milestone 311 (listing renderer consolidation)
     +--> Milestone 322 (streamed-response producer bounds)
+    +--> Milestone 333 (free-threaded 3.14t staged support, closed; renumbered 326)
+    +--> Milestone 334 (3.14t qualification and tier decision, closed at Beta; renumbered 327)
     `--> Milestone 330 (free-threaded 3.14t adoption, Beta)
              |
              +--> Milestone 331 (concurrency contract hardening, hard)
@@ -176,8 +180,9 @@ Milestone 311 has no hard dependency on other open milestones; it depends
 on the closed `eggserve-static` authority and on the closed core runtime
 projection. Milestone 322 is an independent post-audit corrective over the
 same closed bridge; it does not reopen the static-listing authority.
-Milestone 330 integrates the adjacent free-threaded branch and renumbers its
-records to 333/334. Milestone 331 depends on 330 for the landed declaration
+Milestone 330 integrated the adjacent free-threaded branch and renumbered its
+records to 333/334, which stay closed as the originating capability and
+qualification records. Milestone 331 depends on 330 for the landed declaration
 and test module; Milestone 332 depends on 330 for the wheel family and treats
 331's fixes as a soft prerequisite for any promotion decision.
 
@@ -314,6 +319,77 @@ platform.
 Exit conditions: every promotion criterion is met and the classifier/doc
 change lands with the evidence, or Beta is retained with the blocker named.
 
+### Milestone 333 — Free-threaded CPython 3.14t staged support (closed; renumbered from 326)
+
+Class: capability
+
+Objective: publish `cp314-cp314t` wheels for free-threaded CPython 3.14 on
+Linux x86_64 glibc, macOS arm64, and Windows x86_64, and record the support
+level as Beta until the promotion gate, without changing the GIL
+`cp311-abi3` contract.
+
+Dependencies: PyO3 free-threading declaration semantics and the resolved
+0.29.3 (hard, closed); maturin 1.14.1 pipeline pin (hard, closed); Plan 267
+Track A (interface, closed as DEFERRED; superseded for this slice by this
+milestone); Plan 322 producer bounds (hard, closed).
+
+Deliverable boundary: one additive wheel family; an explicit
+`#[pymodule(gil_used = false)]` declaration; a free-threaded CI lane;
+family-aware wheel-matrix/release validators; free-threaded concurrency
+tests; documentation and classifier. No Rust-crate API change, no HTTP,
+TLS, or security change, no `abi3t`, no 3.13t/3.15t, and no platform outside
+the three targets.
+
+User or operator value: 3.14t users get an installable binary wheel instead
+of an unqualified source build, and the documented support level matches the
+evidence.
+
+Exit conditions: the family builds and installs on all three targets; the
+suite and the new concurrency tests pass with the GIL disabled; the GIL
+family is unchanged; the validators enforce exactly the declared family; the
+docs state Beta for the three targets only.
+
+Outcome: closed on the originating branch at `6e3003f` and merged by
+Milestone 330 on 2026-11-28 with the Beta statement intact. Evidence: CI run
+45277923657 (`python-free-threaded` green, 861 tests on CPython 3.14.10t,
+GIL stays disabled) and release run 45283657891 (exact 13-pair aggregate with
+the three `-ft` wheels; 5/5 ABI-proof lanes).
+
+### Milestone 334 — Free-threaded 3.14t qualification evidence and tier decision (closed; renumbered from 327)
+
+Class: infrastructure
+
+Objective: produce the two conditions named by Milestone 333's conditional
+closure (a green PR CI run including the free-threaded lane, and a
+`publish_target: none` three-target release aggregate), close 333, then make
+one recorded Beta/Stable decision using 333's promotion gate and a bounded
+contention soak as the TSan substitute.
+
+Dependencies: Milestone 333 implementation (hard, closed); repository write
+access and the existing CI/release workflows (operational); owner
+confirmation of the aggregate-as-release reading for promotion (interface).
+No publication is in scope.
+
+Deliverable boundary: commit/PR/CI evidence, one release-workflow aggregate
+with the three `-ft` wheels, the 333 closure update, a stdlib-only soak
+script and three records, the TSan assessment, and either the Stable
+classifier/doc change or a recorded retain-Beta decision. No behavior, API,
+dependency, platform, or publication change.
+
+Exit conditions: CI green with `python-free-threaded`; aggregate green with
+the exact 13 platform/family pairs; 333 closed with both run URLs; soak
+self-test plus three zero-error records; the promotion gate evaluated and a
+decision recorded.
+
+Outcome: closed on the originating branch at `6e3003f` with a Stable
+promotion. The 2026-11-28 audit found the three soak records name no commit,
+wheel filename, or host and were all taken on one macOS arm64 host, so the
+claim is not reproducible from the record and does not meet the milestone's
+own "wheel filenames are the authority" standard. Milestone 330 therefore
+reversed the promotion to **Beta**; Milestone 332 owns the per-target
+evidence and the decision.
+
+
 ## 8. Cross-cutting requirements
 
 ### Storage and migration
@@ -381,6 +457,8 @@ behavior.
 |---|---|---|---|---|
 | 311 | closed | `plans/implementation/python-facade/311-directory-listing-renderer-consolidation.md` | `plans/closure/python-facade/311-directory-listing-renderer-consolidation.md` | One listing renderer: the bridge delegates to `eggserve-static`, so both surfaces emit byte-identical HTML and enforce the same 1 MiB response-byte ceiling. Gate rule `check_plan311_listing_renderer_authority`. Reported follow-up: six pre-existing clippy lints in the excluded Python crate, which belong to Milestone 313's scope. |
 | 322 | closed | `plans/implementation/python-facade/322-streamed-response-producer-lifecycle-bounds.md` | `plans/closure/python-facade/322-streamed-response-producer-lifecycle-bounds.md` | `Response.stream` spawns a detached producer thread per response. The empty-yield branch never checks the closed receiver, and the callback permit ends before the producer runs, so a blocking/endless iterator can accumulate threads after disconnect/timeout. The plan checks closure before each pull, bounds producers with an admission permit, and documents the non-interruptible `__next__` limitation. |
-| 330 | ready | `plans/implementation/python-facade/330-free-threaded-314t-branch-adoption.md` | (lands 333/334) | Integrates the adjacent free-threaded branch as Beta; renumbers its records; resolves the two merge conflicts; adds the declaration/tier guard. Hard dependency: none. |
+| 330 | ready | `plans/implementation/python-facade/330-free-threaded-314t-branch-adoption.md` | (lands 333/334) | Integrates the adjacent free-threaded branch as Beta; renumbers its records; resolves the three merge conflicts; adds the declaration/tier guard. Hard dependency: none. |
 | 331 | ready | `plans/implementation/python-facade/331-free-threading-concurrency-contract-hardening.md` | (to be written) | `BodySource` lost read, body-bridge restore consistency, single-consumer regressions, facade close/serve, async affinity, test atomicity, runtime envelope. Hard dependency: 330. |
 | 332 | ready | `plans/implementation/python-facade/332-free-threaded-contention-evidence-and-promotion.md` | (to be written) | Provenance-complete three-target soak, bounded CI gate, aggregate evidence, Beta→Stable decision. Hard: 330; soft: 331. |
+| 333 | closed | `plans/implementation/python-facade/333-free-threaded-cpython-314t-staged-support.md` | `plans/closure/python-facade/333-free-threaded-cpython-314t-staged-support.md` | Beta `cp314-cp314t` family on Linux x86_64 glibc, macOS arm64, and Windows x86_64; family-aware matrix/validators/release lanes; free-threaded CI lane and concurrency tests. Closed with both named conditions observed: CI run 45277923657 (`python-free-threaded` green, 861 tests on CPython 3.14.10t, GIL stays disabled) and release run 45283657891 (exact 13-pair aggregate with the three `-ft` wheels; 5/5 ABI-proof lanes). Renumbered from 326 on merge. |
+| 334 | closed | `plans/implementation/python-facade/334-free-threaded-314t-qualification-and-tier-decision.md` | `plans/closure/python-facade/334-free-threaded-314t-qualification-and-tier-decision.md` | Produced both 333 conditions, added `scripts/soak-python-free-threaded.py` with three zero-error records as the TSan substitute, and evaluated the promotion gate. The branch promoted to Stable; Milestone 330 reversed it to **Beta** because the records name no commit, wheel filename, or host and cover one macOS arm64 host. Milestone 332 owns promotion. Renumbered from 327 on merge. |
