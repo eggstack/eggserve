@@ -100,13 +100,21 @@ connection migration as an application identity mechanism.
 | `max_concurrent_uni_streams` | 16 | H3 control/QPACK headroom included |
 | `stream_receive_window` | 256 KiB | Per-stream QUIC receive budget |
 | `connection_receive_window` | 4 MiB | Per-connection receive budget |
-| `send_window` | 4 MiB | QUIC outbound flow-control budget |
+| `send_window` | 4 MiB | Per-connection retained-write memory cap, `1..=u32::MAX` |
 | `max_idle_timeout` | 60 s | QUIC idle timeout |
 | `max_pending_handshakes` | 64 | Pending handshake task budget |
 | `max_field_section_size` | 32 KiB | Decoded H3 field-section budget |
-| `max_send_buf_size` | 256 KiB | H3 response send-chunk ceiling |
+| `max_send_buf_size` | 256 KiB | H3 response send-chunk ceiling, `1..=u32::MAX` |
 | `stateless_retry` | false | Optional retry-token policy |
 | `advertise_alt_svc` | false | Runtime-owned TCP/H2 `Alt-Svc` advertisement |
+
+The two receive windows and `max_idle_timeout` are QUIC VarInt wire values, so
+`Http3Config::validate` bounds them by `2^62-1`. `send_window` and
+`max_send_buf_size` are local memory ceilings instead and are bounded by
+`u32::MAX`, matching `http2.max_send_buf_size`: quinn retains up to
+`send_window` bytes of unacknowledged application writes per connection, and
+`max_send_buf_size` caps one H3 response chunk before the shared
+`stream_chunk_size` clamp applies.
 
 The H3 adapter also applies shared aggregate header bytes, header count,
 request-target bytes, request-body, handler/body/response-write timeouts,

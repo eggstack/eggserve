@@ -147,7 +147,13 @@ Milestone 327 is closed; no hard dependency blocks the next TLS identity or H2/H
   `max_send_buf_size` produced a false field attribution. Split into two arms
   (matching `http2.rs`), with `zero_send_buf_size_names_its_own_field` covering
   both branches.
-- Open low finding: `max_send_buf_size` is bounded only below (`> 0`), and
-  `send_window` has no upper bound even though quinn documents it as the
+- Low finding: `max_send_buf_size` was bounded only below (`> 0`), and
+  `send_window` had no upper bound even though quinn documents it as the
   per-connection retained-write memory cap. The H3 knobs are Rust-API only (no
   CLI or Python surface), and the defaults stay at 4 MiB / 256 KiB.
+- **Resolved by milestone 329**
+  (`plans/closure/tls-identity/329-h3-send-window-bound.md`): `send_window` and
+  `max_send_buf_size` are bounded to `1..=u32::MAX`, matching
+  `http2.max_send_buf_size`, with field-named diagnostics and unit tests at and
+  above the ceiling. The QUIC VarInt ceiling (`2^62-1`) remains on the
+  wire-encoded fields only.

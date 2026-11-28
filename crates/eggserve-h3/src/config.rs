@@ -27,7 +27,13 @@ pub struct Http3Config {
     pub stream_receive_window: u64,
     /// Per-connection receive window in bytes.
     pub connection_receive_window: u64,
-    /// QUIC send window in bytes.
+    /// Maximum bytes retained from application writes across all streams of
+    /// one connection.
+    ///
+    /// Quinn keeps up to this many unacknowledged application bytes per
+    /// connection, so this is a local memory ceiling rather than a value
+    /// carried on the wire. It is bounded to `1..=u32::MAX`, not by the QUIC
+    /// VarInt range that applies to the receive windows.
     pub send_window: u64,
     /// Maximum idle time for a QUIC connection.
     pub max_idle_timeout: Duration,
@@ -36,6 +42,11 @@ pub struct Http3Config {
     /// Maximum decoded HTTP/3 field section size.
     pub max_field_section_size: u64,
     /// Maximum number of bytes buffered by one outgoing H3 response stream.
+    ///
+    /// The effective chunk size is further clamped by the shared
+    /// `stream_chunk_size`, so this is a local memory ceiling rather than a
+    /// wire-encoded value. It is bounded to `1..=u32::MAX`, matching
+    /// `http2.max_send_buf_size`.
     pub max_send_buf_size: usize,
     /// Whether Quinn may issue stateless retry tokens.
     pub stateless_retry: bool,
@@ -105,11 +116,17 @@ impl Http3Config {
                 "must be at least stream_receive_window",
             ));
         }
-        if self.send_window == 0 {
-            return Err(invalid("send_window", "must be greater than zero"));
+        if self.send_window == 0 || self.send_window > u64::from(u32::MAX) {
+            return Err(invalid(
+                "send_window",
+                "must be between 1 and u32::MAX bytes",
+            ));
         }
-        if self.max_send_buf_size == 0 {
-            return Err(invalid("max_send_buf_size", "must be greater than zero"));
+        if self.max_send_buf_size == 0 || self.max_send_buf_size > u32::MAX as usize {
+            return Err(invalid(
+                "max_send_buf_size",
+                "must be between 1 and u32::MAX bytes",
+            ));
         }
         if self.max_idle_timeout.is_zero()
             || self.max_idle_timeout.as_millis() > u128::from(QUIC_VARINT_MAX)
@@ -198,5 +215,48 @@ mod tests {
             ..Default::default()
         };
         assert!(at_limit.validate().is_ok());
+    }
+
+    /// The local send-buffer ceiling stops at `u32::MAX`, above the VarInt
+    /// bound that applies to the wire-encoded receive windows.
+    #[test]
+    fn send_window_bound_is_validated() {
+        let too_large = Http3Config {
+            send_window: u64::from(u32::MAX) + 1,
+            ..Default::default()
+        };
+        let error = too_large.validate().unwrap_err().to_string();
+        assert!(error.contains("http3.send_window"), "{error}");
+        assert!(error.contains("1 and u32::MAX"), "{error}");
+
+        let at_limit = Http3Config {
+            send_window: u64::from(u32::MAX),
+            ..Default::default()
+        };
+        assert!(at_limit.validate().is_ok());
+    }
+
+    /// A `usize` above `u32::MAX` is representable only on 64-bit targets.
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn max_send_buf_size_bound_is_validated() {
+        let too_large = Http3Config {
+            max_send_buf_size: u32::MAX as usize + 1,
+            ..Default::default()
+        };
+        let error = too_large.validate().unwrap_err().to_string();
+        assert!(error.contains("http3.max_send_buf_size"), "{error}");
+        assert!(error.contains("1 and u32::MAX"), "{error}");
+
+        let at_limit = Http3Config {
+            max_send_buf_size: u32::MAX as usize,
+            ..Default::default()
+        };
+        assert!(at_limit.validate().is_ok());
+    }
+
+    #[test]
+    fn default_config_is_valid() {
+        assert!(Http3Config::default().validate().is_ok());
     }
 }

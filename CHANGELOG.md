@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — post-audit maintenance (Plans 320–328)
+## Unreleased — post-audit maintenance (Plans 320–329)
 
 No version has been published from this work; the Rust line stays on `0.5.x`
 and the wheel on `0.2.5` until a maintainer chooses a release.
@@ -83,6 +83,14 @@ and the wheel on `0.2.5` until a maintainer chooses a release.
   `h2`-advertising snapshot when the runtime cannot serve HTTP/2, before it
   becomes live, so the previous identity stays in service instead of every h2
   client completing a handshake and being dropped.
+- **H3 local send ceilings are bounded (Plan 329).** `Http3Config::validate`
+  now bounds `send_window` — quinn's per-connection retained-write memory
+  cap — and `max_send_buf_size` to `1..=u32::MAX`, matching
+  `http2.max_send_buf_size`. The QUIC VarInt ceiling (`2^62-1`) still applies
+  to the wire-encoded receive windows and idle timeout, so the two classes of
+  bound stay separate. This closes the low finding recorded in the 327
+  closure. Defaults (4 MiB and 256 KiB), field types, and the CLI/Python
+  surfaces are unchanged; H3 remains experimental.
 
 ## 0.5.1 — `eggserve-static` patch (published 2026-10-23)
 

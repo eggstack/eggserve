@@ -71,9 +71,11 @@ A capability review at baseline `26649bd` found five defects at the seams:
 
 The follow-up security review of 327 found one more seam: a running server's reload swap accepted an h2 advertisement while HTTP/2 was disabled, and the accept loop then completed every h2 client's handshake before dropping it. Milestone 328 enforces the coherence check at the swap.
 
+The post-merge review of 327 found one remaining low finding: `Http3Config` bounded `send_window` only against zero even though quinn documents it as the per-connection retained-write memory cap, and it bounded `max_send_buf_size` only against zero. Milestone 329 closed it by bounding both local buffer ceilings at `u32::MAX`, keeping the QUIC VarInt ceiling for wire-encoded fields.
+
 ## 5. Target architecture
 
-Every rustls server configuration is built with an explicit `Arc<CryptoProvider>` (ring), matching the provider already used for key/cert pairing. The compatibility runtime validates the effective TLS ALPN set (static or reload snapshot) against its HTTP/2 capability before serving, and the server handle rejects a contradictory snapshot at the reload swap. The CLI's documented header timeout governs both header reads and TLS handshakes. The identity builder enforces one order-independent ceiling for named SNI identities, with the optional default separate. H3 validates transport bounds in `Http3Config::validate` and reports transport-specific failures through a dedicated typed error.
+Every rustls server configuration is built with an explicit `Arc<CryptoProvider>` (ring), matching the provider already used for key/cert pairing. The compatibility runtime validates the effective TLS ALPN set (static or reload snapshot) against its HTTP/2 capability before serving, and the server handle rejects a contradictory snapshot at the reload swap. The CLI's documented header timeout governs both header reads and TLS handshakes. The identity builder enforces one order-independent ceiling for named SNI identities, with the optional default separate. H3 validates transport bounds in `Http3Config::validate` and reports transport-specific failures through a dedicated typed error. The two H3 local buffer ceilings (`send_window`, `max_send_buf_size`) are bounded at `u32::MAX`, distinct from the VarInt bound on wire-encoded receive windows and idle timeout.
 
 ## 6. Dependency graph
 
@@ -81,10 +83,12 @@ Every rustls server configuration is built with an explicit `Arc<CryptoProvider>
         |
         +--> Milestone 328 reload ALPN coherence (closed)
         |
+        +--> Milestone 329 H3 send-window bound (closed)
+        |
         +--> future SNI/mTLS capability milestones (soft)
         `--> H2/H3 transport milestones (soft; ALPN coherence shared)
 
-Milestone 327 has no hard dependency; milestone 328 takes 327's shared ALPN predicate as an interface dependency and is closed.
+Milestone 327 has no hard dependency; milestone 328 takes 327's shared ALPN predicate as an interface dependency and is closed. Milestone 329 has no hard dependency and is closed; it closed 327's remaining low finding.
 
 ## 7. Milestones
 
@@ -119,6 +123,22 @@ User or operator value: a contradictory certificate rotation is rejected at the 
 Exit conditions: the acceptance criteria in `plans/implementation/tls-identity/328-reload-alpn-coherence.md` pass and this closure record is written.
 
 Deferred work: making the neutral `TlsReloadHandle` runtime-aware; the raw accessor remains a documented bypass.
+
+### Milestone 329 - H3 send-window bound
+
+Class: invariant
+
+Objective: bound the two H3 local buffer ceilings at `u32::MAX`, so `send_window` cannot disable quinn's per-connection retained-write memory cap and `max_send_buf_size` matches the HTTP/2 ceiling, closing 327's remaining low finding.
+
+Dependencies: none; the fields, validator, and unit-test module already exist in `eggserve-h3`, and 327's closure section 13 supplies the finding.
+
+Deliverable boundary: the two range checks and field docs in `Http3Config::validate`, unit tests at and above the ceiling, `architecture/http3.md` semantics, and the 327 finding pointer.
+
+User or operator value: an embedding that sets an extreme H3 buffer budget is rejected at startup with the field named, instead of silently disabling the memory cap quinn relies on.
+
+Exit conditions: the acceptance criteria in `plans/implementation/tls-identity/329-h3-send-window-bound.md` pass and this closure record is written.
+
+Deferred work: coupling `send_window` to the receive windows; treating either value as a wire-encoded VarInt bound.
 
 ## 8. Cross-cutting requirements
 
@@ -163,3 +183,4 @@ The subsystem is complete when configuration construction is provider-determinis
 |---|---|---|---|---|
 | 327 | closed | `plans/implementation/tls-identity/327-tls-substrate-corrective.md` | `plans/closure/tls-identity/327-tls-substrate-corrective.md` | none |
 | 328 | closed | `plans/implementation/tls-identity/328-reload-alpn-coherence.md` | `plans/closure/tls-identity/328-reload-alpn-coherence.md` | none |
+| 329 | closed | `plans/implementation/tls-identity/329-h3-send-window-bound.md` | `plans/closure/tls-identity/329-h3-send-window-bound.md` | none |
