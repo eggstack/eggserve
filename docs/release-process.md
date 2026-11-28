@@ -178,6 +178,13 @@ rejects `pypi` as a baseline, musl targets carrying a manylinux baseline,
 and cross-built targets claiming build-host native smoke; see
 `scripts/check-release-workflow.py` for the workflow-structure guard.
 
+Matrix `tier = "required"` is a release-aggregation property — the entry must
+appear in every release aggregate and its absence fails the release — not a
+user-facing support level. The user support tier lives in the wheel
+classifier and `docs/toolchain-support.md`; for the free-threaded family that
+tier is **Beta** (Plan 334; promotion owned by Plan 332), even though its
+three `cp314t` entries are `required` in the matrix.
+
 Each wheel is built with exact Rust **1.98.1** and
 `--profile dist --locked --interpreter python3.11 --compatibility pypi --out dist`
 and validated for platform/ABI/version correctness, wheel composition (no second
