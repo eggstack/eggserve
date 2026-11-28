@@ -127,11 +127,15 @@ behavior.
   skipped due to NTFS path-rename semantics. Windows remains functional-only;
   do not use it with untrusted public content.
 
-- **Python wheels** are GIL-enabled CPython 3.11–3.15 with abi3 stable ABI
-  (`>=3.11`, one `cp311-abi3` wheel per platform) on the Linux,
-  macOS, and Windows wheel matrix. The wheel contains the native extension and
+- **Python wheels (GIL)** are GIL-enabled CPython 3.11–3.15 with abi3 stable
+  ABI (`>=3.11`, one `cp311-abi3` wheel per platform) on the Linux, macOS, and
+  Windows wheel matrix. The wheel contains the native extension and
   extension-backed CLI entry point; it does not bundle a second standalone CLI
   binary.
+- **Python wheels (free-threaded)** are CPython 3.14t (`cp314-cp314t`) on
+  Linux x86_64 (glibc), macOS arm64, and Windows x86_64 only, at **Beta**
+  (Plan 333). 3.13t/3.15t, PyPy, ARMv7, Windows arm64, and musl free-threaded
+  builds are not supported.
 
 - **Runtime service boundary is experimental.** `eggserve-server` provides the
   direct generic HTTP/1 runtime for embedding. `eggserve-core::server` remains

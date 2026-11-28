@@ -27,7 +27,7 @@ Error types (`MethodError`, `HttpVersionError`, `AuthorityError`, `HeaderError`,
 `ResponseBody` and `Response` implement `Send`; file-backed bodies carry an
 already-opened file capability rather than a path to reopen.
 
-Python wrapper types (`#[pyclass(frozen)]`) are frozen/immutable but are not `Send`/`Sync` in the Rust sense — Python GIL constraints apply.
+Python wrapper types (`#[pyclass(frozen)]`) are frozen/immutable but are not `Send`/`Sync` in the Rust sense. On GIL-enabled builds Python's GIL serializes access; on free-threaded 3.14t builds the same types stay one-shot/single-consumer and raise typed contention errors rather than becoming thread-safe.
 
 ### Exception classes, fields, and messages
 

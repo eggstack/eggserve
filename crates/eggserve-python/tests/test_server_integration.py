@@ -638,7 +638,7 @@ class TestCallbackSemaphore(unittest.TestCase):
             t.join(timeout=5)
 
     def test_no_rust_mutex_held_during_python(self):
-        """The GIL is the only synchronization during Python callback execution."""
+        """No Rust mutex is held while Python callback code executes."""
         call_active = _AtomicCounter()
 
         def handler(req):

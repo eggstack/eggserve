@@ -1,5 +1,17 @@
 # Plan 267 — Free-threaded Python and long-tail wheel feasibility
 
+> **Status correction — Plan 333 (2026-11-23).** Track A's **DEFERRED**
+> verdict is superseded for the CPython 3.14t slice by
+> `plans/implementation/python-facade/333-free-threaded-cpython-314t-staged-support.md`.
+> Two premises in this record are stale for the currently resolved PyO3
+> 0.29.3: a free-threaded interpreter is available in CI
+> (`actions/setup-python` `3.14t`) and locally (`uv python install 3.14t`),
+> and `#[pymodule]` without `gil_used` declares free-threaded support since
+> PyO3 0.28, so the extension does not load GIL-required by default. The
+> GIL-enabled `cp311-abi3` contract, the `abi3t`/3.15t slice, and every other
+> Track B-D decision below remains as recorded. Historical text is retained
+> verbatim.
+
 This is a qualification gate, not a publication order. Each item closes
 independently as GO, NO-GO, or DEFERRED. No item below changes the normal
 GIL-enabled CPython 3.11–3.15 `cp311-abi3` contract, the TLS/security

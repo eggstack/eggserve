@@ -1,9 +1,27 @@
 # Changelog
 
-## Unreleased — post-audit maintenance (Plans 320–329)
+## Unreleased — post-audit maintenance (Plans 320–334)
 
 No version has been published from this work; the Rust line stays on `0.5.x`
 and the wheel on `0.2.5` until a maintainer chooses a release.
+
+- **Free-threaded CPython 3.14t (Plans 333–334, Beta).** The extension now states
+  `#[pymodule(gil_used = false)]` explicitly and ships an additive
+  `cp314-cp314t` wheel family on Linux x86_64 (glibc), macOS arm64, and
+  Windows x86_64 only. The wheel matrix, release-set validator, release
+  metadata gate, and release workflow understand the ABI-family dimension
+  (13 required entries on 10 platform tags) and take interpreters from the
+  matrix. A separate `python-free-threaded` CI lane builds and tests the
+  wheel with `python3.14t`, and `test_free_threaded.py` covers parallel
+  callbacks, serialized mode, concurrent stream producers, one-shot body and
+  iterator contention, tunnel-receive contention, and restart. The tunnel
+  receive path now reports `concurrent Tunnel.recv is not supported` instead
+  of a misleading closed state. The GIL `cp311-abi3` contract is unchanged;
+  there is no Rust crate API, HTTP, TLS, or security behavior change, and no
+  release is cut. The family lands as **Beta**: the originating branch
+  promoted it to Stable, but its soak records name no commit, wheel
+  filename, or host and cover one platform, so Milestone 330 reverses the
+  promotion and Milestone 332 owns the evidence and the decision.
 
 - **Compatible dependency refresh (Plan 325).** The root, Python-wheel, and
   fuzz lockfiles now resolve the newest semver-compatible dependency set

@@ -19,6 +19,11 @@ use eggserve_primitives::body::BodySource;
 use super::*;
 use super::static_responder::validate_response_status;
 
+/// Python-facing response with one-shot body ownership.
+///
+/// Reusing or concurrently taking the body raises the existing one-shot
+/// errors on GIL-enabled and free-threaded interpreters alike; the interior
+/// mutex is structural and is not a cross-thread sharing contract.
 #[pyclass(frozen, name = "Response")]
 pub struct PyResponse {
     #[pyo3(get)]

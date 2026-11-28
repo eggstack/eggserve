@@ -26,9 +26,13 @@ workflow_dispatch (publish_target: none|testpypi|pypi)  │
 preflight (version-sync check, wheel-matrix authority, source commit)
   │
   ▼
-wide wheel build matrix (10 required targets, from wheel-matrix.toml)
+wide wheel build matrix (13 required entries on 10 platform tags across
+two ABI families, from wheel-matrix.toml)
   │
-  ├──▶ ABI proof: same x86_64 wheel on CPython 3.11–3.15 (binary-only)
+  ├──▶ ABI proof: same x86_64 cp311-abi3 wheel on CPython 3.11–3.15
+  │    (binary-only; GIL family only)
+  ├──▶ free-threaded build+smoke: cp314-cp314t on the three declared
+  │    targets with python3.14t and an explicit GIL-free assertion
   ├──▶ qualify-aarch64-glibc: manylinux wheel, native ARM64 Ubuntu
   ├──▶ qualify-aarch64-musl: musllinux wheel, native ARM64 Alpine container
   ├──▶ qualify-windows-arm64: win_arm64 wheel, native Windows ARM64
@@ -134,7 +138,8 @@ The workflow runs a preflight job before any platform builds:
   `importlib.metadata.version("eggserve")`), plus exact `[profile.dist]`
   equivalence between the workspace and the excluded Maturin crate.
 - Validates `abi3-py311`, `requires-python >=3.11` with advertised 3.11–3.15
-  classifiers, and the `python3.11` wheel ABI baseline.
+  classifiers, the declared `cp311` + `cp314t` families, the free-threading
+  Beta classifier, and matrix-owned interpreters for both families.
 - Validates the wheel-target authority (`scripts/wheel-matrix.py validate`,
   `self-test`, and `scripts/check-release-wheel-set.py --self-test`) and
   emits the build matrix from `release/wheel-matrix.toml`, so the workflow
@@ -146,8 +151,9 @@ A metadata mismatch prevents all platform builds.
 
 ## Wide platform wheel matrix
 
-Release wheels are built for all 10 required targets declared in
-`release/wheel-matrix.toml` (the single authority; the workflow matrix is
+Release wheels are built for all 13 required entries declared in
+`release/wheel-matrix.toml` — 10 GIL targets plus the three free-threaded
+cp314t targets (the single authority; the workflow matrix is
 generated from it in preflight):
 
 | Platform family | Wheel target | Build method |
@@ -172,6 +178,13 @@ rejects `pypi` as a baseline, musl targets carrying a manylinux baseline,
 and cross-built targets claiming build-host native smoke; see
 `scripts/check-release-workflow.py` for the workflow-structure guard.
 
+Matrix `tier = "required"` is a release-aggregation property — the entry must
+appear in every release aggregate and its absence fails the release — not a
+user-facing support level. The user support tier lives in the wheel
+classifier and `docs/toolchain-support.md`; for the free-threaded family that
+tier is **Beta** (Plan 334; promotion owned by Plan 332), even though its
+three `cp314t` entries are `required` in the matrix.
+
 Each wheel is built with exact Rust **1.98.1** and
 `--profile dist --locked --interpreter python3.11 --compatibility pypi --out dist`
 and validated for platform/ABI/version correctness, wheel composition (no second
@@ -180,7 +193,10 @@ standalone binary), and runtime smoke (import, CLI help, real fixture serving).
 ### Stable-ABI proof (build-once, test-many)
 
 One `cp311-abi3` artifact per platform serves GIL-enabled CPython 3.11–3.15;
-no per-minor wheels are produced. The release proves reuse with the exact
+no per-minor wheels are produced. The free-threaded `cp314-cp314t` family is
+deliberately outside this proof: each of its three targets is built and
+smoked with its own 3.14t interpreter, and import asserts the GIL stays
+disabled. The release proves reuse with the exact
 built bytes: the `abi-proof` job downloads the Linux x86_64 wheel artifact
 and installs it with `--only-binary=:all:` on CPython 3.11, 3.12, 3.13,
 3.14, and 3.15, running import, CLI/module help, `scripts/release_smoke.py`,
@@ -228,7 +244,8 @@ After all matrix jobs succeed:
 2. Place all wheels in one clean directory.
 3. Run the release wheel-set validator (`scripts/check-release-wheel-set.py`,
    which loads its required set from the same `release/wheel-matrix.toml`).
-4. Verify all wheels share the expected version and `cp311-abi3` tag.
+4. Verify all wheels share the expected version and one of the two declared
+   tag triples (`cp311-abi3` or `cp314-cp314t`).
 5. Produce a human-readable manifest with SHA-256 hashes plus the matrix
    authority revision, so a published artifact set can be reconstructed.
 6. Upload the aggregate set as workflow evidence.
@@ -312,8 +329,10 @@ an in-progress publication.
 - **HTTP/2, redirects, retries, cookies, proxy, and multi-range responses**:
   outside scope. HTTP/1.1 with single byte ranges only.
 - **Python wheels**: GIL-enabled CPython 3.11–3.15 with abi3 stable ABI
-  (`>=3.11`, one `cp311-abi3` wheel per platform; free-threaded CPython
-  unsupported, see `release/plan-267-wheel-feasibility.md`).
+  (`>=3.11`, one `cp311-abi3` wheel per platform) plus free-threaded CPython
+  3.14t at **Beta** (`cp314-cp314t` on Linux x86_64 glibc, macOS arm64, and
+  Windows x86_64 only; Plan 333). 3.13t/3.15t, `abi3t`, PyPy, ARMv7, Windows
+  arm64, and musl free-threaded builds are unsupported.
 
 ## crates.io publication
 

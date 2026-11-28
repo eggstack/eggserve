@@ -255,7 +255,10 @@ Parser-level protections reject Windows reserved names, ADS syntax, drive prefix
 - The `Server` primitive runs a tokio runtime in a background thread. Python receives parsed `Request` objects and returns `Response` values.
 - Socket I/O, HTTP parsing, connection acceptance, and timeout enforcement are handled by Rust.
 - File streaming is handled by Rust; file bodies never pass through Python memory in the server path.
-- The GIL is released during I/O operations, allowing other Python threads to run.
+- Python work detaches from the interpreter during Rust-owned I/O waits: the
+  GIL is released on GIL-enabled builds, and a free-threaded build has no GIL
+  to release. Handlers may run in parallel up to `max_python_callbacks`;
+  caller-owned shared state needs its own synchronization.
 - Python callbacks may be untrusted from a latency/resource perspective but are not sandboxed. Rust enforces connection and I/O policy around them — timeout limits, connection caps, and file-stream quotas are not affected by Python callback behavior.
 - Callback timeout does not cancel Python execution. The request task stops waiting at the configured deadline and returns 504, but the Python callback continues executing in the background. The callback semaphore permit is held until the Python function returns, meaning timed-out callbacks still count against the concurrency limit until they complete.
 - Forced shutdown closes the Rust runtime and listener but cannot safely terminate Python code. Blocked Python work does not retain the listener or runtime task registry.
