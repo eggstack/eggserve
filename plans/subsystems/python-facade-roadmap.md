@@ -411,7 +411,14 @@ enforced on every path that can produce a listing.
 
 ### Concurrency, cancellation, and recovery
 
-Unchanged; the bridge keeps the existing bounded queue semantics.
+GIL-enabled behavior is unchanged: callbacks and stream producers are bounded
+by `max_python_callbacks` and the Plan 322 producer budget. On a
+free-threaded build, up to that many callbacks and producers can execute
+Python code in parallel; the bridge's Rust state stays behind `Mutex` and
+atomics, and handler/iterable thread-safety is the caller's responsibility
+(documented, with `max_python_callbacks=1` as the serialized mode). Timeouts
+still cannot interrupt Python code. No new cancellation or shutdown
+semantics.
 
 ### Observability and audit
 
@@ -433,7 +440,10 @@ change; `architecture/eggserve-python.md` records the ownership boundary.
 Python test suite (`crates/eggserve-python/tests/`), packaging smoke tests,
 the Rust workspace suite through the excluded-crate check, stub/runtime
 fidelity comparison, and `./scripts/verify.sh fast` plus the Python lane of
-`./scripts/verify.sh full`.
+`./scripts/verify.sh full`. The free-threaded 3.14t lane is separate: it
+compiles the excluded crate against a `-t` interpreter (`Py_GIL_DISABLED`),
+builds and installs a `cp314-cp314t` wheel, asserts the GIL stays disabled,
+and runs the suite plus `test_free_threaded.py`.
 
 ## 10. Risks and decision points
 
@@ -443,6 +453,13 @@ fidelity comparison, and `./scripts/verify.sh fast` plus the Python lane of
   in the bridge) reintroduces the second authority this milestone removes.
 - Listing HTML is user-visible output. Changing it to satisfy a bound
   check is a compatibility change and must not happen silently.
+- Free-threaded handlers execute in parallel, which is a user-visible
+  semantic change for handlers that share mutable Python state; the Beta
+  tier, the documentation, and `max_python_callbacks=1` are the mitigation.
+- Routine CI has no TSan or adversarial soak; the promotion gate names that
+  evidence explicitly.
+- Free-threaded interpreters are not guaranteed in every release lane
+  (ARMv7, Windows arm64, musl), so the family starts on three targets only.
 
 ## 11. Completion definition
 

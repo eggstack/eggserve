@@ -162,6 +162,17 @@ otherwise identical, which is the intended contract.
    agreement for release sets, so the check was not duplicated in the metadata
    gate; the gate owns the tier constant and classifier only.
 5. **Third conflict.** See Section 3.
+6. **`--ours` resolution gap, caught and repaired.** Taking the pre-merge
+   version of `plans/subsystems/python-facade-roadmap.md` also discarded the
+   branch's edits that sat outside the conflict hunks: the §8 free-threading
+   concurrency semantics, the §9 free-threaded CI-lane paragraph, and the
+   three free-threading bullets in §10. A branch-added-line comparison
+   (`git diff --unified=0 origin/main 6e3003f`, then each added line against
+   the merged file, with the renumbering applied) found them, and a follow-up
+   commit restores them verbatim. The registry had no such loss: its only
+   absent branch lines are the superseded next-number line, the superseded
+   duplicate facade row, the branch's CLI row that omits main's 326, and the
+   326/327 rows that now exist as 333/334.
 
 ## 9. Deferred evidence
 
